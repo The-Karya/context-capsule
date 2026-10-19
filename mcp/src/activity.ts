@@ -1,4 +1,4 @@
-// karya-capsule — mcp: condense raw screen events into a short timeline an AI can read
+// context-capsule — mcp: condense raw screen events into a short timeline an AI can read
 import {
   type CaptureEvent,
   type SessionMeta,
@@ -162,11 +162,19 @@ export function condenseActivity(meta: SessionMeta, events: CaptureEvent[], opts
     .map((a) => `${a.app} ${formatDuration(a.ms)}`)
     .join(", ");
 
+  const ax = events.filter((e) => e.src === "ax").length;
+  const ocr = events.filter((e) => e.src === "ocr").length;
+  const source =
+    ax && ocr
+      ? `Text is from Accessibility (${ax} ${ax === 1 ? "sample" : "samples"}) and OCR (${ocr} ${ocr === 1 ? "sample" : "samples"}, may be noisy)`
+      : ax
+        ? "Text is from Accessibility"
+        : "Text is OCR";
   const head = [
     `# Session ${meta.id}${meta.ended_at ? "" : " (still recording or not closed)"}`,
     `Time: ${span}, local time`,
     `Apps: ${apps || "none"}`,
-    `${segs.length} segments from ${events.length} screen samples. Text is OCR: repeated lines, menus and numbers-only lines are removed; each line appears once, where it was first seen.`,
+    `${segs.length} segments from ${events.length} screen samples. ${source}: repeated lines, menus and numbers-only lines are removed; each line appears once, where it was first seen.`,
   ].join("\n");
 
   if (!segs.length) return trimTo(`${head}\n\n(No activity was captured in this session.)`, maxChars);

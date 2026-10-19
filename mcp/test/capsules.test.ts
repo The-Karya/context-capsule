@@ -1,4 +1,4 @@
-// karya-capsule — mcp: tests for capsules (slug, save, front matter, collisions, import, export)
+// context-capsule — mcp: tests for capsules (slug, save, front matter, collisions, import, export)
 import { beforeEach, describe, expect, test } from "bun:test";
 import fs from "node:fs";
 import os from "node:os";
@@ -129,7 +129,7 @@ describe("save_capsule", () => {
 });
 
 describe("import_capsule", () => {
-  const inbox = () => fs.mkdtempSync(path.join(os.tmpdir(), "karya-capsule-inbox-"));
+  const inbox = () => fs.mkdtempSync(path.join(os.tmpdir(), "context-capsule-inbox-"));
 
   test("imports a valid capsule, once", () => {
     const file = path.join(inbox(), "their-plan.capsule.md");
@@ -168,7 +168,7 @@ describe("import_capsule", () => {
 describe("export_capsule", () => {
   test("to a folder, never overwriting", () => {
     saveCapsule({ title: "Share me", markdown: BODY });
-    const out = fs.mkdtempSync(path.join(os.tmpdir(), "karya-capsule-out-"));
+    const out = fs.mkdtempSync(path.join(os.tmpdir(), "context-capsule-out-"));
     const a = exportCapsule("share-me", out);
     const b = exportCapsule("share-me", out);
     expect(a).toBe(path.join(out, "share-me.capsule.md"));
@@ -178,14 +178,14 @@ describe("export_capsule", () => {
 
   test("to a file path", () => {
     saveCapsule({ title: "Share me", markdown: BODY });
-    const out = fs.mkdtempSync(path.join(os.tmpdir(), "karya-capsule-out-"));
+    const out = fs.mkdtempSync(path.join(os.tmpdir(), "context-capsule-out-"));
     const target = path.join(out, "sub", "for-alex.capsule.md");
     expect(exportCapsule("Share me", target)).toBe(target);
   });
 
   test("defaults to ~/Desktop", () => {
     saveCapsule({ title: "Share me", markdown: BODY });
-    const fakeHome = fs.mkdtempSync(path.join(os.tmpdir(), "karya-capsule-home-"));
+    const fakeHome = fs.mkdtempSync(path.join(os.tmpdir(), "context-capsule-home-"));
     fs.mkdirSync(path.join(fakeHome, "Desktop"));
     const oldHome = process.env.HOME;
     process.env.HOME = fakeHome;

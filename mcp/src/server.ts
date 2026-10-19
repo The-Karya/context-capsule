@@ -1,4 +1,4 @@
-// karya-capsule — mcp: the MCP server (tools, the make_capsule prompt, capsule:// resources)
+// context-capsule — mcp: the MCP server (tools, the make_capsule prompt, capsule:// resources)
 import fs from "node:fs";
 import { McpServer, ResourceTemplate } from "@modelcontextprotocol/sdk/server/mcp.js";
 import type { CallToolResult } from "@modelcontextprotocol/sdk/types.js";
@@ -14,7 +14,16 @@ import {
   readCapsule,
   saveCapsule,
 } from "./capsules.js";
-import { APP_NOT_RUNNING, appRunning, readState, waitForState, writeControl } from "./control.js";
+import {
+  APP_NOT_RUNNING,
+  PICKER_OPEN,
+  appRunning,
+  describeStartError,
+  readState,
+  startAndWait,
+  waitForState,
+  writeControl,
+} from "./control.js";
 import { capsuleHome } from "./paths.js";
 import {
   formatDuration,
@@ -30,7 +39,7 @@ import {
 export const VERSION = "0.1.0";
 
 export interface ServerOptions {
-  /** How long start/stop wait for the app to confirm via state.json. */
+  /** How long start/stop wait for the app to answer via state.json (default: start 6 s, stop 4 s). */
   confirmTimeoutMs?: number;
 }
 
@@ -49,12 +58,13 @@ function safe<A>(fn: (args: A) => CallToolResult | Promise<CallToolResult>) {
 }
 
 export function createServer(opts: ServerOptions = {}): McpServer {
-  const confirmMs = opts.confirmTimeoutMs ?? 4000;
+  const startMs = opts.confirmTimeoutMs ?? 6000;
+  const stopMs = opts.confirmTimeoutMs ?? 4000;
   const server = new McpServer(
-    { name: "karya-capsule", version: VERSION },
+    { name: "context-capsule", version: VERSION },
     {
       instructions:
-        "Karya Capsule records what the user does on screen (text only, on their Mac) and lets you turn a work session " +
+        "Context Capsule records what the user does on screen (text only, on their Mac) and lets you turn a work session " +
         "into a capsule: one shareable Markdown file with what they worked on, the decisions and why. " +
         "Typical flow: start_recording → user works → stop_recording → get_session_activity → write the capsule " +
         "(see the make_capsule prompt) → save_capsule → export_capsule to share. Received capsules: import_capsule, then get_capsule.",
@@ -68,7 +78,9 @@ export function createServer(opts: ServerOptions = {}): McpServer {
     {
       title: "Start recording",
       description:
-        "Ask the Capsule menu-bar app to start a new recording session (screen text every 3 s, nothing leaves the Mac). Returns the session id.",
+        "Ask the Context Capsule menu-bar app to start recording. The app opens the macOS picker; the user chooses the window " +
+        "or screen to record, and recording starts after that (screen text every 3 s, nothing leaves the Mac). " +
+        "Returns the session id once recording, or says the picker is waiting for the user.",
       inputSchema: {},
     },
     safe(async () => {
@@ -76,18 +88,23 @@ export function createServer(opts: ServerOptions = {}): McpServer {
       if (!appRunning(state)) return fail(APP_NOT_RUNNING);
       if (state!.recording)
         return text(`Already recording session ${state!.session_id ?? "(unknown)"}${since(state!.started_at)}. Call stop_recording when done.`);
-      writeControl("start");
-      const { state: now, confirmed } = await waitForState((s) => s.recording, confirmMs);
-      if (!confirmed)
-        return text(
-          "Sent the start command, but the Capsule app hasn't confirmed yet. Check the menu-bar icon (a filled circle means recording), " +
-            "or call recording_status in a moment. If it never starts, the app may need Screen Recording permission " +
-            "(System Settings → Privacy & Security → Screen Recording).",
-        );
-      return text(
-        `Recording started: session ${now!.session_id ?? "(unknown)"}${since(now!.started_at)}.\n` +
-          "Work as usual. Call stop_recording when you're done (or press ⌥⇧C).",
-      );
+      const out = await startAndWait(startMs);
+      switch (out.kind) {
+        case "recording":
+          return text(
+            `Recording started: session ${out.state.session_id ?? "(unknown)"}${since(out.state.started_at)}.\n` +
+              "Work as usual. Call stop_recording when you're done (or press ⌥⇧C).",
+          );
+        case "picking":
+          return text(`${PICKER_OPEN}\nCall recording_status to check, and stop_recording when you're done.`);
+        case "error":
+          return fail(describeStartError(out.error));
+        case "timeout":
+          return text(
+            "Sent the start command, but the Context Capsule app hasn't answered yet. Look for the macOS picker or the " +
+              "menu-bar icon (a filled circle means recording), or call recording_status in a moment.",
+          );
+      }
     }),
   );
 
@@ -95,22 +112,22 @@ export function createServer(opts: ServerOptions = {}): McpServer {
     "stop_recording",
     {
       title: "Stop recording",
-      description: "Ask the Capsule app to stop the current recording. Returns the session id to pass to get_session_activity.",
+      description: "Ask the Context Capsule app to stop the current recording. Returns the session id to pass to get_session_activity.",
       inputSchema: {},
     },
     safe(async () => {
       const state = readState();
       if (!appRunning(state)) {
         return fail(
-          "The Capsule app is not running, so nothing is being recorded." +
+          "The Context Capsule app is not running, so nothing is being recorded." +
             latestHint() +
-            "\nTo record again, open the app (`open -a Capsule`) and call start_recording.",
+            "\nTo record again, open the app (`open -a \"Context Capsule\"`) and call start_recording.",
         );
       }
       if (!state!.recording) return text(`Not recording right now.${latestHint()}`);
       const id = state!.session_id;
       writeControl("stop");
-      const { confirmed } = await waitForState((s) => !s.recording, confirmMs);
+      const { confirmed } = await waitForState((s) => !s.recording, stopMs);
       const next = id
         ? `\nNext: get_session_activity with session_id "${id}" (or use the make_capsule prompt) to write a capsule.`
         : "";
@@ -124,19 +141,23 @@ export function createServer(opts: ServerOptions = {}): McpServer {
     "recording_status",
     {
       title: "Recording status",
-      description: "Is the Capsule app running, and is it recording? Reads state.json.",
+      description: "Is the Context Capsule app running, is the picker open, is it recording, and why the last start failed. Reads state.json.",
       inputSchema: {},
       annotations: { readOnlyHint: true },
     },
     safe(() => {
       const state = readState();
       if (!state)
-        return text(`The Capsule app has not run yet on this Mac (no ${capsuleHome()}/state.json).\n${APP_NOT_RUNNING}`);
+        return text(`The Context Capsule app has not run yet on this Mac (no ${capsuleHome()}/state.json).\n${APP_NOT_RUNNING}`);
       const running = appRunning(state);
       const lines = [
         `App running: ${running ? "yes" : "no"}`,
         `Recording: ${running && state.recording ? "yes" : "no"}`,
       ];
+      if (running && !state.recording && state.picking)
+        lines.push("Picker: open — waiting for you to choose the window or screen to record");
+      if (running && !state.recording && !state.picking && state.last_error)
+        lines.push(`Last start: did not happen (${state.last_error === "cancelled" ? "picker closed without a choice" : state.last_error})`);
       if (running && state.recording) {
         lines.push(`Session: ${state.session_id ?? "(unknown)"}`);
         if (state.started_at)
@@ -153,7 +174,7 @@ export function createServer(opts: ServerOptions = {}): McpServer {
     "list_sessions",
     {
       title: "List sessions",
-      description: "Recorded sessions, newest first: id, start, end, duration and the apps used most.",
+      description: "Recorded sessions, newest first: id, start, end, duration, where the text came from (Accessibility or OCR) and the apps used most.",
       inputSchema: { limit: z.number().int().min(1).max(500).optional().describe("How many to list (default 20)") },
       annotations: { readOnlyHint: true },
     },
@@ -166,7 +187,7 @@ export function createServer(opts: ServerOptions = {}): McpServer {
         const start = s.started_at ? formatLocalDateTime(s.started_at) : "?";
         const end = s.ended_at ? formatLocalDateTime(s.ended_at).slice(11) : "still open";
         const apps = s.top_apps.map((a) => `${a.app} ${formatDuration(a.ms)}`).join(", ") || "no activity";
-        return `- ${id} · ${start} → ${end} · ${formatDuration(s.duration_ms)} · ${s.events} samples · ${apps}`;
+        return `- ${id} · ${start} → ${end} · ${formatDuration(s.duration_ms)} · ${s.events} samples${textSources(s.sources)} · ${apps}`;
       });
       const more = ids.length > shown.length ? `\n(${ids.length - shown.length} older sessions not shown)` : "";
       return text(`Sessions (local time):\n${rows.join("\n")}${more}`);
@@ -328,6 +349,16 @@ function since(iso: string | null): string {
   return iso ? ` (since ${formatLocalDateTime(iso)})` : "";
 }
 
+/** " (text: 80% accessibility, 20% OCR)", or "" for old sessions without `src`. */
+function textSources(src: { ax: number; ocr: number }): string {
+  const n = src.ax + src.ocr;
+  if (!n) return "";
+  if (!src.ocr) return " (text: accessibility)";
+  if (!src.ax) return " (text: OCR)";
+  const ax = Math.round((src.ax / n) * 100);
+  return ` (text: ${ax}% accessibility, ${100 - ax}% OCR)`;
+}
+
 function latestHint(): string {
   const id = listSessionIds()[0];
   return id ? ` Latest session: ${id}.` : "";
@@ -337,7 +368,7 @@ export function makeCapsulePrompt(sessionId: string): string {
   const id = sessionId?.trim() || "latest";
   return `Write a capsule from my recorded work session "${id}".
 
-1. Call get_session_activity with session_id "${id}". It is a timeline of what was on my screen: segments by app and window, with local HH:MM times and the screen text (OCR, so expect some noise).
+1. Call get_session_activity with session_id "${id}". It is a timeline of what was on my screen: segments by app and window, with local HH:MM times and the screen text (read through Accessibility, or OCR when that wasn't possible, so expect some noise).
 2. Write the capsule in Markdown with exactly these sections, in this order:
 
 ## Summary

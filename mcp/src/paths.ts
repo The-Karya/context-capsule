@@ -1,4 +1,4 @@
-// karya-capsule — mcp: where the data lives (KARYA_CAPSULE_HOME, default ~/.karya-capsule)
+// context-capsule — mcp: where the data lives (CONTEXT_CAPSULE_HOME, default ~/.context-capsule)
 import os from "node:os";
 import path from "node:path";
 
@@ -9,9 +9,9 @@ export function homeDir(): string {
 
 /** Root data dir. Read on every call so tests can switch it at runtime. */
 export function capsuleHome(): string {
-  const env = process.env.KARYA_CAPSULE_HOME;
+  const env = process.env.CONTEXT_CAPSULE_HOME;
   if (env && env.trim()) return path.resolve(expandHome(env.trim()));
-  return path.join(homeDir(), ".karya-capsule");
+  return path.join(homeDir(), ".context-capsule");
 }
 
 export const sessionsDir = () => path.join(capsuleHome(), "sessions");

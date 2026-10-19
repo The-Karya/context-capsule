@@ -1,4 +1,4 @@
-// karya-capsule — mcp: small file helpers (safe JSON reads, atomic writes)
+// context-capsule — mcp: small file helpers (safe JSON reads, atomic writes)
 import fs from "node:fs";
 import path from "node:path";
 

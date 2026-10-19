@@ -1,4 +1,4 @@
-// karya-capsule — capture: the macOS system picker (SCContentSharingPicker). The user chooses a window
+// context-capsule — capture: the macOS system picker (SCContentSharingPicker). The user chooses a window
 // or a display; we capture only that, through one SCStream at most one frame per 3 s. Because the user
 // picked the content, macOS asks for no Screen Recording permission. Frames stay in memory.
 
@@ -23,7 +23,7 @@ final class PickerCapture: NSObject, SCContentSharingPickerObserver, SCStreamDel
     private var stream: SCStream?
     private var filter: SCContentFilter?
     private var observing = false
-    private let frames = DispatchQueue(label: "com.karya.capsule.frames")
+    private let frames = DispatchQueue(label: "com.thekarya.contextcapsule.frames")
     private let lock = NSLock()
     private var latest: CVPixelBuffer?
     private var latestScreenRect: CGRect?
@@ -42,7 +42,7 @@ final class PickerCapture: NSObject, SCContentSharingPickerObserver, SCStreamDel
         // Several windows only where we can tell which ones were picked (SCContentFilter.includedWindows).
         if #available(macOS 15.2, *) { modes.insert(.multipleWindows) }
         config.allowedPickerModes = modes
-        config.excludedBundleIDs = [Bundle.main.bundleIdentifier ?? "com.karya.capsule"]
+        config.excludedBundleIDs = [Bundle.main.bundleIdentifier ?? "com.thekarya.contextcapsule"]
         config.allowsChangingSelectedContent = true
         picker.defaultConfiguration = config
         picker.maximumStreamCount = 1

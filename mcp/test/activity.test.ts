@@ -1,4 +1,4 @@
-// karya-capsule — mcp: tests for the activity timeline (grouping, dedupe, noise, budget)
+// context-capsule — mcp: tests for the activity timeline (grouping, dedupe, noise, budget)
 import { beforeEach, describe, expect, test } from "bun:test";
 import {
   buildSegments,

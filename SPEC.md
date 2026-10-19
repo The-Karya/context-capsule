@@ -1,6 +1,6 @@
-# karya-capsule — v1 spec
+# context-capsule — v1 spec
 
-Open-source, macOS-first. Press a hotkey, work, press it again: Karya Capsule reads
+Open-source, macOS-first. Press a hotkey, work, press it again: Context Capsule reads
 your screen while you work and helps your own AI (Claude, via MCP) turn that into a
 **capsule** — one shareable file with what you worked on, the decisions you made and
 why. Send the capsule to anyone; their Claude loads it and knows the project.
@@ -11,8 +11,8 @@ user's Claude does the writing through MCP.
 ## Parts
 
 ```
-karya-capsule/
-  capture/            Swift menu-bar app "Capsule" (macOS 14+)
+context-capsule/
+  capture/            Swift menu-bar app "Context Capsule" (macOS 14+)
   mcp/                TypeScript MCP server (stdio), Node >= 18
   SPEC.md             this file — the contract between the two
   README.md, LICENSE (MIT)
@@ -21,7 +21,8 @@ karya-capsule/
 ### 1. capture/ (Swift)
 
 A small menu-bar app, built with `swiftc` (no Xcode project needed), one or a few
-files. Build script `capture/build.sh` → `capture/build/Capsule.app`.
+files. Build script `capture/build.sh` → `capture/build/Context Capsule.app`
+(executable `ContextCapsule`, bundle id `com.thekarya.contextcapsule`).
 
 - **Hotkey** `⌥⇧C` (Option-Shift-C) toggles recording. Also a menu: Start / Stop
   recording, Read text directly (Accessibility)…, Open sessions folder, Quit. Icon:
@@ -58,15 +59,15 @@ files. Build script `capture/build.sh` → `capture/build/Capsule.app`.
 - **Never record** (skip the sample entirely, write nothing): password managers and
   private apps — bundle ids containing `1password`, `bitwarden`, `keychain`,
   `lastpass`, `dashlane`, `signal`, `whatsapp`, plus a user list in
-  `~/.karya-capsule/config.json` → `{"exclude_apps": ["com.example.app"]}`.
+  `~/.context-capsule/config.json` → `{"exclude_apps": ["com.example.app"]}`.
 - **Images are not kept.** Only text is written.
 - Redact before writing: strings that look like API keys / tokens
   (`sk-…`, `ghp_…`, `xox[bp]-…`, `AKIA…`, long hex/base64 > 32 chars), and
   `password: …` lines → `[redacted]`.
 - Control from outside (the MCP server uses this): the app watches
-  `~/.karya-capsule/control` — a JSON file `{"command":"start"|"stop","at":<ms>}`.
+  `~/.context-capsule/control` — a JSON file `{"command":"start"|"stop","at":<ms>}`.
   A start opens the picker; the user still has to pick.
-  It also writes `~/.karya-capsule/state.json`:
+  It also writes `~/.context-capsule/state.json`:
   `{"recording": bool, "session_id": string|null, "started_at": iso|null, "pid": int,
   "picking": bool, "last_error": string|null}` — `picking` is true while the picker
   waits for the user; `last_error` says why the last start did not happen
@@ -78,7 +79,7 @@ files. Build script `capture/build.sh` → `capture/build/Capsule.app`.
 ### Session files (the contract)
 
 ```
-~/.karya-capsule/
+~/.context-capsule/
   sessions/<session_id>/          session_id = YYYYMMDD-HHMMSS
     session.json                  {"id","started_at","ended_at"|null,"host","version":1}
     events.jsonl                  one JSON object per line, see below
@@ -101,16 +102,16 @@ unknown fields; older files have no `src`. `text` is capped at 4000 chars per ev
 
 `@modelcontextprotocol/sdk`, stdio transport. `bun` for dev; the built output runs
 with plain `node` so `npx`/Claude Desktop can launch it. Binary name
-`karya-capsule-mcp`.
+`context-capsule-mcp`.
 
 Tools:
 
 | tool | does |
 |---|---|
-| `start_recording` | writes `control` start; returns state (errors clearly if the app isn't running, with how to start it) |
+| `start_recording` | writes `control` start, waits up to ~6 s for `picking` (picker open), `recording` (session id) or `last_error` (e.g. cancelled); errors clearly if the app isn't running, with how to open it |
 | `stop_recording` | writes `control` stop; returns the session id |
-| `recording_status` | reads `state.json` |
-| `list_sessions` | id, start, end, duration, top apps |
+| `recording_status` | reads `state.json`: running, picking, recording, last_error |
+| `list_sessions` | id, start, end, duration, text source mix (ax / ocr), top apps |
 | `get_session_activity` `{session_id, max_chars?=60000}` | a condensed timeline for the AI: grouped by app/window, time spans, de-duplicated text (drop lines seen before, collapse whitespace), trimmed to `max_chars` keeping a fair share per segment |
 | `save_capsule` `{title, markdown, session_ids?}` | validates + writes `capsules/<slug>.capsule.md` with front matter; returns path |
 | `list_capsules` | title, author, created, path |

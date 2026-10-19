@@ -1,11 +1,11 @@
-# karya-capsule-mcp
+# context-capsule-mcp
 
-The MCP server for **Karya Capsule**. It lets your own Claude (Desktop or Code) turn a
+The MCP server for **Context Capsule**. It lets your own Claude (Desktop or Code) turn a
 recorded work session into a **capsule**: one Markdown file with what you worked on,
 the decisions you made and why. Send the file to anyone; their Claude loads it and
 knows the project.
 
-The Capsule menu-bar app (in `../capture`) does the recording. This server reads what
+The Context Capsule menu-bar app (in `../capture`) does the recording. This server reads what
 it wrote, starts and stops it, and saves, imports and exports capsules. Everything stays
 on your Mac. No account, no cloud, no API key.
 
@@ -30,9 +30,9 @@ Open Claude Desktop → Settings → Developer → Edit Config, and add:
 ```json
 {
   "mcpServers": {
-    "karya-capsule": {
+    "context-capsule": {
       "command": "/opt/homebrew/bin/node",
-      "args": ["/Users/you/karya-capsule/mcp/dist/index.js"]
+      "args": ["/Users/you/context-capsule/mcp/dist/index.js"]
     }
   }
 }
@@ -43,19 +43,20 @@ Use your own paths (`which node`, `realpath dist/index.js`). Restart Claude Desk
 ### Claude Code
 
 ```sh
-claude mcp add karya-capsule -- node /Users/you/karya-capsule/mcp/dist/index.js
+claude mcp add context-capsule -- node /Users/you/context-capsule/mcp/dist/index.js
 ```
 
 ### Settings
 
-- `KARYA_CAPSULE_HOME`: where data lives. Default `~/.karya-capsule`.
-- `~/.karya-capsule/config.json` → `{"author": "Your Name"}` sets the capsule author.
+- `CONTEXT_CAPSULE_HOME`: where data lives. Default `~/.context-capsule`.
+- `~/.context-capsule/config.json` → `{"author": "Your Name"}` sets the capsule author.
   Without it, your macOS full name is used.
 
 ## Use it
 
-1. Open the Capsule app (`open -a Capsule`). A circle shows in the menu bar.
-2. Say "start recording" to Claude (or press ⌥⇧C). Work as usual.
+1. Open the Context Capsule app (`open -a "Context Capsule"`). A circle shows in the menu bar.
+2. Say "start recording" to Claude (or press ⌥⇧C). The macOS picker opens: choose the
+   window or screen to record. Work as usual.
 3. Say "stop recording", then use the **make_capsule** prompt (or ask "make a capsule
    from my last session").
 4. Read the draft, ask for changes, then let Claude save it and export it to your Desktop.
@@ -65,10 +66,10 @@ claude mcp add karya-capsule -- node /Users/you/karya-capsule/mcp/dist/index.js
 
 | tool | does |
 |---|---|
-| `start_recording` | asks the app to start; tells you how to open it if it isn't running |
+| `start_recording` | asks the app to start. The app opens the macOS picker; you choose the window or screen. Waits up to 6 s and says "picker is open", "recording: session id", or why it didn't start (e.g. you closed the picker). Tells you how to open the app if it isn't running |
 | `stop_recording` | asks the app to stop; returns the session id |
-| `recording_status` | is the app running, is it recording |
-| `list_sessions` | sessions, newest first: start, end, duration, top apps |
+| `recording_status` | is the app running, is the picker open, is it recording, why the last start failed |
+| `list_sessions` | sessions, newest first: start, end, duration, text source (Accessibility / OCR), top apps |
 | `get_session_activity` `{session_id, max_chars?}` | a short timeline of a session for Claude to read (`"latest"` works) |
 | `save_capsule` `{title, markdown, session_ids?}` | saves `capsules/<slug>.capsule.md` with front matter; never overwrites |
 | `list_capsules` | title, author, created, path |
@@ -121,7 +122,7 @@ saves) if a section is missing. A second capsule with the same title is saved as
 
 ## Privacy
 
-- All data stays in `~/.karya-capsule` on your Mac. This server makes no network calls.
+- All data stays in `~/.context-capsule` on your Mac. This server makes no network calls.
 - The app keeps text only, never images, and skips password managers and private chat
   apps (plus any app you list in `config.json` → `exclude_apps`).
 - Keys, tokens and `password:` lines are redacted by the app, and again by `save_capsule`.
@@ -133,7 +134,7 @@ saves) if a section is missing. A second capsule with the same title is saved as
 
 ```sh
 bun run dev     # run from source
-bun run test    # build, then all tests (uses a temp KARYA_CAPSULE_HOME)
+bun run test    # build, then all tests (uses a temp CONTEXT_CAPSULE_HOME)
 ```
 
 MIT licensed.

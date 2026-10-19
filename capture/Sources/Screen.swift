@@ -1,4 +1,4 @@
-// karya-capsule — capture: what is on screen now — front window, Accessibility text, Vision OCR.
+// context-capsule — capture: what is on screen now — front window, Accessibility text, Vision OCR.
 // No screen capture here (that only happens through the system picker, see Picker.swift).
 // Frames live only in memory; they are never written to disk.
 
@@ -62,7 +62,7 @@ enum Screen {
 enum AXReader {
     static var trusted: Bool { AXIsProcessTrusted() }
 
-    /// Shows the system "Capsule would like to control this computer using accessibility features" prompt.
+    /// Shows the system "Context Capsule would like to control this computer using accessibility features" prompt.
     @discardableResult
     static func requestTrust() -> Bool {
         let key = kAXTrustedCheckOptionPrompt.takeUnretainedValue() as String

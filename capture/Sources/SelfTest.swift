@@ -1,11 +1,11 @@
-// karya-capsule — capture: `Capsule --selftest` — draws text into an image, runs Vision OCR on it (whole,
+// context-capsule — capture: `ContextCapsule --selftest` — draws text into an image, runs Vision OCR on it (whole,
 // and cropped like a picked display), redacts and caps the result. Proves OCR works without the screen.
 
 import AppKit
 
 enum SelfTest {
     static func run() -> Bool {
-        let lines = ["Karya Capsule self test", "Pricing page redesign 2026", "password: hunter2"]
+        let lines = ["Context Capsule self test", "Pricing page redesign 2026", "password: hunter2"]
         guard let image = render(lines) else { print("selftest: could not draw image"); return false }
 
         let start = Date()

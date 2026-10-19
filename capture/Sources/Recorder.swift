@@ -1,4 +1,4 @@
-// karya-capsule — capture: recording sessions — start (via the system picker) / stop, a sample every 3 s,
+// context-capsule — capture: recording sessions — start (via the system picker) / stop, a sample every 3 s,
 // state.json, and the `control` file the MCP server writes to start or stop us from outside.
 
 import AppKit
@@ -19,7 +19,7 @@ final class Recorder {
     private var timer: Timer?
     private var sampling = false
     private let capture = PickerCapture()
-    private let work = DispatchQueue(label: "com.karya.capsule.sample") // all file writes happen here
+    private let work = DispatchQueue(label: "com.thekarya.contextcapsule.sample") // all file writes happen here
     private let host = Host.current().localizedName ?? ProcessInfo.processInfo.hostName
 
     var isRecording: Bool { sessionID != nil }
@@ -60,11 +60,11 @@ final class Recorder {
         case .cancelled:
             lastError = "cancelled"
         case .failed(let message):
-            NSLog("Capsule: \(message)")
+            NSLog("Context Capsule: \(message)")
             if isRecording { endSession(wait: false) }
             lastError = message
         case .stopped(let message):
-            if let message { NSLog("Capsule: capture stopped: \(message)") }
+            if let message { NSLog("Context Capsule: capture stopped: \(message)") }
             endSession(wait: false)
             lastError = message.map { "capture: \($0)" }
         }
@@ -82,7 +82,7 @@ final class Recorder {
                                 to: dir.appendingPathComponent("session.json"))
             log = try EventLog(url: dir.appendingPathComponent("events.jsonl"))
         } catch {
-            NSLog("Capsule: cannot create session \(id): \(error)")
+            NSLog("Context Capsule: cannot create session \(id): \(error)")
             capture.stop()
             lastError = "cannot create session: \(error.localizedDescription)"
             return
@@ -137,7 +137,7 @@ final class Recorder {
         let now = Date()
         guard let front = Screen.frontWindow() else { return }
 
-        let own = Bundle.main.bundleIdentifier ?? "com.karya.capsule"
+        let own = Bundle.main.bundleIdentifier ?? "com.thekarya.contextcapsule"
         if front.bundle == own
             || Exclusion.isExcluded(bundle: front.bundle, appName: front.appName, userList: config.excludeApps) {
             work.async { log.breakRun() } // never record: nothing read, nothing written
@@ -165,7 +165,7 @@ final class Recorder {
             let stamp = Clock.iso(now)
             let event = Event(t: stamp, end: stamp, app: front.appName, bundle: front.bundle ?? "",
                               title: Redactor.clean(title), src: source.rawValue, text: Redactor.clean(text))
-            do { try log.record(event) } catch { NSLog("Capsule: cannot write event: \(error)") }
+            do { try log.record(event) } catch { NSLog("Context Capsule: cannot write event: \(error)") }
         }
     }
 }
@@ -177,7 +177,7 @@ func repeating(_ interval: TimeInterval, _ block: @escaping () -> Void) -> Timer
     return timer
 }
 
-/// Polls `~/.karya-capsule/control` twice a second. Each new `at` value is acted on once.
+/// Polls `~/.context-capsule/control` twice a second. Each new `at` value is acted on once.
 final class ControlWatcher {
     private let url: URL
     private let handler: (ControlCommand) -> Void

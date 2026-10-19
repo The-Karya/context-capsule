@@ -1,4 +1,4 @@
-// karya-capsule — capture: the menu-bar app — status icon, menu, ⌥⇧C hotkey, optional Accessibility.
+// context-capsule — capture: the menu-bar app — status icon, menu, ⌥⇧C hotkey, optional Accessibility.
 
 import AppKit
 import Carbon.HIToolbox
@@ -27,7 +27,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         menu.addItem(axItem)
         menu.addItem(NSMenuItem(title: "Open sessions folder", action: #selector(openSessions), keyEquivalent: ""))
         menu.addItem(.separator())
-        menu.addItem(NSMenuItem(title: "Quit Capsule", action: #selector(NSApplication.terminate(_:)), keyEquivalent: "q"))
+        menu.addItem(NSMenuItem(title: "Quit Context Capsule", action: #selector(NSApplication.terminate(_:)), keyEquivalent: "q"))
         for item in menu.items where item.action != nil && item.action != #selector(NSApplication.terminate(_:)) {
             item.target = self
         }
@@ -37,7 +37,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         recorder.onChange = { [weak self] in self?.refresh() }
 
         hotKey = HotKey(keyCode: kVK_ANSI_C, modifiers: optionKey | shiftKey) { [weak self] in self?.toggle() }
-        if hotKey == nil { NSLog("Capsule: ⌥⇧C is taken by another app; use the menu instead") }
+        if hotKey == nil { NSLog("Context Capsule: ⌥⇧C is taken by another app; use the menu instead") }
 
         control = ControlWatcher(url: paths.control) { [weak self] cmd in
             switch cmd.kind {
@@ -60,10 +60,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     private func refresh() {
         let recording = recorder.isRecording
         let symbol = recording ? "circle.fill" : "circle"
-        let image = NSImage(systemSymbolName: symbol, accessibilityDescription: recording ? "Capsule: recording" : "Capsule")
+        let image = NSImage(systemSymbolName: symbol, accessibilityDescription: recording ? "Context Capsule: recording" : "Context Capsule")
         image?.isTemplate = true
         statusItem.button?.image = image
-        statusItem.button?.toolTip = recording ? "Capsule is recording (⌥⇧C to stop)" : "Capsule (⌥⇧C to record)"
+        statusItem.button?.toolTip = recording ? "Context Capsule is recording (⌥⇧C to stop)" : "Context Capsule (⌥⇧C to record)"
 
         if let id = recorder.sessionID, let started = recorder.startedAt {
             let time = DateFormatter.localizedString(from: started, dateStyle: .none, timeStyle: .short)
