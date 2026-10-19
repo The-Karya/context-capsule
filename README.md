@@ -141,7 +141,8 @@ backs them up.
   (the `add_note` tool).
 
 macOS asks once for Microphone and Speech Recognition. If you said no, turn them on in
-System Settings → Privacy & Security.
+System Settings → Privacy & Security. On macOS, **Dictation must be on** (System Settings →
+Keyboard → Dictation): Apple allows speech recognition only then, even on-device.
 
 ## The capsule format
 

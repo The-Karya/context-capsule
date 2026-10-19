@@ -202,10 +202,20 @@ final class SpeechEngine: VoiceEngine {
         DispatchQueue.main.async { self.reset() }
         // "No speech detected" is not a failure: it is an empty clip. Any other error with no words is shown.
         if clip.text.isEmpty, let problem, !Self.isNoSpeech(problem) {
-            done(.failure(Failure("speech recognition stopped: \(problem.localizedDescription) (\(problem.domain) \(problem.code))")))
+            done(.failure(Failure(Self.explain(problem))))
         } else {
             done(.success(clip))
         }
+    }
+
+    /// A speech error in plain words, with where to fix it when we know.
+    static func explain(_ e: NSError) -> String {
+        if e.domain == "kLSRErrorDomain" && e.code == 201 {
+            // Apple only allows speech recognition when Dictation is on (speech still stays on this Mac).
+            return "Dictation is off. Turn it on in System Settings → Keyboard → Dictation, then try again "
+                + "(speech is still turned into text on this Mac only)."
+        }
+        return "speech recognition stopped: \(e.localizedDescription) (\(e.domain) \(e.code))"
     }
 
     private static func isNoSpeech(_ error: Error) -> Bool {

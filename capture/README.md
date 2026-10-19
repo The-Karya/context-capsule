@@ -72,7 +72,8 @@ Security → Accessibility).
   updates on its own once allowed.
 
 - **Microphone + Speech Recognition** — only for voice notes, asked the first time you
-  press ⌥⇧V. If denied, the message says where to turn them on (System Settings →
+  press ⌥⇧V. **Dictation** must also be on (System Settings → Keyboard → Dictation);
+  without it Apple refuses speech recognition (kLSRErrorDomain 201) and the app says so. If denied, the message says where to turn them on (System Settings →
   Privacy & Security → Microphone / Speech Recognition).
 
 ## Privacy
