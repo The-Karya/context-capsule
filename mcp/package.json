@@ -1,0 +1,34 @@
+{
+  "name": "karya-capsule-mcp",
+  "version": "0.1.0",
+  "description": "MCP server for Karya Capsule: turn what you worked on into a shareable capsule with your own Claude.",
+  "license": "MIT",
+  "type": "module",
+  "bin": {
+    "karya-capsule-mcp": "dist/index.js"
+  },
+  "main": "dist/index.js",
+  "files": [
+    "dist",
+    "README.md"
+  ],
+  "engines": {
+    "node": ">=18"
+  },
+  "scripts": {
+    "build": "tsc -p tsconfig.json && chmod +x dist/index.js",
+    "dev": "bun run src/index.ts",
+    "test": "bun run build && bun test",
+    "typecheck": "tsc -p tsconfig.json --noEmit"
+  },
+  "keywords": ["mcp", "claude", "capsule", "screen", "context"],
+  "dependencies": {
+    "@modelcontextprotocol/sdk": "^1.32.1",
+    "zod": "^4.0.0"
+  },
+  "devDependencies": {
+    "@types/bun": "latest",
+    "@types/node": "^20.0.0",
+    "typescript": "^5.6.0"
+  }
+}
