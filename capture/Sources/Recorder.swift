@@ -8,6 +8,8 @@ final class Recorder {
 
     let paths: Paths
     var onChange: (() -> Void)?
+    /// A session ended with nothing written; the reason is the most common skip (main thread).
+    var onEmptySession: ((Skip?) -> Void)?
 
     private(set) var sessionID: String?
     private(set) var startedAt: Date?
@@ -18,6 +20,12 @@ final class Recorder {
     private var config = Config()
     private var timer: Timer?
     private var sampling = false
+    /// Events written in this session, and why the latest sample wrote nothing (nil: it wrote).
+    private(set) var eventCount = 0
+    private(set) var lastSkip: Skip?
+    private var skipCounts: [Skip: Int] = [:]
+    /// Last app switch, space switch or Mission Control: frames from before it are stale.
+    private var changedAt: Date?
     private let capture = PickerCapture()
     private let work = DispatchQueue(label: "com.thekarya.contextcapsule.sample") // all file writes happen here
     private let host = Host.current().localizedName ?? ProcessInfo.processInfo.hostName
@@ -29,6 +37,10 @@ final class Recorder {
     init(paths: Paths) {
         self.paths = paths
         capture.onOutcome = { [weak self] in self?.handle($0) }
+        let center = NSWorkspace.shared.notificationCenter
+        for name in [NSWorkspace.didActivateApplicationNotification, NSWorkspace.activeSpaceDidChangeNotification] {
+            center.addObserver(forName: name, object: nil, queue: .main) { [weak self] _ in self?.changedAt = Date() }
+        }
     }
 
     // MARK: start / stop (main thread)
@@ -89,6 +101,10 @@ final class Recorder {
         }
         config = Config.load(from: paths.config)
         lastError = nil
+        eventCount = 0
+        lastSkip = nil
+        skipCounts = [:]
+        changedAt = Date()
         sessionID = id
         startedAt = now
         sessionDir = dir
@@ -112,6 +128,10 @@ final class Recorder {
         sessionID = nil
         startedAt = nil
         sessionDir = nil
+        let top = skipCounts.max { $0.value < $1.value }?.key
+        if let log { // checked after any sample still running
+            work.async { if log.appended == 0 { DispatchQueue.main.async { self.onEmptySession?(top) } } }
+        }
         log = nil
         let ended = Date()
         let host = self.host
@@ -125,48 +145,82 @@ final class Recorder {
     func writeState() {
         try? writeAtomically(stateJSON(recording: isRecording, sessionID: sessionID, startedAt: startedAt,
                                        pid: ProcessInfo.processInfo.processIdentifier,
-                                       picking: isPicking && !isRecording, lastError: lastError), to: paths.state)
+                                       picking: isPicking && !isRecording, lastError: lastError,
+                                       events: eventCount, skip: lastSkip), to: paths.state)
     }
 
     // MARK: sampling
 
     /// One sample: only when the front window is part of what the user picked. Text comes from
-    /// Accessibility when allowed and useful, else from OCR of the picked content's latest frame.
+    /// Accessibility when allowed and useful, else from OCR of the picked content's latest frame —
+    /// cropped to the front window, never-record windows painted out, never a frame from before the
+    /// last app switch, never during Mission Control.
     private func tick() {
         guard let log, !sampling else { return } // skip a tick if the last one is still busy
         let now = Date()
-        guard let front = Screen.frontWindow() else { return }
-
         let own = Bundle.main.bundleIdentifier ?? "com.thekarya.contextcapsule"
-        if front.bundle == own
-            || Exclusion.isExcluded(bundle: front.bundle, appName: front.appName, userList: config.excludeApps) {
-            work.async { log.breakRun() } // never record: nothing read, nothing written
-            return
+        let userList = config.excludeApps
+        let isExcluded: (String?, String?) -> Bool = { bundle, name in
+            bundle == own || Exclusion.isExcluded(bundle: bundle, appName: name, userList: userList)
         }
-        guard let window = front.window, let pick = capture.pickedContent(), Membership.contains(pick, window) else {
-            work.async { log.breakRun() } // not what the user shared: write nothing
-            return
+        guard let front = Screen.frontWindow(isExcluded: isExcluded) else { return skip(.noWindow, log) }
+
+        if isExcluded(front.bundle, front.appName) { return skip(.privateApp, log) } // nothing read
+        if WindowList.overlayActive(front.list) {
+            changedAt = now // the frame after it closes is the first good one
+            return skip(.overlay, log)
         }
+        guard let window = front.window else { return skip(.noWindow, log) }
+        guard let pick = capture.pickedContent() else { return skip(.notPicked, log) }
+        if pick.style == .display && pick.rect.isEmpty { return skip(.unknownDisplay, log) }
+        guard Membership.contains(pick, window.info) else { return skip(.notPicked, log) }
 
         sampling = true
         let capture = self.capture
+        let changedAt = self.changedAt
         work.async { [weak self] in
-            defer { DispatchQueue.main.async { self?.sampling = false } }
+            var outcome: Skip?
+            defer {
+                let count = log.appended
+                DispatchQueue.main.async { self?.sampled(outcome, count: count) }
+            }
             let axText = AXReader.text(pid: front.pid)
             let source = AXText.choose(trusted: AXReader.trusted, axText: axText)
             var text = axText
             if source == .ocr {
-                guard let frame = capture.latestFrame(),
-                      let region = Membership.ocrRegion(capture.pickedContent() ?? pick, window: window.frame)
-                else { log.breakRun(); return }
-                text = Screen.recognizeText(in: frame, region: region) // the frame is dropped when this ends
+                guard let frame = capture.latestFrame(), Freshness.ok(frameAt: frame.at, changedAt: changedAt) else {
+                    log.breakRun(); outcome = .waitingFrame; return
+                }
+                switch Membership.ocrDecision(capture.pickedContent() ?? pick, front: window, list: front.list) {
+                case .skip(let why):
+                    log.breakRun(); outcome = why; return
+                case .read(let region, let masks):
+                    text = Screen.recognizeText(in: frame.buffer, region: region, masks: masks) // frame dropped after
+                }
             }
-            let title = AXReader.title(pid: front.pid) ?? capture.pickedWindowTitle(id: window.id) ?? ""
+            let title = AXReader.title(pid: front.pid) ?? capture.pickedWindowTitle(id: window.id) ?? window.name ?? ""
             let stamp = Clock.iso(now)
             let event = Event(t: stamp, end: stamp, app: front.appName, bundle: front.bundle ?? "",
                               title: Redactor.clean(title), src: source.rawValue, text: Redactor.clean(text))
             do { try log.record(event) } catch { NSLog("Context Capsule: cannot write event: \(error)") }
         }
+    }
+
+    private func skip(_ why: Skip, _ log: EventLog) {
+        work.async { log.breakRun() }
+        sampled(why, count: eventCount)
+    }
+
+    /// Main thread: note how the sample went; state.json only changes when something did.
+    private func sampled(_ why: Skip?, count: Int) {
+        sampling = false
+        guard isRecording else { return }
+        if let why { skipCounts[why, default: 0] += 1 }
+        guard why != lastSkip || count != eventCount else { return }
+        lastSkip = why
+        eventCount = count
+        writeState()
+        onChange?()
     }
 }
 

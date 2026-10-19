@@ -12,6 +12,25 @@ export interface RecorderState {
   picking: boolean;
   /** Why the last start did not happen ("cancelled", "picker: …", "capture: …"); null after a good start. */
   last_error: string | null;
+  /** Events written in the current (or just-ended) session; null if the app is older. */
+  events: number | null;
+  /** Why the latest sample wrote nothing (e.g. "not_picked"); null if it wrote. */
+  skip: string | null;
+}
+
+const SKIP_REASONS: Record<string, string> = {
+  private_app: "a private app (password manager, WhatsApp, Signal…) is in front, so nothing is read",
+  no_window: "the front app has no window open",
+  not_picked: "the window in front is not part of the window or screen you picked",
+  overlay: "Mission Control is open",
+  private_window: "a private app's window covers the window in front",
+  waiting_frame: "waiting for the screen to update after switching apps",
+  unknown_display: "the app can't tell where the picked screen is",
+};
+
+/** Plain words for a `skip` from state.json. */
+export function describeSkip(skip: string): string {
+  return SKIP_REASONS[skip] ?? skip;
 }
 
 export type Command = "start" | "stop";
@@ -44,6 +63,8 @@ export function readState(): RecorderState | null {
     pid: typeof s.pid === "number" && Number.isInteger(s.pid) ? s.pid : null,
     picking: s.picking === true,
     last_error: typeof s.last_error === "string" && s.last_error ? s.last_error : null,
+    events: typeof s.events === "number" && Number.isInteger(s.events) ? s.events : null,
+    skip: typeof s.skip === "string" && s.skip ? s.skip : null,
   };
 }
 

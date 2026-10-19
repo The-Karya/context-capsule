@@ -4,37 +4,82 @@
 
 import AppKit
 import ApplicationServices
+import CoreImage
 import Vision
 
 struct FrontWindow {
     var appName: String
     var bundle: String?
     var pid: pid_t
-    /// The app's frontmost normal window, if it has one on screen.
-    var window: WindowInfo?
+    /// The app's front window, if it has a normal one on screen (see `WindowList.front`).
+    var window: ListedWindow?
+    /// Every on-screen window, front to back, with never-record apps marked.
+    var list: [ListedWindow]
 }
 
 enum Screen {
-    /// Front app and its frontmost window. CGWindowList gives ids, owners and frames without any
-    /// permission (window names would need Screen Recording, so we never read them here).
-    static func frontWindow() -> FrontWindow? {
+    /// Front app, its front window and the on-screen window list. CGWindowList gives ids, owners,
+    /// layers and frames without any permission. Window names come only if macOS gives them out
+    /// (it never prompts for them).
+    static func frontWindow(isExcluded: (_ bundle: String?, _ name: String?) -> Bool) -> FrontWindow? {
         guard let app = NSWorkspace.shared.frontmostApplication else { return nil }
-        let pid = app.processIdentifier
+        let list = windowList(isExcluded: isExcluded)
+        return FrontWindow(appName: app.localizedName ?? "", bundle: app.bundleIdentifier, pid: app.processIdentifier,
+                           window: WindowList.front(pid: app.processIdentifier, in: list), list: list)
+    }
 
-        // Ordered front to back, so the first normal window of the app is its front one.
-        let list = CGWindowListCopyWindowInfo([.optionOnScreenOnly, .excludeDesktopElements], kCGNullWindowID)
+    static func windowList(isExcluded: (_ bundle: String?, _ name: String?) -> Bool) -> [ListedWindow] {
+        let raw = CGWindowListCopyWindowInfo([.optionOnScreenOnly, .excludeDesktopElements], kCGNullWindowID)
             as? [[String: Any]] ?? []
-        let entry = list.first {
-            ($0[kCGWindowOwnerPID as String] as? NSNumber)?.int32Value == pid
-                && ($0[kCGWindowLayer as String] as? NSNumber)?.intValue == 0
+        var bundles: [pid_t: String?] = [:]
+        return raw.compactMap { e in
+            guard let id = (e[kCGWindowNumber as String] as? NSNumber)?.uint32Value,
+                  let pid = (e[kCGWindowOwnerPID as String] as? NSNumber)?.int32Value,
+                  let bounds = e[kCGWindowBounds as String] as? NSDictionary,
+                  let frame = CGRect(dictionaryRepresentation: bounds) else { return nil }
+            let owner = e[kCGWindowOwnerName as String] as? String ?? ""
+            if bundles[pid] == nil { bundles[pid] = NSRunningApplication(processIdentifier: pid)?.bundleIdentifier }
+            let bundle = bundles[pid] ?? nil
+            return ListedWindow(id: id, pid: pid, owner: owner,
+                                layer: (e[kCGWindowLayer as String] as? NSNumber)?.intValue ?? 0,
+                                alpha: (e[kCGWindowAlpha as String] as? NSNumber)?.doubleValue ?? 1,
+                                frame: frame, name: e[kCGWindowName as String] as? String,
+                                excluded: isExcluded(bundle, owner))
         }
-        var window: WindowInfo?
-        if let entry, let id = (entry[kCGWindowNumber as String] as? NSNumber)?.uint32Value,
-           let bounds = entry[kCGWindowBounds as String] as? NSDictionary,
-           let frame = CGRect(dictionaryRepresentation: bounds) {
-            window = WindowInfo(id: id, pid: pid, frame: frame)
-        }
-        return FrontWindow(appName: app.localizedName ?? "", bundle: app.bundleIdentifier, pid: pid, window: window)
+    }
+
+    /// Global frames (points, top-left origin) of the active displays.
+    static func displays() -> [CGRect] {
+        var count: UInt32 = 0
+        guard CGGetActiveDisplayList(0, nil, &count) == .success, count > 0 else { return [] }
+        var ids = [CGDirectDisplayID](repeating: 0, count: Int(count))
+        guard CGGetActiveDisplayList(count, &ids, &count) == .success else { return [] }
+        return ids.prefix(Int(count)).map { CGDisplayBounds($0) }
+    }
+
+    /// OCR `region` of a frame after painting `masks` black (both normalized, origin bottom left).
+    /// The copy lives only for this call.
+    static func recognizeText(in buffer: CVPixelBuffer, region: CGRect, masks: [CGRect]) -> String {
+        if masks.isEmpty { return recognizeText(in: buffer, region: region) }
+        let image = CIContext(options: [.useSoftwareRenderer: false])
+            .createCGImage(CIImage(cvPixelBuffer: buffer), from: CGRect(x: 0, y: 0, width: CVPixelBufferGetWidth(buffer),
+                                                                      height: CVPixelBufferGetHeight(buffer)))
+        guard let image, let masked = paint(image, masks) else { return "" } // cannot mask: read nothing
+        return perform(VNImageRequestHandler(cgImage: masked, options: [:]), region: region)
+    }
+
+    static func paint(_ image: CGImage, _ masks: [CGRect]) -> CGImage? {
+        let w = CGFloat(image.width), h = CGFloat(image.height)
+        guard let ctx = CGContext(data: nil, width: image.width, height: image.height, bitsPerComponent: 8,
+                                  bytesPerRow: 0, space: CGColorSpaceCreateDeviceRGB(),
+                                  bitmapInfo: CGImageAlphaInfo.premultipliedFirst.rawValue
+                                      | CGBitmapInfo.byteOrder32Little.rawValue) else { return nil }
+        ctx.draw(image, in: CGRect(x: 0, y: 0, width: w, height: h))
+        ctx.setFillColor(CGColor(gray: 0, alpha: 1))
+        // CGContext's origin is bottom left, like Vision's normalized rects. Grow a little for rounding.
+        for m in masks { ctx.fill(CGRect(x: m.minX * w, y: m.minY * h, width: m.width * w, height: m.height * h)
+            .insetBy(dx: -2, dy: -2)) }
+        return ctx.makeImage()
     }
 
     /// Apple Vision OCR, accurate, with language correction. Lines top to bottom.

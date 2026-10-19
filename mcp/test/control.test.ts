@@ -4,7 +4,7 @@ import fs from "node:fs";
 import path from "node:path";
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { InMemoryTransport } from "@modelcontextprotocol/sdk/inMemory.js";
-import { appRunning, readState, writeControl } from "../src/control.ts";
+import { appRunning, describeSkip, readState, writeControl } from "../src/control.ts";
 import { createServer } from "../src/server.ts";
 import { ev, tempHome, writeFixtureSession, writeSession } from "./helpers.ts";
 
@@ -52,7 +52,13 @@ describe("files", () => {
       pid: process.pid,
       picking: false,
       last_error: null,
+      events: null,
+      skip: null,
     });
+    writeState({ recording: true, pid: process.pid, events: 4, skip: "not_picked" });
+    expect(readState()).toMatchObject({ events: 4, skip: "not_picked" });
+    expect(describeSkip("not_picked")).toContain("not part of");
+    expect(describeSkip("new_reason")).toBe("new_reason");
     writeState({ recording: false, pid: process.pid, picking: true, last_error: "cancelled" });
     expect(readState()).toMatchObject({ picking: true, last_error: "cancelled" });
     expect(appRunning(s)).toBe(true);

@@ -33,7 +33,7 @@ files. Build script `capture/build.sh` → `capture/build/Context Capsule.app`
   `recording` stays false and `state.json` gets `"last_error":"cancelled"`. Pressing the
   hotkey while the picker is open cancels it. A `control` start while the picker is
   open brings it to the front.
-- Capture uses **only the picked filter**: one `SCStream`, `minimumFrameInterval` 3 s,
+- Capture uses **only the picked filter**: one `SCStream`, `minimumFrameInterval` 1 s (frames only arrive when the content changes),
   frames kept in memory (latest one only). No `CGPreflightScreenCaptureAccess` /
   `CGRequestScreenCaptureAccess`, no `CGWindowListCreateImage` / `CGDisplayCreateImage`,
   no `SCShareableContent` — so macOS shows no Screen Recording permission alert.
@@ -41,9 +41,13 @@ files. Build script `capture/build.sh` → `capture/build/Context Capsule.app`
   If the user stops sharing from the macOS menu-bar sharing icon, the session ends too.
 - While recording, every **3 s**:
   - frontmost app name + bundle id + frontmost window (`NSWorkspace`, `CGWindowList`
-    ids/frames only — window names are never read from the window list);
+    ids/layers/frames). The front window is the app's first layer-0 window that is visible
+    (alpha > 0) and at least 40×40 pt; a strip inside a bigger window of the same app
+    (Chrome/Zen/Electron tab bars) gives way to that window;
+  - **Mission Control / Exposé** (Dock windows below layer 20): skip the sample;
   - **is that window in the picked content?** Picked display: the window's centre is on
-    it. Picked window(s): it is one of them (by window id on 15.2+, else by matching
+    it (the display's global frame: `includedDisplays` on 15.2+, else matched by size against
+    the active displays; unknown → skip). Picked window(s): it is one of them (by window id on 15.2+, else by matching
     frame). If not, write nothing for this sample;
   - **text, Accessibility first:** if Accessibility is allowed, walk the focused
     window's AX tree (text roles `AXStaticText`, `AXTextArea`, `AXTextField`,
@@ -51,9 +55,13 @@ files. Build script `capture/build.sh` → `capture/build/Context Capsule.app`
     secure text fields and everything inside them are never read). If that gives
     < 80 letters/digits, or Accessibility is not allowed, **OCR** the latest frame of
     the picked content with Apple Vision (`VNRecognizeTextRequest`, accurate, language
-    correction on), cropped to the front window when a whole display was picked;
+    correction on), cropped to the front window when a whole display was picked. OCR only
+    uses a frame that arrived after the last app switch, space switch or Mission Control
+    (else skip: the frame may still show the previous app). On a picked display, any
+    never-record app window or notification banner **above** the front window is painted black before OCR; if
+    such windows hide more than half of it, skip the sample;
   - window title: Accessibility if allowed, else the picked window's title (15.2+),
-    else empty;
+    else the `CGWindowList` name when macOS gives it out (never prompted for), else empty;
   - if the app, title and text are the same as the previous sample, skip it
     (only extend the previous event's `end`).
 - **Never record** (skip the sample entirely, write nothing): password managers and
@@ -69,9 +77,14 @@ files. Build script `capture/build.sh` → `capture/build/Context Capsule.app`
   A start opens the picker; the user still has to pick.
   It also writes `~/.context-capsule/state.json`:
   `{"recording": bool, "session_id": string|null, "started_at": iso|null, "pid": int,
-  "picking": bool, "last_error": string|null}` — `picking` is true while the picker
-  waits for the user; `last_error` says why the last start did not happen
-  (`"cancelled"`, `"picker: …"`, `"capture: …"`) and is cleared by the next start.
+  "picking": bool, "last_error": string|null, "events": int, "skip": string|null}` —
+  `picking` is true while the picker waits for the user; `last_error` says why the last
+  start did not happen (`"cancelled"`, `"picker: …"`, `"capture: …"`) and is cleared by
+  the next start. `events` = events written this session; `skip` = why the latest sample
+  wrote nothing (`private_app`, `no_window`, `not_picked`, `overlay`, `private_window`,
+  `waiting_frame`, `unknown_display`) or null. After a stop both describe the ended
+  session. The menu shows the event count and the skip reason; a session that ends with
+  0 events shows an alert saying why.
 - Permissions: none required (the picker is the consent). Accessibility is optional:
   the menu item calls `AXIsProcessTrustedWithOptions` with the prompt and shows a check
   mark once allowed. Recording never waits for it.
@@ -110,7 +123,7 @@ Tools:
 |---|---|
 | `start_recording` | writes `control` start, waits up to ~6 s for `picking` (picker open), `recording` (session id) or `last_error` (e.g. cancelled); errors clearly if the app isn't running, with how to open it |
 | `stop_recording` | writes `control` stop; returns the session id |
-| `recording_status` | reads `state.json`: running, picking, recording, last_error |
+| `recording_status` | reads `state.json`: running, picking, recording, events, skip, last_error |
 | `list_sessions` | id, start, end, duration, text source mix (ax / ocr), top apps |
 | `get_session_activity` `{session_id, max_chars?=60000}` | a condensed timeline for the AI: grouped by app/window, time spans, de-duplicated text (drop lines seen before, collapse whitespace), trimmed to `max_chars` keeping a fair share per segment |
 | `save_capsule` `{title, markdown, session_ids?}` | validates + writes `capsules/<slug>.capsule.md` with front matter; returns path |

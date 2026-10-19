@@ -1,5 +1,5 @@
 // context-capsule — capture: `ContextCapsule --selftest` — draws text into an image, runs Vision OCR on it (whole,
-// and cropped like a picked display), redacts and caps the result. Proves OCR works without the screen.
+// cropped like a picked display, and masked), redacts and caps the result. Proves OCR works without the screen.
 
 import AppKit
 
@@ -33,6 +33,14 @@ enum SelfTest {
             let top = region.map { Screen.recognizeText(in: buffer, region: $0) }?.lowercased() ?? ""
             print("--- cropped ---\n\(top)\n---")
             expect(top.contains("capsule self test") && !top.contains("pricing"), "crop reads only the window")
+
+            // A never-record window over line 2: painted out before OCR, the rest still read.
+            let all = CGRect(x: 0, y: 0, width: 1, height: 1)
+            let unit = h / 390 // the image is drawn 390 points tall; Retina makes it 2× in pixels
+            let line2 = Membership.normalized(CGRect(x: 0, y: 140 * unit, width: w, height: 90 * unit), in: display)
+            let masked = Screen.recognizeText(in: buffer, region: all, masks: [line2]).lowercased()
+            print("--- masked ---\n\(masked)\n---")
+            expect(masked.contains("capsule self test") && !masked.contains("pricing"), "mask hides a private window")
         } else {
             expect(false, "pixel buffer")
         }

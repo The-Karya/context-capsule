@@ -133,14 +133,14 @@ check(sj == #"{"id":"20261019-100103","started_at":"2026-10-19T10:01:03Z","ended
 let sj2 = sessionJSON(id: "x", startedAt: date, endedAt: date.addingTimeInterval(60), host: "Mac")
 check(sj2.contains(#""ended_at":"2026-10-19T10:02:03Z""#), "session.json ended_at", sj2)
 check(stateJSON(recording: false, sessionID: nil, startedAt: nil, pid: 42) ==
-      #"{"recording":false,"session_id":null,"started_at":null,"pid":42,"picking":false,"last_error":null}"#, "state.json idle")
+      #"{"recording":false,"session_id":null,"started_at":null,"pid":42,"picking":false,"last_error":null,"events":0,"skip":null}"#, "state.json idle")
 check(stateJSON(recording: true, sessionID: "20261019-100103", startedAt: date, pid: 7) ==
-      #"{"recording":true,"session_id":"20261019-100103","started_at":"2026-10-19T10:01:03Z","pid":7,"picking":false,"last_error":null}"#,
+      #"{"recording":true,"session_id":"20261019-100103","started_at":"2026-10-19T10:01:03Z","pid":7,"picking":false,"last_error":null,"events":0,"skip":null}"#,
       "state.json recording")
 check(stateJSON(recording: false, sessionID: nil, startedAt: nil, pid: 1, picking: true) ==
-      #"{"recording":false,"session_id":null,"started_at":null,"pid":1,"picking":true,"last_error":null}"#, "state.json picking")
+      #"{"recording":false,"session_id":null,"started_at":null,"pid":1,"picking":true,"last_error":null,"events":0,"skip":null}"#, "state.json picking")
 check(stateJSON(recording: false, sessionID: nil, startedAt: nil, pid: 1, lastError: "cancelled") ==
-      #"{"recording":false,"session_id":null,"started_at":null,"pid":1,"picking":false,"last_error":"cancelled"}"#,
+      #"{"recording":false,"session_id":null,"started_at":null,"pid":1,"picking":false,"last_error":"cancelled","events":0,"skip":null}"#,
       "state.json cancelled")
 
 check(ControlCommand.parse(Data(#"{"command":"start","at":1792404063000}"#.utf8)) ==
@@ -187,6 +187,95 @@ check(Membership.ocrRegion(PickedContent(style: .display, rect: d), window: CGRe
       "window off the display: no region")
 check(near(Membership.ocrRegion(PickedContent(style: .display, rect: second), window: CGRect(x: 1512, y: 0, width: 960, height: 1080)),
            CGRect(x: 0, y: 0, width: 0.5, height: 1)), "second display offset")
+
+check(stateJSON(recording: true, sessionID: "s", startedAt: nil, pid: 1, events: 3, skip: .notPicked)
+      .hasSuffix(#""events":3,"skip":"not_picked"}"#), "state.json events + skip")
+
+// MARK: front window choice
+
+let chromeStrip = ListedWindow(id: 1, pid: 50, owner: "Google Chrome", alpha: 0,
+                               frame: CGRect(x: 0, y: 16, width: 1440, height: 32))
+let zenStrip = ListedWindow(id: 2, pid: 50, owner: "Google Chrome", frame: CGRect(x: 0, y: 30, width: 1440, height: 68))
+let chromeMain = ListedWindow(id: 3, pid: 50, owner: "Google Chrome", frame: CGRect(x: 0, y: 30, width: 1440, height: 792))
+let badge = ListedWindow(id: 4, pid: 50, owner: "Google Chrome", frame: CGRect(x: 10, y: 10, width: 20, height: 20))
+check(WindowList.front(pid: 50, in: [chromeStrip, chromeMain])?.id == 3, "alpha-0 strip skipped")
+check(WindowList.front(pid: 50, in: [zenStrip, chromeMain])?.id == 3, "visible strip gives way to its window")
+check(WindowList.front(pid: 50, in: [badge, chromeMain])?.id == 3, "tiny window skipped")
+check(WindowList.front(pid: 50, in: [chromeStrip, badge]) == nil, "no normal window")
+let floating = ListedWindow(id: 5, pid: 50, layer: 3, frame: CGRect(x: 0, y: 0, width: 300, height: 300))
+check(WindowList.front(pid: 50, in: [floating, chromeMain])?.id == 3, "floating panel is not the window")
+let dialog = ListedWindow(id: 6, pid: 50, frame: CGRect(x: 2000, y: 100, width: 400, height: 300))
+check(WindowList.front(pid: 50, in: [dialog, chromeMain])?.id == 6, "separate front window kept")
+
+let dockNormal = ListedWindow(id: 90, pid: 1, owner: "Dock", layer: 20, frame: CGRect(x: 0, y: 0, width: 1440, height: 900))
+let missionControl = ListedWindow(id: 91, pid: 1, owner: "Dock", layer: 18, frame: CGRect(x: 0, y: 0, width: 1440, height: 900))
+check(!WindowList.overlayActive([dockNormal, chromeMain]), "normal Dock is not an overlay")
+check(WindowList.overlayActive([dockNormal, missionControl, chromeMain]), "Mission Control detected")
+
+// MARK: freshness
+
+let switchAt = Date(timeIntervalSince1970: 1000)
+check(!Freshness.ok(frameAt: nil, changedAt: nil), "no frame: not ok")
+check(Freshness.ok(frameAt: switchAt, changedAt: nil), "no switch yet: ok")
+check(!Freshness.ok(frameAt: switchAt.addingTimeInterval(-2), changedAt: switchAt), "frame from before the switch")
+check(!Freshness.ok(frameAt: switchAt.addingTimeInterval(0.05), changedAt: switchAt), "frame during the switch")
+check(Freshness.ok(frameAt: switchAt.addingTimeInterval(0.5), changedAt: switchAt), "frame after the switch")
+
+// MARK: OCR plan (crop + private masks)
+
+let main = CGRect(x: 0, y: 0, width: 1440, height: 900)
+let ext = CGRect(x: 1440, y: 48, width: 1920, height: 1080) // external display, offset like a real one
+let pickMain = PickedContent(style: .display, rect: main)
+let chrome = ListedWindow(id: 10, pid: 50, owner: "Google Chrome", frame: CGRect(x: 0, y: 30, width: 720, height: 870))
+let whatsBehind = ListedWindow(id: 11, pid: 60, owner: "WhatsApp", frame: CGRect(x: 0, y: 30, width: 1440, height: 870),
+                               excluded: true)
+let whatsFloat = ListedWindow(id: 12, pid: 60, owner: "WhatsApp", layer: 3,
+                              frame: CGRect(x: 0, y: 30, width: 200, height: 200), excluded: true)
+let whatsBig = ListedWindow(id: 13, pid: 60, owner: "WhatsApp", frame: CGRect(x: 0, y: 0, width: 1440, height: 900),
+                            excluded: true)
+let slack = ListedWindow(id: 14, pid: 70, owner: "Slack", layer: 3, frame: CGRect(x: 0, y: 30, width: 200, height: 200))
+
+check(Membership.ocrDecision(pickMain, front: chrome, list: [chrome, whatsBehind]) ==
+      .read(region: CGRect(x: 0, y: 0, width: 0.5, height: 870.0 / 900), masks: []),
+      "crop to the front window; private window behind it is not in the crop")
+if case .read(let region, let masks) = Membership.ocrDecision(pickMain, front: chrome, list: [whatsFloat, chrome, whatsBehind]) {
+    check(region.width == 0.5, "crop kept with a private window on top")
+    check(masks.count == 1 && near(masks.first, CGRect(x: 0, y: 670.0 / 900, width: 200.0 / 1440, height: 200.0 / 900)),
+          "private window on top is masked", "\(masks)")
+} else { check(false, "private window on top: read with a mask") }
+let banner = ListedWindow(id: 15, pid: 80, owner: "Notification Center", layer: 23,
+                          frame: CGRect(x: 1060, y: 40, width: 370, height: 90))
+let chromeWide = ListedWindow(id: 16, pid: 50, frame: CGRect(x: 0, y: 30, width: 1440, height: 870))
+if case .read(_, let masks) = Membership.ocrDecision(pickMain, front: chromeWide, list: [banner, chromeWide]) {
+    check(masks.count == 1, "notification banner is masked")
+} else { check(false, "banner: read with a mask") }
+let widget = ListedWindow(id: 17, pid: 80, owner: "Notification Center", layer: -2147483601,
+                          frame: CGRect(x: 8, y: 56, width: 360, height: 180))
+check(!WindowList.isPrivate(widget), "desktop widget is not a banner")
+check(Membership.ocrDecision(pickMain, front: chrome, list: [whatsBig, chrome]) == .skip(.privateWindow),
+      "private window covering the front window: skip")
+check(Membership.ocrDecision(pickMain, front: chrome, list: [slack, chrome]) ==
+      .read(region: CGRect(x: 0, y: 0, width: 0.5, height: 870.0 / 900), masks: []), "normal app on top: no mask")
+check(Membership.ocrDecision(PickedContent(style: .display, rect: .zero), front: chrome, list: [chrome]) ==
+      .skip(.unknownDisplay), "unknown display: skip")
+let onExt = ListedWindow(id: 20, pid: 50, frame: CGRect(x: 1440, y: 48, width: 960, height: 1080))
+check(Membership.ocrDecision(pickMain, front: onExt, list: [onExt]) == .skip(.notPicked), "window on another display")
+check(Membership.ocrDecision(PickedContent(style: .display, rect: ext), front: onExt, list: [onExt]) ==
+      .read(region: CGRect(x: 0, y: 0, width: 0.5, height: 1), masks: []), "external display crop")
+check(Membership.ocrDecision(PickedContent(style: .window, rect: chrome.frame, windowIDs: [10]), front: chrome,
+                             list: [whatsFloat, chrome]) == .read(region: full, masks: []),
+      "picked window: read whole, other apps are not in the image")
+
+// MARK: picked display place
+
+let displays = [main, ext]
+check(Membership.resolveDisplay(ext, displays: displays) == ext, "global display rect kept")
+check(Membership.resolveDisplay(CGRect(x: 0, y: 0, width: 1920, height: 1080), displays: displays) == ext,
+      "(0,0)-based external display found by size")
+check(Membership.resolveDisplay(CGRect(x: 0, y: 0, width: 1920, height: 1080),
+                                displays: [main, ext, CGRect(x: 3360, y: 0, width: 1920, height: 1080)]) == nil,
+      "two same-size displays, no origin: unknown")
+check(Membership.resolveDisplay(.zero, displays: displays) == nil, "empty rect: unknown")
 
 // MARK: accessibility text
 

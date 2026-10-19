@@ -67,8 +67,8 @@ claude mcp add context-capsule -- node /Users/you/context-capsule/mcp/dist/index
 | tool | does |
 |---|---|
 | `start_recording` | asks the app to start. The app opens the macOS picker; you choose the window or screen. Waits up to 6 s and says "picker is open", "recording: session id", or why it didn't start (e.g. you closed the picker). Tells you how to open the app if it isn't running |
-| `stop_recording` | asks the app to stop; returns the session id |
-| `recording_status` | is the app running, is the picker open, is it recording, why the last start failed |
+| `stop_recording` | asks the app to stop; returns the session id and event count, or says why nothing was recorded |
+| `recording_status` | is the app running, is the picker open, is it recording, events so far, why samples are skipped, why the last start failed |
 | `list_sessions` | sessions, newest first: start, end, duration, text source (Accessibility / OCR), top apps |
 | `get_session_activity` `{session_id, max_chars?}` | a short timeline of a session for Claude to read (`"latest"` works) |
 | `save_capsule` `{title, markdown, session_ids?}` | saves `capsules/<slug>.capsule.md` with front matter; never overwrites |

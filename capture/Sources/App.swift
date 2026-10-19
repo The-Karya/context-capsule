@@ -8,11 +8,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     private lazy var recorder = Recorder(paths: paths)
     private var statusItem: NSStatusItem!
     private let infoItem = NSMenuItem(title: "", action: nil, keyEquivalent: "")
+    private let skipItem = NSMenuItem(title: "", action: nil, keyEquivalent: "")
     private let toggleItem = NSMenuItem(title: "", action: #selector(toggle), keyEquivalent: "c")
     private let axItem = NSMenuItem(title: "Read text directly (Accessibility)…", action: #selector(askAccessibility),
                                     keyEquivalent: "")
     private var hotKey: HotKey?
     private var control: ControlWatcher?
+    private var askedAccessibility = false
+    private var trustPoll: Timer?
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         try? FileManager.default.createDirectory(at: paths.sessions, withIntermediateDirectories: true)
@@ -20,8 +23,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         statusItem = NSStatusBar.system.statusItem(withLength: NSStatusItem.squareLength)
         let menu = NSMenu()
         infoItem.isEnabled = false
+        skipItem.isEnabled = false
         toggleItem.keyEquivalentModifierMask = [.option, .shift]
         menu.addItem(infoItem)
+        menu.addItem(skipItem)
         menu.addItem(.separator())
         menu.addItem(toggleItem)
         menu.addItem(axItem)
@@ -35,6 +40,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         statusItem.menu = menu
 
         recorder.onChange = { [weak self] in self?.refresh() }
+        recorder.onEmptySession = { [weak self] in self?.warnEmpty($0) }
 
         hotKey = HotKey(keyCode: kVK_ANSI_C, modifiers: optionKey | shiftKey) { [weak self] in self?.toggle() }
         if hotKey == nil { NSLog("Context Capsule: ⌥⇧C is taken by another app; use the menu instead") }
@@ -67,12 +73,15 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
 
         if let id = recorder.sessionID, let started = recorder.startedAt {
             let time = DateFormatter.localizedString(from: started, dateStyle: .none, timeStyle: .short)
-            infoItem.title = "Recording since \(time) — \(id)"
+            let n = recorder.eventCount
+            infoItem.title = "Recording since \(time) — \(n) event\(n == 1 ? "" : "s") — \(id)"
         } else if recorder.isPicking {
             infoItem.title = "Pick a window or screen to record…"
         } else {
             infoItem.title = "Not recording"
         }
+        skipItem.isHidden = !(recording && recorder.lastSkip != nil)
+        skipItem.title = "Skipping: \(recorder.lastSkip?.message ?? "")"
         toggleItem.title = recording ? "Stop recording" : recorder.isPicking ? "Cancel picking" : "Start recording…"
         axItem.state = AXReader.trusted ? .on : .off
     }
@@ -84,11 +93,45 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         NSWorkspace.shared.open(paths.sessions)
     }
 
-    /// Optional. Shows the system Accessibility prompt; recording never waits for it.
+    /// A session ended with no events: say why, so it is not a silent empty file.
+    private func warnEmpty(_ why: Skip?) {
+        let alert = NSAlert()
+        alert.messageText = "Nothing was recorded"
+        let reason = why.map { "Every few seconds, \($0.message)." } ?? "The session was too short to take a sample."
+        alert.informativeText = reason + "\n\nContext Capsule only reads the window in front, and only if it is "
+            + "part of the window or screen you picked. Next time, pick the screen you work on (or the window), "
+            + "and keep that window in front."
+        NSApp.activate(ignoringOtherApps: true)
+        alert.runModal()
+    }
+
+    /// Optional. First click: the system Accessibility prompt. Later clicks: open System Settings and
+    /// explain. Recording never waits for it; the check mark updates by itself once allowed.
     @objc private func askAccessibility() {
-        if AXReader.requestTrust() { refresh(); return }
-        if let url = URL(string: "x-apple.systempreferences:com.apple.preference.security?Privacy_Accessibility") {
-            NSWorkspace.shared.open(url)
+        if AXReader.trusted { refresh(); return }
+        if !askedAccessibility {
+            askedAccessibility = true
+            AXReader.requestTrust()
+        } else {
+            if let url = URL(string: "x-apple.systempreferences:com.apple.preference.security?Privacy_Accessibility") {
+                NSWorkspace.shared.open(url)
+            }
+            let alert = NSAlert()
+            alert.messageText = "Allow Context Capsule in Accessibility"
+            alert.informativeText = "In System Settings → Privacy & Security → Accessibility, turn on Context Capsule. "
+                + "If it is already on but this item has no check mark (this happens after a rebuild), select it, "
+                + "click −, then add it again with +."
+            NSApp.activate(ignoringOtherApps: true)
+            alert.runModal()
+        }
+        trustPoll?.invalidate()
+        var tries = 0
+        trustPoll = repeating(1) { [weak self] in
+            tries += 1
+            if AXReader.trusted || tries > 120 {
+                self?.trustPoll?.invalidate()
+                self?.refresh()
+            }
         }
     }
 }

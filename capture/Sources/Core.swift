@@ -209,6 +209,8 @@ struct Event: Equatable {
 final class EventLog {
     let url: URL
     private(set) var last: Event?
+    /// Lines written by this log (new events, not extensions).
+    private(set) var appended = 0
     private var lastLineStart: UInt64 = 0
 
     init(url: URL) throws {
@@ -233,6 +235,7 @@ final class EventLog {
         lastLineStart = try h.seekToEnd()
         try h.write(contentsOf: Data((e.line + "\n").utf8))
         last = e
+        appended += 1
         return .appended
     }
 
@@ -265,14 +268,18 @@ func sessionJSON(id: String, startedAt: Date, endedAt: Date?, host: String) -> S
 
 /// `picking`: the system picker is open, waiting for the user. `lastError`: why the last start did not
 /// happen ("cancelled" when the user closed the picker); cleared on the next start.
+/// While recording: `events` written so far and `skip`, why the latest sample wrote nothing (nil if it
+/// wrote something). After a stop they describe the session that just ended.
 func stateJSON(recording: Bool, sessionID: String?, startedAt: Date?, pid: Int32,
-               picking: Bool = false, lastError: String? = nil) -> String {
+               picking: Bool = false, lastError: String? = nil, events: Int = 0, skip: Skip? = nil) -> String {
     jsonObject([("recording", .bool(recording)),
                 ("session_id", sessionID.map { .string($0) } ?? .null),
                 ("started_at", startedAt.map { .string(Clock.iso($0)) } ?? .null),
                 ("pid", .int(Int(pid))),
                 ("picking", .bool(picking)),
-                ("last_error", lastError.map { .string($0) } ?? .null)])
+                ("last_error", lastError.map { .string($0) } ?? .null),
+                ("events", .int(events)),
+                ("skip", skip.map { .string($0.rawValue) } ?? .null)])
 }
 
 struct ControlCommand: Equatable {
@@ -309,6 +316,98 @@ struct WindowInfo: Equatable {
     var frame: CGRect
 }
 
+/// One on-screen window from CGWindowList (front to back). `excluded`: its app is never recorded.
+/// `name` is only there when macOS gives it out (it never asks for permission for it).
+struct ListedWindow: Equatable {
+    var id: UInt32
+    var pid: Int32
+    var owner: String = ""
+    var layer: Int = 0
+    var alpha: Double = 1
+    var frame: CGRect
+    var name: String? = nil
+    var excluded = false
+
+    var info: WindowInfo { WindowInfo(id: id, pid: pid, frame: frame) }
+}
+
+/// Why a sample wrote nothing. Shown in the menu and state.json so the user knows what is going on.
+enum Skip: String {
+    case privateApp = "private_app"           // the front app is never recorded
+    case noWindow = "no_window"               // the front app has no normal window on screen
+    case notPicked = "not_picked"             // the front window is not in what the user picked
+    case overlay = "overlay"                  // Mission Control / Exposé is showing every window
+    case privateWindow = "private_window"     // a never-record window covers most of the front window
+    case waitingFrame = "waiting_frame"       // no frame yet since the last app switch
+    case unknownDisplay = "unknown_display"   // cannot tell where the picked display is
+
+    /// Plain words for the menu.
+    var message: String {
+        switch self {
+        case .privateApp: return "a private app is in front (not recorded)"
+        case .noWindow: return "the front app has no window"
+        case .notPicked: return "the front window is not in what you picked"
+        case .overlay: return "Mission Control is open"
+        case .privateWindow: return "a private app covers the window"
+        case .waitingFrame: return "waiting for the screen to update"
+        case .unknownDisplay: return "cannot find the picked screen"
+        }
+    }
+}
+
+enum WindowList {
+    /// Smaller than this (points) is a strip, badge or helper window, not a real window.
+    static let minSide: CGFloat = 40
+
+    static func isNormal(_ w: ListedWindow) -> Bool {
+        w.layer == 0 && w.alpha > 0.01 && w.frame.width >= minSide && w.frame.height >= minSide
+    }
+
+    /// The app's front window. Invisible (alpha 0) and tiny windows are skipped, and a strip that sits
+    /// inside a bigger window of the same app (Chrome, Zen and Electron tab bars) gives way to that window.
+    static func front(pid: Int32, in list: [ListedWindow]) -> ListedWindow? {
+        let mine = list.filter { $0.pid == pid && isNormal($0) }
+        guard let first = mine.first else { return nil }
+        let t = Membership.tolerance
+        let holder = mine.dropFirst().first {
+            $0.frame.insetBy(dx: -t, dy: -t).contains(first.frame)
+                && $0.frame.width * $0.frame.height > first.frame.width * first.frame.height
+        }
+        return holder ?? first
+    }
+
+    /// Never to be read: windows of never-record apps, and notification banners (they show message
+    /// text from any app, WhatsApp and Signal too).
+    static func isPrivate(_ w: ListedWindow) -> Bool {
+        w.excluded || (w.owner == "Notification Center" && w.layer > 0)
+    }
+
+    /// Mission Control / Exposé: the Dock puts full-screen windows below its usual layer (20) and shows
+    /// every window, private ones too. Nothing may be read then.
+    static func overlayActive(_ list: [ListedWindow]) -> Bool {
+        list.contains { $0.owner == "Dock" && $0.layer > 0 && $0.layer < 20 && $0.alpha > 0.01 }
+    }
+}
+
+/// Frames come from the stream only when the screen changes, so right after an app switch the latest
+/// frame can still show the previous app. Only use a frame that arrived after the last switch.
+enum Freshness {
+    static let settle: TimeInterval = 0.1
+
+    static func ok(frameAt: Date?, changedAt: Date?) -> Bool {
+        guard let frameAt else { return false }
+        guard let changedAt else { return true }
+        return frameAt >= changedAt.addingTimeInterval(settle)
+    }
+}
+
+/// What to OCR: `region` and `masks` are normalized to the captured image, origin bottom left (Vision).
+/// Masks are painted black before OCR.
+enum OCRDecision: Equatable {
+    case read(region: CGRect, masks: [CGRect])
+    case skip(Skip)
+}
+
 enum Membership {
     /// Points of slack when matching a window frame to the picked rect (shadows, rounding).
     static let tolerance: CGFloat = 8
@@ -340,15 +439,57 @@ enum Membership {
     /// `regionOfInterest`). A picked window is read whole; a display or app capture is cropped to the
     /// front window. nil when the window is not on the captured content at all.
     static func ocrRegion(_ pick: PickedContent, window: CGRect) -> CGRect? {
-        let full = CGRect(x: 0, y: 0, width: 1, height: 1)
-        if pick.style == .window { return full }
+        if pick.style == .window { return CGRect(x: 0, y: 0, width: 1, height: 1) }
         let c = pick.rect
         guard !c.isEmpty else { return nil }
         let i = c.intersection(window)
         guard !i.isNull, i.width >= 1, i.height >= 1 else { return nil }
-        let r = CGRect(x: (i.minX - c.minX) / c.width, y: (c.maxY - i.maxY) / c.height,
-                       width: i.width / c.width, height: i.height / c.height)
-        return r.intersection(full)
+        return normalized(i, in: c)
+    }
+
+    /// `r` (global points, top-left origin) as a part of `c`, normalized with the origin at the bottom left.
+    static func normalized(_ r: CGRect, in c: CGRect) -> CGRect {
+        let full = CGRect(x: 0, y: 0, width: 1, height: 1)
+        let n = CGRect(x: (r.minX - c.minX) / c.width, y: (c.maxY - r.maxY) / c.height,
+                       width: r.width / c.width, height: r.height / c.height)
+        return n.intersection(full)
+    }
+
+    /// More than this share of the window hidden by private windows: skip the sample.
+    static let maxMasked: CGFloat = 0.5
+
+    /// What to OCR for this sample. For a picked display: crop to the front window, and black out any
+    /// never-record window above it (floating or overlapping); skip if they hide most of it.
+    /// A picked window or app is captured on its own (other apps are not in the image), so no masks.
+    /// `list` is the whole on-screen window list, front to back; `front` is one of its entries.
+    static func ocrDecision(_ pick: PickedContent, front: ListedWindow, list: [ListedWindow]) -> OCRDecision {
+        if pick.style == .display && pick.rect.isEmpty { return .skip(.unknownDisplay) }
+        guard let region = ocrRegion(pick, window: front.frame) else { return .skip(.notPicked) }
+        guard pick.style == .display else { return .read(region: region, masks: []) }
+
+        let crop = pick.rect.intersection(front.frame)
+        let above = list.prefix { $0.id != front.id } // CGWindowList is ordered front to back
+        var masks: [CGRect] = []
+        var hidden: CGFloat = 0
+        for w in above where WindowList.isPrivate(w) && w.alpha > 0.01 {
+            let i = w.frame.intersection(crop)
+            guard !i.isNull, i.width >= 1, i.height >= 1 else { continue }
+            masks.append(normalized(i, in: pick.rect))
+            hidden += i.width * i.height
+        }
+        if hidden > maxMasked * crop.width * crop.height { return .skip(.privateWindow) }
+        return .read(region: region, masks: masks)
+    }
+
+    /// The picked display's place in global points. `rect` may be the display's own (0,0)-based size on
+    /// older macOS; then match it by size against the real displays. nil when it cannot be told apart.
+    static func resolveDisplay(_ rect: CGRect, displays: [CGRect]) -> CGRect? {
+        guard !rect.isEmpty else { return nil }
+        if let exact = displays.first(where: { sameFrame($0, rect) }) { return exact }
+        let sized = displays.filter {
+            abs($0.width - rect.width) <= tolerance && abs($0.height - rect.height) <= tolerance
+        }
+        return sized.count == 1 ? sized[0] : nil
     }
 }
 

@@ -1,5 +1,5 @@
 // context-capsule — capture: the macOS system picker (SCContentSharingPicker). The user chooses a window
-// or a display; we capture only that, through one SCStream at most one frame per 3 s. Because the user
+// or a display; we capture only that, through one SCStream at most one frame per second. Because the user
 // picked the content, macOS asks for no Screen Recording permission. Frames stay in memory.
 
 import AppKit
@@ -26,6 +26,7 @@ final class PickerCapture: NSObject, SCContentSharingPickerObserver, SCStreamDel
     private let frames = DispatchQueue(label: "com.thekarya.contextcapsule.frames")
     private let lock = NSLock()
     private var latest: CVPixelBuffer?
+    private var latestAt: Date?
     private var latestScreenRect: CGRect?
 
     // MARK: main thread
@@ -60,6 +61,7 @@ final class PickerCapture: NSObject, SCContentSharingPickerObserver, SCStreamDel
         filter = nil
         lock.lock()
         latest = nil
+        latestAt = nil
         latestScreenRect = nil
         lock.unlock()
         SCContentSharingPicker.shared.isActive = false
@@ -73,14 +75,16 @@ final class PickerCapture: NSObject, SCContentSharingPickerObserver, SCStreamDel
         lock.lock()
         let screenRect = latestScreenRect
         lock.unlock()
-        return Self.describe(filter, screenRect: screenRect)
+        return Self.describe(filter, screenRect: screenRect, displays: Screen.displays())
     }
 
-    /// The latest frame (frames only arrive when the picked content changes, so it is current).
-    func latestFrame() -> CVPixelBuffer? {
+    /// The latest frame and when it arrived. Frames only arrive when the picked content changes, so
+    /// right after an app switch it may still show the previous app (see `Freshness`).
+    func latestFrame() -> (buffer: CVPixelBuffer, at: Date)? {
         lock.lock()
         defer { lock.unlock() }
-        return latest
+        guard let latest, let latestAt else { return nil }
+        return (latest, latestAt)
     }
 
     /// Title of a picked window, when macOS tells us which windows were picked (15.2+).
@@ -95,7 +99,8 @@ final class PickerCapture: NSObject, SCContentSharingPickerObserver, SCStreamDel
         return filter
     }
 
-    static func describe(_ filter: SCContentFilter, screenRect: CGRect?) -> PickedContent {
+    /// For a display, `rect` is its global frame (empty if unknown: then nothing is read).
+    static func describe(_ filter: SCContentFilter, screenRect: CGRect?, displays: [CGRect]) -> PickedContent {
         let style: PickStyle
         switch filter.style {
         case .display: style = .display
@@ -107,6 +112,14 @@ final class PickerCapture: NSObject, SCContentSharingPickerObserver, SCStreamDel
         if #available(macOS 15.2, *) {
             if style == .window { pick.windowIDs = filter.includedWindows.map(\.windowID) }
             if style == .application { pick.pids = filter.includedApplications.map(\.processID) }
+            if style == .display, let display = filter.includedDisplays.first {
+                pick.rect = CGDisplayBounds(display.displayID) // global, right for any display
+                return pick
+            }
+        }
+        if style == .display {
+            // contentRect can be (0,0)-based; a second display then looked like the first.
+            pick.rect = Membership.resolveDisplay(pick.rect, displays: displays) ?? .zero
         }
         return pick
     }
@@ -153,7 +166,8 @@ final class PickerCapture: NSObject, SCContentSharingPickerObserver, SCStreamDel
         let scale = CGFloat(filter.pointPixelScale)
         config.width = max(2, Int(filter.contentRect.width * scale))
         config.height = max(2, Int(filter.contentRect.height * scale))
-        config.minimumFrameInterval = CMTime(value: Int64(Recorder.interval), timescale: 1)
+        // Frames only come when the content changes; 1 s keeps them fresh after an app switch.
+        config.minimumFrameInterval = CMTime(value: 1, timescale: 1)
         config.queueDepth = 3
         config.showsCursor = false
         config.pixelFormat = kCVPixelFormatType_32BGRA
@@ -165,6 +179,7 @@ final class PickerCapture: NSObject, SCContentSharingPickerObserver, SCStreamDel
         lock.lock()
         self.filter = filter
         latest = nil
+        latestAt = nil
         latestScreenRect = nil
         lock.unlock()
     }
@@ -217,6 +232,7 @@ final class PickerCapture: NSObject, SCContentSharingPickerObserver, SCStreamDel
         if let dict = info[.screenRect] as? NSDictionary { screenRect = CGRect(dictionaryRepresentation: dict) }
         lock.lock()
         latest = buffer
+        latestAt = Date()
         if let screenRect, !screenRect.isEmpty { latestScreenRect = screenRect }
         lock.unlock()
     }

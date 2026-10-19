@@ -18,6 +18,7 @@ import {
   APP_NOT_RUNNING,
   PICKER_OPEN,
   appRunning,
+  describeSkip,
   describeStartError,
   readState,
   startAndWait,
@@ -127,13 +128,22 @@ export function createServer(opts: ServerOptions = {}): McpServer {
       if (!state!.recording) return text(`Not recording right now.${latestHint()}`);
       const id = state!.session_id;
       writeControl("stop");
-      const { confirmed } = await waitForState((s) => !s.recording, stopMs);
+      const { confirmed, state: after } = await waitForState((s) => !s.recording, stopMs);
       const next = id
         ? `\nNext: get_session_activity with session_id "${id}" (or use the make_capsule prompt) to write a capsule.`
         : "";
       if (!confirmed)
         return text(`Sent the stop command for session ${id ?? "(unknown)"}; the app hasn't confirmed yet.${next}`);
-      return text(`Stopped. Session id: ${id ?? "(unknown)"}.${next}`);
+      if (after?.events === 0) {
+        const why = after.skip ? ` Most of the time ${describeSkip(after.skip)}.` : "";
+        return text(
+          `Stopped session ${id ?? "(unknown)"}, but nothing was recorded.${why}\n` +
+            "Context Capsule only reads the window in front, and only if it is part of what was picked. " +
+            "Next time pick the screen you work on (or the window), and keep that window in front.",
+        );
+      }
+      const count = after?.events != null ? ` ${after.events} event${after.events === 1 ? "" : "s"}.` : "";
+      return text(`Stopped. Session id: ${id ?? "(unknown)"}.${count}${next}`);
     }),
   );
 
@@ -162,6 +172,8 @@ export function createServer(opts: ServerOptions = {}): McpServer {
         lines.push(`Session: ${state.session_id ?? "(unknown)"}`);
         if (state.started_at)
           lines.push(`Started: ${formatLocalDateTime(state.started_at)} (${formatDuration(Date.now() - Date.parse(state.started_at))} ago)`);
+        if (state.events != null) lines.push(`Events so far: ${state.events}`);
+        if (state.skip) lines.push(`Right now: not recording a sample — ${describeSkip(state.skip)}`);
       }
       if (!running) lines.push("", APP_NOT_RUNNING);
       return text(lines.join("\n"));
