@@ -2,14 +2,16 @@
 
 **Turn what you worked on into context your AI already knows, and share it.**
 
-Press a hotkey, work as usual, press it again. Capsule reads your screen while you
-work. Your own Claude turns that into a **capsule**: one Markdown file with what you
+Press a hotkey, pick the window or screen to record in the macOS picker, work as
+usual, press it again. Capsule reads the text of what you picked while you work. Your own Claude turns that into a **capsule**: one Markdown file with what you
 worked on, the decisions you made and why, open questions and next steps.
 
 Load the capsule into Claude and it knows your project. Email it to a teammate and
 their Claude knows it too.
 
 - **Local.** Screen text stays on your Mac. No account, no cloud, no telemetry.
+- **You choose what it sees.** Each recording starts with the macOS window/screen
+  picker. Capsule reads only what you picked, and needs no Screen Recording permission.
 - **No screenshots kept.** Only the text on screen is saved; images are thrown away.
 - **Private apps skipped.** Password managers, WhatsApp, Signal and any app you list
   are never recorded. Anything that looks like a key or password is redacted.
@@ -18,7 +20,7 @@ their Claude knows it too.
 - **Open format.** A capsule is plain Markdown with a little front matter. Any person
   or AI can read it.
 
-> v1 is macOS 13+ and Claude (Desktop or Code). Windows and ChatGPT are planned.
+> v1 is macOS 14+ and Claude (Desktop or Code). Windows and ChatGPT are planned.
 
 ## How it works
 
@@ -34,7 +36,7 @@ their Claude knows it too.
 
 ## Install
 
-You need macOS 13+, Node 18+ and [bun](https://bun.sh) (or npm).
+You need macOS 14+, Node 18+ and [bun](https://bun.sh) (or npm).
 
 ```sh
 git clone <this repo> karya-capsule && cd karya-capsule
@@ -47,10 +49,11 @@ open capture/build/Capsule.app
 cd mcp && bun install && bun run build
 ```
 
-The first time you start a recording, macOS asks for **Screen Recording**
-permission (System Settings → Privacy & Security → Screen Recording → Capsule).
-Grant it, then quit and reopen Capsule. Accessibility permission is optional and
-gives better window titles.
+Each time you start a recording, macOS shows its window/screen picker; pick a window
+or a display and recording begins. There is no Screen Recording permission to grant.
+Optional: menu → **Read text directly (Accessibility)…** lets Capsule read text
+straight from apps (cleaner than OCR, and gives window titles). Without it, Capsule
+uses OCR on the picked content.
 
 ### Connect to Claude
 
@@ -77,7 +80,8 @@ Restart Claude Desktop.
 
 ## Use it
 
-1. Press **⌥⇧C** (or ask Claude: *"start recording"*). The menu-bar circle fills in.
+1. Press **⌥⇧C** (or ask Claude: *"start recording"*). Pick a window or screen in the
+   macOS picker. The menu-bar circle fills in. Close the picker to cancel.
 2. Work.
 3. Press **⌥⇧C** again (or *"stop recording"*).
 4. Ask Claude: *"Make a capsule from my last session."* Claude reads the timeline,

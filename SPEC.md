@@ -12,7 +12,7 @@ user's Claude does the writing through MCP.
 
 ```
 karya-capsule/
-  capture/            Swift menu-bar app "Capsule" (macOS 13+)
+  capture/            Swift menu-bar app "Capsule" (macOS 14+)
   mcp/                TypeScript MCP server (stdio), Node >= 18
   SPEC.md             this file — the contract between the two
   README.md, LICENSE (MIT)
@@ -24,13 +24,35 @@ A small menu-bar app, built with `swiftc` (no Xcode project needed), one or a fe
 files. Build script `capture/build.sh` → `capture/build/Capsule.app`.
 
 - **Hotkey** `⌥⇧C` (Option-Shift-C) toggles recording. Also a menu: Start / Stop
-  recording, Open sessions folder, Quit. Icon: hollow circle idle, filled circle
-  while recording.
+  recording, Read text directly (Accessibility)…, Open sessions folder, Quit. Icon:
+  hollow circle idle, filled circle while recording.
+- **Start = the system picker.** Hotkey, menu or the `control` start command present
+  `SCContentSharingPicker` (single window, single display; several windows on macOS
+  15.2+). Recording starts only after the user picks. Closing the picker = no session:
+  `recording` stays false and `state.json` gets `"last_error":"cancelled"`. Pressing the
+  hotkey while the picker is open cancels it. A `control` start while the picker is
+  open brings it to the front.
+- Capture uses **only the picked filter**: one `SCStream`, `minimumFrameInterval` 3 s,
+  frames kept in memory (latest one only). No `CGPreflightScreenCaptureAccess` /
+  `CGRequestScreenCaptureAccess`, no `CGWindowListCreateImage` / `CGDisplayCreateImage`,
+  no `SCShareableContent` — so macOS shows no Screen Recording permission alert.
+- **Stop** stops the stream and sets `SCContentSharingPicker.shared.isActive = false`.
+  If the user stops sharing from the macOS menu-bar sharing icon, the session ends too.
 - While recording, every **3 s**:
-  - frontmost app name + bundle id, focused window title (Accessibility if granted,
-    else CGWindowList owner/name);
-  - screenshot of the display under the frontmost window, OCR with Apple Vision
-    (`VNRecognizeTextRequest`, accurate, language correction on);
+  - frontmost app name + bundle id + frontmost window (`NSWorkspace`, `CGWindowList`
+    ids/frames only — window names are never read from the window list);
+  - **is that window in the picked content?** Picked display: the window's centre is on
+    it. Picked window(s): it is one of them (by window id on 15.2+, else by matching
+    frame). If not, write nothing for this sample;
+  - **text, Accessibility first:** if Accessibility is allowed, walk the focused
+    window's AX tree (text roles `AXStaticText`, `AXTextArea`, `AXTextField`,
+    `AXComboBox`, `AXHeading`, `AXLink`, `AXCell`; ≤ 2000 nodes, ≤ 400 ms, depth ≤ 60;
+    secure text fields and everything inside them are never read). If that gives
+    < 80 letters/digits, or Accessibility is not allowed, **OCR** the latest frame of
+    the picked content with Apple Vision (`VNRecognizeTextRequest`, accurate, language
+    correction on), cropped to the front window when a whole display was picked;
+  - window title: Accessibility if allowed, else the picked window's title (15.2+),
+    else empty;
   - if the app, title and text are the same as the previous sample, skip it
     (only extend the previous event's `end`).
 - **Never record** (skip the sample entirely, write nothing): password managers and
@@ -43,11 +65,15 @@ files. Build script `capture/build.sh` → `capture/build/Capsule.app`.
   `password: …` lines → `[redacted]`.
 - Control from outside (the MCP server uses this): the app watches
   `~/.karya-capsule/control` — a JSON file `{"command":"start"|"stop","at":<ms>}`.
+  A start opens the picker; the user still has to pick.
   It also writes `~/.karya-capsule/state.json`:
-  `{"recording": bool, "session_id": string|null, "started_at": iso|null, "pid": int}`.
-- Permissions: Screen Recording (required), Accessibility (optional, better titles).
-  On first start, if screen capture is denied, show one alert explaining why and how
-  to grant it.
+  `{"recording": bool, "session_id": string|null, "started_at": iso|null, "pid": int,
+  "picking": bool, "last_error": string|null}` — `picking` is true while the picker
+  waits for the user; `last_error` says why the last start did not happen
+  (`"cancelled"`, `"picker: …"`, `"capture: …"`) and is cleared by the next start.
+- Permissions: none required (the picker is the consent). Accessibility is optional:
+  the menu item calls `AXIsProcessTrustedWithOptions` with the prompt and shows a check
+  mark once allowed. Recording never waits for it.
 
 ### Session files (the contract)
 
@@ -64,10 +90,12 @@ files. Build script `capture/build.sh` → `capture/build/Capsule.app`.
 
 ```json
 {"t":"2026-10-19T10:01:03Z","end":"2026-10-19T10:01:42Z","app":"Google Chrome",
- "bundle":"com.google.Chrome","title":"Pricing — Linear","text":"…OCR text…"}
+ "bundle":"com.google.Chrome","title":"Pricing — Linear","src":"ax","text":"…screen text…"}
 ```
 
-`text` is capped at 4000 chars per event (keep the start). Times are ISO-8601 UTC.
+`src` is where `text` came from: `"ax"` (Accessibility) or `"ocr"`. Readers must ignore
+unknown fields; older files have no `src`. `text` is capped at 4000 chars per event
+(keep the start). Times are ISO-8601 UTC.
 
 ### 2. mcp/ (TypeScript)
 

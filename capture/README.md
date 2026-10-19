@@ -1,13 +1,22 @@
 # Capsule — the capture app
 
-A small macOS menu-bar app (macOS 13+). Press **⌥⇧C** (Option-Shift-C) to start
-recording, press it again to stop. While recording, every 3 seconds it notes the
-front app, the window title, and the text on screen (Apple Vision OCR). Only text is
-saved, on this Mac, in `~/.karya-capsule/sessions/`. Screenshots stay in memory and
-are never written to disk. The file format is in [`../SPEC.md`](../SPEC.md).
+A small macOS menu-bar app (macOS 14+). Press **⌥⇧C** (Option-Shift-C): the macOS
+window/screen picker opens. Pick a window or a display and recording starts; close
+the picker to cancel. Press ⌥⇧C again to stop.
+
+While recording, every 3 seconds it notes the front app and, **only if the front
+window is part of what you picked**, its title and text. Text comes from the
+Accessibility API when you allow it (exact, and secure fields are never read);
+otherwise, or when an app shows too little text that way (Figma, video, canvas apps),
+from Apple Vision OCR of the picked content. Each event says which: `"src":"ax"` or
+`"src":"ocr"`. Only text is saved, on this Mac, in `~/.karya-capsule/sessions/`.
+Frames stay in memory and are never written to disk. The file format is in
+[`../SPEC.md`](../SPEC.md).
 
 Menu-bar icon: hollow circle = idle, filled circle = recording.
-Menu: Start / Stop recording, Open sessions folder, Quit.
+Menu: Start / Stop recording, Read text directly (Accessibility)…, Open sessions
+folder, Quit. While macOS shares the picked content you also see its own sharing
+icon in the menu bar; stopping there stops the recording.
 
 ## Build
 
@@ -20,23 +29,25 @@ open build/Capsule.app
 ```
 
 The app is **ad-hoc signed** (`codesign -s -`). macOS remembers permissions by
-signature, and every rebuild gets a new one, so **macOS may ask for Screen
-Recording again after each rebuild** (turn Capsule off and on again in System
-Settings → Privacy & Security → Screen Recording, then reopen it).
+signature, and every rebuild gets a new one, so after a rebuild the Accessibility
+check mark may be gone (turn Capsule off and on again in System Settings → Privacy &
+Security → Accessibility).
 
 ## Permissions
 
-- **Screen Recording** — required. On first launch Capsule shows one alert that
-  explains why and opens System Settings. After granting it, quit and reopen Capsule.
-- **Accessibility** — optional. If allowed, window titles come from the focused
-  window (more exact); otherwise from the window list.
+- **Screen Recording** — not needed. Capsule never asks for it and never captures
+  anything except what you pick in the system picker.
+- **Accessibility** — optional. Menu → *Read text directly (Accessibility)…* shows the
+  macOS prompt; the item has a check mark once allowed. With it, text and window
+  titles come straight from apps; without it, text comes from OCR and titles are
+  empty unless you picked a single window (macOS 15.2+). Recording never waits for it.
 
 ## Privacy
 
 - Never records password managers and private apps: any bundle id or app name
   containing `1password`, `bitwarden`, `keychain`, `lastpass`, `dashlane`, `signal`,
   `whatsapp` (plus Apple Passwords and the lock screen). Those samples are skipped
-  entirely, with no screenshot.
+  entirely: nothing is read.
 - Add your own in `~/.karya-capsule/config.json` (exact bundle id or app name):
   ```json
   {"exclude_apps": ["com.example.app"]}
@@ -55,26 +66,33 @@ The MCP server (`../mcp`) starts and stops recording by writing
 ```
 
 Capsule checks it twice a second and acts once per new `at`. A command written
-before Capsule launched is ignored. Capsule keeps `~/.karya-capsule/state.json` current:
+before Capsule launched is ignored. A start opens the picker (brought to the front);
+the user still has to pick. Capsule keeps `~/.karya-capsule/state.json` current:
 
 ```json
-{"recording": true, "session_id": "20261019-100103", "started_at": "2026-10-19T10:01:03Z", "pid": 4242}
+{"recording": true, "session_id": "20261019-100103", "started_at": "2026-10-19T10:01:03Z", "pid": 4242,
+ "picking": false, "last_error": null}
 ```
+
+`picking` is true while the picker waits. If the user closes it, `recording` stays
+false and `last_error` is `"cancelled"`.
 
 ## Tests
 
 ```sh
-./tests/run.sh                                     # redaction, exclusion, dedupe, file formats
-./build/Capsule.app/Contents/MacOS/Capsule --selftest   # OCR on a generated image; no permission needed
+./tests/run.sh      # redaction, exclusion, dedupe, file formats, picked-content membership,
+                    # OCR crop, AX text assembly + secure-field skipping, AX-vs-OCR choice
+./build/Capsule.app/Contents/MacOS/Capsule --selftest   # OCR (whole + cropped) on a generated image
 ```
 
 ## Files
 
 | file | does |
 |---|---|
-| `Sources/Core.swift` | pure logic: paths, JSON, times, redaction, exclusion, event log |
-| `Sources/Screen.swift` | front app + window title, screenshot, Vision OCR |
+| `Sources/Core.swift` | pure logic: paths, JSON, times, redaction, exclusion, event log, picked-content membership, AX text assembly, AX-vs-OCR choice |
+| `Sources/Picker.swift` | the system picker (`SCContentSharingPicker`) and the one `SCStream` of the picked content |
+| `Sources/Screen.swift` | front app + window, Accessibility text, Vision OCR |
 | `Sources/Recorder.swift` | sessions, 3 s sampling, state.json, control file |
-| `Sources/App.swift` | menu-bar icon and menu, ⌥⇧C hotkey, permission alert |
+| `Sources/App.swift` | menu-bar icon and menu, ⌥⇧C hotkey, Accessibility menu item |
 | `Sources/SelfTest.swift` | `--selftest` |
 | `Sources/main.swift` | entry point |
