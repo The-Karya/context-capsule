@@ -22,8 +22,15 @@ enum Screen {
     /// layers and frames without any permission. Window names come only if macOS gives them out
     /// (it never prompts for them).
     static func frontWindow(isExcluded: (_ bundle: String?, _ name: String?) -> Bool) -> FrontWindow? {
-        guard let app = NSWorkspace.shared.frontmostApplication else { return nil }
+        guard var app = NSWorkspace.shared.frontmostApplication else { return nil }
         let list = windowList(isExcluded: isExcluded)
+        if WindowList.isSystemUI(app.bundleIdentifier) {
+            // A menu-bar click doesn't change what you're working on: use the top window of a real app.
+            let isSystem: (Int32) -> Bool = { WindowList.isSystemUI(NSRunningApplication(processIdentifier: $0)?.bundleIdentifier) }
+            guard let pid = WindowList.topRegularPid(in: list, isSystem: isSystem),
+                  let owner = NSRunningApplication(processIdentifier: pid) else { return nil }
+            app = owner
+        }
         return FrontWindow(appName: app.localizedName ?? "", bundle: app.bundleIdentifier, pid: app.processIdentifier,
                            window: WindowList.front(pid: app.processIdentifier, in: list), list: list)
     }

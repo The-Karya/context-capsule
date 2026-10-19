@@ -61,7 +61,11 @@ final class Recorder {
 
     // MARK: start / stop (main thread)
 
+    /// A voice note is open: ⌥C waits until it's finished (⌥V), so one key never ends both.
+    var onBusyListening: (() -> Void)?
+
     func toggle() {
+        if isRecording && listening { onBusyListening?(); return }
         if isRecording { AppLog.shared.write("stop: hotkey or menu"); stop() } else if isPicking { cancelPicking() } else { start() }
     }
 
@@ -124,6 +128,7 @@ final class Recorder {
         changedAt = Date()
         reloadProjects(force: true)
         currentProject = projectChoice.pinned.map { ($0, "you") }
+        askedProject = false
         sessionID = id
         startedAt = now
         sessionDir = dir
@@ -190,6 +195,39 @@ final class Recorder {
         projectChoice.pinned = id.flatMap { id in projects.contains { $0.id == id } ? id : nil }
         AppLog.shared.write(projectChoice.pinned.map { "project pinned: \($0)" } ?? "project: auto-detect")
         if let pinned = projectChoice.pinned { setCurrent((pinned, "you")) } else if currentProject?.by == "you" { setCurrent(nil) }
+    }
+
+    /// The window in front right now (title, page/file, app), for "New project from this window" when no
+    /// sample has been taken yet. Private apps and our own app give nil.
+    func currentWindow() -> (title: String, location: String, app: String)? {
+        let own = Bundle.main.bundleIdentifier ?? "com.thekarya.contextcapsule"
+        let userList = Config.load(from: paths.config).excludeApps
+        let isExcluded: (String?, String?) -> Bool = { bundle, name in
+            bundle == own || Exclusion.isExcluded(bundle: bundle, appName: name, userList: userList)
+        }
+        guard let front = Screen.frontWindow(isExcluded: isExcluded), !isExcluded(front.bundle, front.appName) else {
+            return lastWindow
+        }
+        let title = AXReader.title(pid: front.pid) ?? front.window?.name ?? ""
+        return (Redactor.clean(title), Location.clean(AXReader.location(pid: front.pid)), front.appName)
+    }
+
+    /// Asked "What are you working on?" in this session already.
+    private var askedProject = false
+    /// No project found for the first window of a recording: ask the user (main thread).
+    var onAskProject: (((title: String, location: String, app: String)) -> Void)?
+
+    /// The user answered "What are you working on?": an existing project gets this window's clue, a new
+    /// name becomes a project with it. Auto-detect then finds it from now on.
+    func answerProject(name: String, window: (title: String, location: String, app: String)) {
+        let name = name.trimmingCharacters(in: .whitespaces)
+        guard !name.isEmpty else { return }
+        reloadProjects(force: true)
+        let existing = projects.first { $0.name.caseInsensitiveCompare(name) == .orderedSame || $0.id == Projects.slug(name) }
+        let clue = Projects.clue(title: window.title, location: window.location)
+        guard let project = createProject(name: existing?.name ?? name, clue: clue) else { return }
+        AppLog.shared.write("project answered: \(project.id)\(existing == nil ? " (new)" : ""), clue \(clue == nil ? "none" : "added")")
+        if clue == nil { pinProject(project.id) } else { setCurrent((project.id, "auto")) }
     }
 
     /// Make a project from the front window: the name the user typed, the window's best clue as `match`.
@@ -352,6 +390,10 @@ final class Recorder {
         guard isRecording else { return }
         lastWindow = (window.0, window.1, window.2)
         if let found { setCurrent(found) }
+        if found == nil && currentProject == nil && !askedProject {
+            askedProject = true
+            onAskProject?((window.0, window.1, window.2))
+        }
     }
 
     private func skip(_ why: Skip, _ log: EventLog) {

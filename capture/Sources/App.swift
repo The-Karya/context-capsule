@@ -60,6 +60,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
             self.toast.show("Project: \(project?.name ?? "not sure yet")", under: self.statusItem.button, seconds: 3)
         }
         recorder.reloadProjects(force: true)
+        recorder.onBusyListening = { [weak self] in
+            guard let self else { return }
+            self.toast.show("Finish the voice note first: press ⌥V. Then ⌥C stops recording.", under: self.statusItem.button, seconds: 4)
+        }
+        recorder.onAskProject = { [weak self] window in self?.askProject(window) }
         voice.onIndicator = { [weak self] on in
             self?.recorder.listening = on
             self?.refresh()
@@ -169,9 +174,36 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         refresh()
     }
 
+    /// "What are you working on?": pick a project or type a new name (prefilled from the window); the window's
+    /// clue is remembered so it's found automatically next time. "Not sure" leaves it for Claude to sort.
+    private func askProject(_ window: (title: String, location: String, app: String)) {
+        guard recorder.isRecording, !recorder.listening else { return }
+        let clue = Projects.clue(title: window.title, location: window.location)
+        let alert = NSAlert()
+        alert.messageText = "What are you working on?"
+        alert.informativeText = "Pick a project or type a new one. Context Capsule will remember this window"
+            + (clue.map { " (“\($0)”)" } ?? "") + " and know it by itself next time."
+        let box = NSComboBox(frame: NSRect(x: 0, y: 0, width: 280, height: 26))
+        box.addItems(withObjectValues: recorder.projects.map(\.name))
+        box.completes = true
+        box.placeholderString = "Project name"
+        box.stringValue = recorder.projects.isEmpty ? (clue ?? "") : ""
+        alert.accessoryView = box
+        alert.addButton(withTitle: "OK")
+        alert.addButton(withTitle: "Not sure")
+        NSApp.activate(ignoringOtherApps: true)
+        alert.window.initialFirstResponder = box
+        guard alert.runModal() == .alertFirstButtonReturn else {
+            AppLog.shared.write("project question: not sure")
+            return
+        }
+        recorder.answerProject(name: box.stringValue, window: window)
+        refresh()
+    }
+
     /// Ask for a name (prefilled from the window), remember the window's best clue, and switch to it.
     @objc private func newProject() {
-        let window = recorder.lastWindow
+        let window = recorder.currentWindow()
         let clue = window.flatMap { Projects.clue(title: $0.title, location: $0.location) }
         let alert = NSAlert()
         alert.messageText = "New project"

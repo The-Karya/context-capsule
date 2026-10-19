@@ -562,6 +562,19 @@ check(ControlCommand.parse(Data(#"{"command":"project","at":3}"#.utf8)) == nil, 
 check(stateJSON(recording: true, sessionID: "s", startedAt: nil, pid: 1, project: "report", projectBy: "auto")
       .hasSuffix(#""project":"report","project_by":"auto"}"#), "state.json project")
 
+// MARK: system UI is never the work window
+
+check(WindowList.isSystemUI("com.apple.controlcenter") && WindowList.isSystemUI("com.apple.Spotlight"), "system UI bundles")
+check(!WindowList.isSystemUI("com.google.Chrome") && !WindowList.isSystemUI(nil), "apps are not system UI")
+let sysList = [
+    ListedWindow(id: 1, pid: 10, owner: "Control Center", layer: 0, frame: CGRect(x: 0, y: 0, width: 300, height: 400)),
+    ListedWindow(id: 2, pid: 20, owner: "WhatsApp", frame: CGRect(x: 0, y: 30, width: 800, height: 600), excluded: true),
+    ListedWindow(id: 3, pid: 30, owner: "Chrome", frame: CGRect(x: 0, y: 30, width: 1400, height: 800)),
+]
+check(WindowList.topRegularPid(in: sysList, isSystem: { $0 == 10 }) == 20, "a private app on top is kept (then skipped as private)")
+check(WindowList.topRegularPid(in: Array(sysList.dropFirst(2)), isSystem: { $0 == 10 }) == 30, "top real app found")
+check(WindowList.topRegularPid(in: [sysList[0]], isSystem: { $0 == 10 }) == nil, "only system UI: none")
+
 try? FileManager.default.removeItem(at: tmp)
 print("\(passes) passed, \(failures) failed")
 exit(failures == 0 ? 0 : 1)

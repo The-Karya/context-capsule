@@ -429,6 +429,22 @@ enum WindowList {
         w.excluded || (w.owner == "Notification Center" && w.layer > 0)
     }
 
+    /// macOS's own menus and bars: never "the app you work in". When one is frontmost (you clicked the
+    /// menu bar, Control Center, Spotlight…), the work window is the top normal window of another app.
+    static let systemUI: Set<String> = [
+        "com.apple.controlcenter", "com.apple.systemuiserver", "com.apple.dock", "com.apple.notificationcenterui",
+        "com.apple.Spotlight", "com.apple.WindowManager", "com.apple.TextInputMenuAgent", "com.apple.TextInputSwitcher",
+        "com.apple.wifi.WiFiAgent", "com.apple.AirPlayUIAgent", "com.apple.UserNotificationCenter",
+    ]
+
+    static func isSystemUI(_ bundle: String?) -> Bool { bundle.map { systemUI.contains($0) } ?? false }
+
+    /// The pid that owns the top normal window, skipping system UI processes (`isSystem`). A private app's
+    /// window is NOT skipped: if it's on top, it's what the user is looking at, and the sample is skipped.
+    static func topRegularPid(in list: [ListedWindow], isSystem: (Int32) -> Bool) -> Int32? {
+        list.first { isNormal($0) && !isSystem($0.pid) }?.pid
+    }
+
     /// Mission Control / Exposé: the Dock puts full-screen windows below its usual layer (20) and shows
     /// every window, private ones too. Nothing may be read then.
     static func overlayActive(_ list: [ListedWindow]) -> Bool {
