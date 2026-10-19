@@ -5,7 +5,7 @@ set -eu
 cd "$(dirname "$0")"
 
 ARCHS="${ARCHS:-arm64 x86_64}"
-MIN_MACOS=13.0
+MIN_MACOS=14.0 # SCContentSharingPicker (the system picker) needs macOS 14
 APP=build/Capsule.app
 SDK="$(xcrun --sdk macosx --show-sdk-path)"
 
@@ -40,7 +40,7 @@ cat > "$APP/Contents/Info.plist" <<PLIST
   <key>LSUIElement</key><true/>
   <key>NSHighResolutionCapable</key><true/>
   <key>NSScreenCaptureUsageDescription</key>
-  <string>Capsule reads the text on your screen while you record, so your AI can tell what you worked on. Screenshots are never saved; only text is kept, on this Mac.</string>
+  <string>Capsule reads the text of the window or screen you pick, so your AI can tell what you worked on. Frames are never saved; only text is kept, on this Mac.</string>
 </dict>
 </plist>
 PLIST
