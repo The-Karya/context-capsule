@@ -1,19 +1,18 @@
-// karya-capsule — capture: the menu-bar app — status icon, menu, ⌥⇧C hotkey, permission alert.
+// karya-capsule — capture: the menu-bar app — status icon, menu, ⌥⇧C hotkey, optional Accessibility.
 
 import AppKit
 import Carbon.HIToolbox
 
-final class AppDelegate: NSObject, NSApplicationDelegate {
+final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     private let paths = Paths.standard
     private lazy var recorder = Recorder(paths: paths)
     private var statusItem: NSStatusItem!
     private let infoItem = NSMenuItem(title: "", action: nil, keyEquivalent: "")
     private let toggleItem = NSMenuItem(title: "", action: #selector(toggle), keyEquivalent: "c")
-    private let permissionItem = NSMenuItem(title: "Grant Screen Recording…", action: #selector(openScreenSettings),
-                                            keyEquivalent: "")
+    private let axItem = NSMenuItem(title: "Read text directly (Accessibility)…", action: #selector(askAccessibility),
+                                    keyEquivalent: "")
     private var hotKey: HotKey?
     private var control: ControlWatcher?
-    private var alertShown = false
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         try? FileManager.default.createDirectory(at: paths.sessions, withIntermediateDirectories: true)
@@ -25,17 +24,17 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         menu.addItem(infoItem)
         menu.addItem(.separator())
         menu.addItem(toggleItem)
-        menu.addItem(permissionItem)
+        menu.addItem(axItem)
         menu.addItem(NSMenuItem(title: "Open sessions folder", action: #selector(openSessions), keyEquivalent: ""))
         menu.addItem(.separator())
         menu.addItem(NSMenuItem(title: "Quit Capsule", action: #selector(NSApplication.terminate(_:)), keyEquivalent: "q"))
         for item in menu.items where item.action != nil && item.action != #selector(NSApplication.terminate(_:)) {
             item.target = self
         }
+        menu.delegate = self
         statusItem.menu = menu
 
         recorder.onChange = { [weak self] in self?.refresh() }
-        recorder.onPermissionNeeded = { [weak self] in self?.askForScreenRecording() }
 
         hotKey = HotKey(keyCode: kVK_ANSI_C, modifiers: optionKey | shiftKey) { [weak self] in self?.toggle() }
         if hotKey == nil { NSLog("Capsule: ⌥⇧C is taken by another app; use the menu instead") }
@@ -49,8 +48,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
         recorder.writeState()
         refresh()
-        if !CGPreflightScreenCaptureAccess() { askForScreenRecording() }
     }
+
+    func menuWillOpen(_ menu: NSMenu) { refresh() } // the Accessibility check mark may have changed
 
     func applicationWillTerminate(_ notification: Notification) {
         recorder.stop(wait: true)
@@ -68,11 +68,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         if let id = recorder.sessionID, let started = recorder.startedAt {
             let time = DateFormatter.localizedString(from: started, dateStyle: .none, timeStyle: .short)
             infoItem.title = "Recording since \(time) — \(id)"
+        } else if recorder.isPicking {
+            infoItem.title = "Pick a window or screen to record…"
         } else {
             infoItem.title = "Not recording"
         }
-        toggleItem.title = recording ? "Stop recording" : "Start recording"
-        permissionItem.isHidden = CGPreflightScreenCaptureAccess()
+        toggleItem.title = recording ? "Stop recording" : recorder.isPicking ? "Cancel picking" : "Start recording…"
+        axItem.state = AXReader.trusted ? .on : .off
     }
 
     @objc private func toggle() { recorder.toggle() }
@@ -82,34 +84,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         NSWorkspace.shared.open(paths.sessions)
     }
 
-    @objc private func openScreenSettings() {
-        CGRequestScreenCaptureAccess()
-        if let url = URL(string: "x-apple.systempreferences:com.apple.preference.security?Privacy_ScreenCapture") {
+    /// Optional. Shows the system Accessibility prompt; recording never waits for it.
+    @objc private func askAccessibility() {
+        if AXReader.requestTrust() { refresh(); return }
+        if let url = URL(string: "x-apple.systempreferences:com.apple.preference.security?Privacy_Accessibility") {
             NSWorkspace.shared.open(url)
         }
-    }
-
-    /// One explanation per launch; after that the menu keeps a "Grant Screen Recording…" item.
-    private func askForScreenRecording() {
-        refresh()
-        guard !alertShown else { return }
-        alertShown = true
-        CGRequestScreenCaptureAccess() // adds Capsule to the list in System Settings
-        NSApp.activate(ignoringOtherApps: true)
-        let alert = NSAlert()
-        alert.messageText = "Capsule needs Screen Recording"
-        alert.informativeText = """
-            Capsule reads the text on your screen while you record, so your AI can tell what you worked on. \
-            Screenshots stay in memory and are never saved; only the text is kept, on this Mac.
-
-            Open System Settings → Privacy & Security → Screen Recording, turn on Capsule, \
-            then quit and reopen Capsule.
-
-            Optional: allow Capsule under Accessibility too, for better window titles.
-            """
-        alert.addButton(withTitle: "Open System Settings")
-        alert.addButton(withTitle: "Later")
-        if alert.runModal() == .alertFirstButtonReturn { openScreenSettings() }
     }
 }
 
