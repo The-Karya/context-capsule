@@ -5,6 +5,7 @@ import path from "node:path";
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { InMemoryTransport } from "@modelcontextprotocol/sdk/inMemory.js";
 import { appRunning, describeSkip, readState, writeControl } from "../src/control.ts";
+import { words } from "../src/platform.ts";
 import { createServer } from "../src/server.ts";
 import { ev, tempHome, writeFixtureSession, writeSession } from "./helpers.ts";
 
@@ -72,7 +73,7 @@ describe("tools", () => {
   test("start_recording explains how to open the app when it isn't running", async () => {
     const r = await call("start_recording");
     expect(r.isError).toBe(true);
-    expect(r.text).toContain("open -a \"Context Capsule\"");
+    expect(r.text).toContain(words().openApp);
     expect(fs.existsSync(path.join(home, "control"))).toBe(false);
   });
 
@@ -98,7 +99,7 @@ describe("tools", () => {
     clearTimeout(timer);
     expect(readControl().command).toBe("start");
     expect(r.isError).toBe(false);
-    expect(r.text).toContain("The macOS picker is open");
+    expect(r.text).toContain(`${words().picker} is open`.replace(/^t/, "T"));
   });
 
   test("start_recording reports a cancelled picker", async () => {
