@@ -1,4 +1,5 @@
-// context-capsule — mcp: where the data lives (CONTEXT_CAPSULE_HOME, default ~/.context-capsule)
+// context-capsule — mcp: where the data lives (CONTEXT_CAPSULE_HOME; else $XDG_DATA_HOME/context-capsule on
+// Linux when set; else ~/.context-capsule — the same rule as the recorders)
 import os from "node:os";
 import path from "node:path";
 
@@ -8,9 +9,11 @@ export function homeDir(): string {
 }
 
 /** Root data dir. Read on every call so tests can switch it at runtime. */
-export function capsuleHome(): string {
+export function capsuleHome(platform: string = process.platform): string {
   const env = process.env.CONTEXT_CAPSULE_HOME;
   if (env && env.trim()) return path.resolve(expandHome(env.trim()));
+  const xdg = process.env.XDG_DATA_HOME?.trim();
+  if (platform === "linux" && xdg && path.isAbsolute(xdg)) return path.join(xdg, "context-capsule");
   return path.join(homeDir(), ".context-capsule");
 }
 

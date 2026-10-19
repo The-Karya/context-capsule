@@ -15,8 +15,8 @@ import {
   saveCapsule,
 } from "./capsules.js";
 import {
-  APP_NOT_RUNNING,
-  PICKER_OPEN,
+  appNotRunning,
+  pickerOpen,
   appRunning,
   describeSkip,
   describeStartError,
@@ -25,6 +25,7 @@ import {
   waitForState,
   writeControl,
 } from "./control.js";
+import { words } from "./platform.js";
 import { capsuleHome } from "./paths.js";
 import {
   formatDuration,
@@ -80,14 +81,14 @@ export function createServer(opts: ServerOptions = {}): McpServer {
     {
       title: "Start recording",
       description:
-        "Ask the Context Capsule menu-bar app to start recording. The app opens the macOS picker; the user chooses the window " +
+        "Ask the Context Capsule app to start recording. The app opens the system picker; the user chooses the window " +
         "or screen to record, and recording starts after that (screen text every 3 s, nothing leaves the Mac). " +
         "Returns the session id once recording, or says the picker is waiting for the user.",
       inputSchema: {},
     },
     safe(async () => {
       const state = readState();
-      if (!appRunning(state)) return fail(APP_NOT_RUNNING);
+      if (!appRunning(state)) return fail(appNotRunning());
       if (state!.recording)
         return text(`Already recording session ${state!.session_id ?? "(unknown)"}${since(state!.started_at)}. Call stop_recording when done.`);
       const out = await startAndWait(startMs);
@@ -95,16 +96,16 @@ export function createServer(opts: ServerOptions = {}): McpServer {
         case "recording":
           return text(
             `Recording started: session ${out.state.session_id ?? "(unknown)"}${since(out.state.started_at)}.\n` +
-              "Work as usual. Call stop_recording when you're done (or press ⌥⇧C).",
+              `Work as usual. Call stop_recording when you're done (or press ${words().recordKeyShort}).`,
           );
         case "picking":
-          return text(`${PICKER_OPEN}\nCall recording_status to check, and stop_recording when you're done.`);
+          return text(`${pickerOpen()}\nCall recording_status to check, and stop_recording when you're done.`);
         case "error":
           return fail(describeStartError(out.error));
         case "timeout":
           return text(
-            "Sent the start command, but the Context Capsule app hasn't answered yet. Look for the macOS picker or the " +
-              "menu-bar icon (a filled circle means recording), or call recording_status in a moment.",
+            `Sent the start command, but the Context Capsule app hasn't answered yet. Look for ${words().picker} or the ` +
+              `icon in the ${words().tray} (a filled circle means recording), or call recording_status in a moment.`,
           );
       }
     }),
@@ -123,7 +124,7 @@ export function createServer(opts: ServerOptions = {}): McpServer {
         return fail(
           "The Context Capsule app is not running, so nothing is being recorded." +
             latestHint() +
-            "\nTo record again, open the app (`open -a \"Context Capsule\"`) and call start_recording.",
+            `\nTo record again, open the app (${words().openApp}) and call start_recording.`,
         );
       }
       if (!state!.recording) return text(`Not recording right now.${latestHint()}`);
@@ -159,7 +160,7 @@ export function createServer(opts: ServerOptions = {}): McpServer {
     safe(() => {
       const state = readState();
       if (!state)
-        return text(`The Context Capsule app has not run yet on this Mac (no ${capsuleHome()}/state.json).\n${APP_NOT_RUNNING}`);
+        return text(`The Context Capsule app has not run yet on ${words().machine} (no ${capsuleHome()}/state.json).\n${appNotRunning()}`);
       const running = appRunning(state);
       const lines = [
         `App running: ${running ? "yes" : "no"}`,
@@ -175,9 +176,9 @@ export function createServer(opts: ServerOptions = {}): McpServer {
           lines.push(`Started: ${formatLocalDateTime(state.started_at)} (${formatDuration(Date.now() - Date.parse(state.started_at))} ago)`);
         if (state.events != null) lines.push(`Events so far: ${state.events}`);
         if (state.skip) lines.push(`Right now: not recording a sample — ${describeSkip(state.skip)}`);
-        if (state.listening) lines.push("Voice note: listening (press ⌥⇧V again to finish)");
+        if (state.listening) lines.push(`Voice note: listening (press ${words().voiceKeyShort} again to finish)`);
       }
-      if (!running) lines.push("", APP_NOT_RUNNING);
+      if (!running) lines.push("", appNotRunning());
       return text(lines.join("\n"));
     }),
   );
@@ -195,9 +196,9 @@ export function createServer(opts: ServerOptions = {}): McpServer {
       const body = note.trim();
       if (!body) return fail("The note is empty.");
       const state = readState();
-      if (!appRunning(state)) return fail(`Notes go into a recording, and the app isn't running.\n${APP_NOT_RUNNING}`);
+      if (!appRunning(state)) return fail(`Notes go into a recording, and the app isn't running.\n${appNotRunning()}`);
       if (!state!.recording)
-        return fail("Not recording right now, so there is no session to add the note to. Start one with start_recording (or ⌥⇧C), then add the note.");
+        return fail(`Not recording right now, so there is no session to add the note to. Start one with start_recording (or ${words().recordKeyShort}), then add the note.`);
       const at = Date.now();
       writeControl("note", at, body);
       const { confirmed } = await waitForState((s) => s.note_at === at || !s.recording, noteMs);

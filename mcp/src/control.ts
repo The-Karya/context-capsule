@@ -2,13 +2,14 @@
 import fs from "node:fs";
 import { controlFile, stateFile } from "./paths.js";
 import { readJson, writeFileAtomic } from "./fsutil.js";
+import { words } from "./platform.js";
 
 export interface RecorderState {
   recording: boolean;
   session_id: string | null;
   started_at: string | null;
   pid: number | null;
-  /** The macOS content picker is open, waiting for the user to choose what to record. */
+  /** The system picker is open, waiting for the user to choose what to record. */
   picking: boolean;
   /** Why the last start did not happen ("cancelled", "picker: …", "capture: …"); null after a good start. */
   last_error: string | null;
@@ -39,21 +40,26 @@ export function describeSkip(skip: string): string {
 
 export type Command = "start" | "stop" | "note";
 
-export const APP_NOT_RUNNING =
-  "The Context Capsule app is not running, so recording can't start yet.\n" +
-  "Open it first: run `open -a \"Context Capsule\"` in Terminal, or double-click Context Capsule.app " +
-  "(after building it with `capture/build.sh` it is in `capture/build/Context Capsule.app`; " +
-  "you can drag it to /Applications). A circle icon appears in the menu bar when it's ready. " +
-  "Then ask me again, or press ⌥⇧C (Option-Shift-C) to start recording yourself.";
+export function appNotRunning(): string {
+  const w = words();
+  return (
+    "The Context Capsule app is not running, so recording can't start yet.\n" +
+    `Open it first: ${w.openApp} ` +
+    `Then ask me again, or press ${w.recordKey} to start recording yourself.`
+  );
+}
 
-export const PICKER_OPEN =
-  "The macOS picker is open — choose the window or screen to record, then I'll be recording.";
+export function pickerOpen(): string {
+  return `${cap(words().picker)} is open — choose the window or screen to record, then I'll be recording.`;
+}
+
+const cap = (s: string) => s.charAt(0).toUpperCase() + s.slice(1);
 
 /** A clear sentence for a `last_error` from state.json. */
 export function describeStartError(err: string): string {
   if (err === "cancelled")
     return "Recording did not start: the picker was closed without choosing a window or screen. Ask me again when you're ready.";
-  return `Recording did not start: ${err}. Try again, or start it from the Context Capsule menu-bar icon (⌥⇧C).`;
+  return `Recording did not start: ${err}. Try again, or start it from the Context Capsule icon in the ${words().tray} (${words().recordKeyShort}).`;
 }
 
 /** Read state.json; null if the app never wrote one. */

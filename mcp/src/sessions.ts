@@ -3,6 +3,7 @@ import fs from "node:fs";
 import path from "node:path";
 import { isSafeName, sessionsDir } from "./paths.js";
 import { readJson } from "./fsutil.js";
+import { words } from "./platform.js";
 
 export interface SessionMeta {
   id: string;
@@ -77,7 +78,7 @@ export function resolveSessionId(id: string | undefined): string {
 }
 
 export function noSessionsMessage(): string {
-  return "No recorded sessions yet. Start one with the start_recording tool or press ⌥⇧C (Option-Shift-C) with the Context Capsule app running.";
+  return `No recorded sessions yet. Start one with the start_recording tool or press ${words().recordKey} with the Context Capsule app running.`;
 }
 
 export function readSessionMeta(id: string): SessionMeta {
