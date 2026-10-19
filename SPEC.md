@@ -1,6 +1,6 @@
 # context-capsule — v1 spec
 
-Open-source, macOS-first. Press a hotkey, work, press it again: Context Capsule reads
+Open-source, for macOS, Windows and Linux. Press a hotkey, work, press it again: Context Capsule reads
 your screen while you work and helps your own AI (Claude, via MCP) turn that into a
 **capsule** — one shareable file with what you worked on, the decisions you made and
 why. Send the capsule to anyone; their Claude loads it and knows the project.
@@ -13,6 +13,7 @@ user's Claude does the writing through MCP.
 ```
 context-capsule/
   capture/            Swift menu-bar app "Context Capsule" (macOS 14+)
+  capture-rs/         Rust recorders: core/ (shared logic), windows/, linux/
   mcp/                TypeScript MCP server (stdio), Node >= 18
   SPEC.md             this file — the contract between the two
   README.md, LICENSE (MIT)
@@ -101,6 +102,30 @@ files. Build script `capture/build.sh` → `capture/build/Context Capsule.app`
   the menu item calls `AXIsProcessTrustedWithOptions` with the prompt and shows a check
   mark once allowed. Recording never waits for it.
 
+### 1b. capture-rs/ (Rust: Windows and Linux)
+
+Same behaviour and the same files as `capture/`, through a shared crate
+(`capture-rs/core`: a port of the Swift logic, tested against the same vectors so
+events are byte-identical) and one tray app per OS. Hotkeys **Ctrl+Alt+Shift+C**
+(record) and **Ctrl+Alt+Shift+V** (voice note).
+
+| | Windows 10 1903+ / 11 | Linux (Wayland, X11) |
+|---|---|---|
+| Picker = consent | `GraphicsCapturePicker` | xdg-desktop-portal ScreenCast (PipeWire) |
+| Text first | UI Automation (password fields never read) | AT-SPI (password text never read) |
+| OCR fallback | Windows.Media.Ocr | Tesseract CLI, image piped in memory |
+| Overlay skipped | Task View, Alt-Tab | GNOME Activities, KDE Overview |
+| Masked | notification toasts, never-record windows | X11 notifications, never-record windows |
+| Voice notes | whisper.cpp + cpal | whisper.cpp + cpal |
+
+- If the picked item can't be identified for sure, or (Wayland) where the front window
+  sits on a picked screen is unknown, OCR fails closed: nothing is read from pixels.
+- Voice notes on Windows/Linux use whisper.cpp ("base" multilingual model, ~148 MB,
+  verified by SHA-256), downloaded once into `<data>/models/` only after the user agrees.
+- Data folder: `CONTEXT_CAPSULE_HOME`; else on Linux `$XDG_DATA_HOME/context-capsule`
+  when set; else `~/.context-capsule` (`%USERPROFILE%\.context-capsule` on Windows).
+  The MCP server uses the same rule.
+
 ### Session files (the contract)
 
 ```
@@ -188,7 +213,7 @@ Plain Markdown, readable by a human, by Claude, ChatGPT or anything else.
 
 ## Out of scope for v1
 
-Windows/Linux, ChatGPT remote connector (needs hosting), images, cloud sync, teams.
+ChatGPT remote connector (needs hosting), images, cloud sync, teams.
 
 ## Rules
 

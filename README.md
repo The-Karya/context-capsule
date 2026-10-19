@@ -4,7 +4,7 @@ by Karya
 
 **Turn what you worked on into context your AI already knows, and share it.**
 
-Press a hotkey, pick the window or screen to record in the macOS picker, work as
+Press a hotkey, pick the window or screen to record in the system picker, work as
 usual, press it again. Context Capsule reads the text of what you picked while you
 work. Your own Claude turns that into a **capsule**: one Markdown file with what you
 worked on, the decisions you made and why, open questions and next steps.
@@ -12,9 +12,10 @@ worked on, the decisions you made and why, open questions and next steps.
 Load the capsule into Claude and it knows your project. Email it to a teammate and
 their Claude knows it too.
 
-- **Local.** Screen text stays on your Mac. No account, no cloud, no telemetry.
-- **You choose what it sees.** Each recording starts with the macOS window/screen
-  picker. Context Capsule reads only what you picked, and needs no Screen Recording permission.
+- **Local.** Screen text stays on your computer. No account, no cloud, no telemetry.
+- **You choose what it sees.** Each recording starts with the system window/screen
+  picker (macOS, Windows, or the Linux screen-sharing portal). Context Capsule reads
+  only what you picked; on macOS it needs no Screen Recording permission.
 - **No screenshots kept.** Only the text on screen is saved; images are thrown away.
 - **Private apps skipped.** Password managers, WhatsApp, Signal and any app you list
   are never recorded. Anything that looks like a key or password is redacted.
@@ -23,7 +24,14 @@ their Claude knows it too.
 - **Open format.** A capsule is plain Markdown with a little front matter. Any person
   or AI can read it.
 
-> v1 is macOS 14+ and Claude (Desktop or Code). Windows and ChatGPT are planned.
+> v1: macOS 14+, Windows 10 (1903+) / 11, and Linux (Wayland or X11), with Claude
+> (Desktop or Code). ChatGPT is planned.
+>
+> | | macOS | Windows | Linux |
+> |---|---|---|---|
+> | Recorder | `capture/` (Swift) | `capture-rs/windows/` (Rust) | `capture-rs/linux/` (Rust) |
+> | Record / voice note | ⌥⇧C / ⌥⇧V | Ctrl+Alt+Shift+C / V | Ctrl+Alt+Shift+C / V |
+> | Status | tested | built, being tested | built, not yet tried on a real desktop |
 
 ## How it works
 
@@ -39,24 +47,41 @@ their Claude knows it too.
 
 ## Install
 
-You need macOS 14+, Node 18+ and [bun](https://bun.sh) (or npm).
+You need Node 18+ and [bun](https://bun.sh) (or npm) for the MCP server, plus the
+recorder for your system.
 
 ```sh
 git clone <this repo> context-capsule && cd context-capsule
 
-# 1. the recorder
-capture/build.sh              # builds "capture/build/Context Capsule.app"
-open "capture/build/Context Capsule.app"
-
-# 2. the MCP server
-cd mcp && bun install && bun run build
+# the MCP server (all systems)
+cd mcp && bun install && bun run build && cd ..
 ```
 
-Each time you start a recording, macOS shows its window/screen picker; pick a window
-or a display and recording begins. There is no Screen Recording permission to grant.
-Optional: menu → **Read text directly (Accessibility)…** lets Context Capsule read
-text straight from apps (cleaner than OCR, and gives window titles). Without it, it
-uses OCR on the picked content.
+**macOS 14+**: Xcode command line tools (`xcode-select --install`).
+
+```sh
+capture/build.sh              # builds "capture/build/Context Capsule.app"
+open "capture/build/Context Capsule.app"
+```
+
+**Windows 10/11**: [Rust](https://rustup.rs), Visual Studio Build Tools (C++), CMake and
+LLVM (for voice notes). In PowerShell: `capture-rs\windows\build.ps1`, then run
+`capture-rs\target\release\context-capsule.exe`. A circle appears in the system tray.
+Details: [capture-rs/windows/README.md](capture-rs/windows/README.md). From a Mac you can
+also cross-build the `.exe`: `capture-rs/windows/cross-build.sh`.
+
+**Linux**: Rust, plus PipeWire, D-Bus and (optionally) Tesseract dev packages; see
+[capture-rs/linux/README.md](capture-rs/linux/README.md). Then `capture-rs/linux/build.sh`
+and run `context-capsule &`.
+
+Data lives in `~/.context-capsule/` (`%USERPROFILE%\.context-capsule\` on Windows;
+`$XDG_DATA_HOME/context-capsule` on Linux when that is set).
+
+Each time you start a recording, the system shows its window/screen picker; pick a
+window or a display and recording begins. Text comes straight from apps where the
+system allows it (macOS Accessibility — optional, menu → **Read text directly
+(Accessibility)…**; Windows UI Automation; Linux AT-SPI), and from OCR of the picked
+content otherwise.
 
 ### Connect to Claude
 
@@ -66,7 +91,9 @@ uses OCR on the picked content.
 claude mcp add context-capsule -- node /absolute/path/to/context-capsule/mcp/dist/index.js
 ```
 
-**Claude Desktop**: add to `~/Library/Application Support/Claude/claude_desktop_config.json`:
+**Claude Desktop**: add to its config file (macOS
+`~/Library/Application Support/Claude/claude_desktop_config.json`, Windows
+`%APPDATA%\Claude\claude_desktop_config.json`):
 
 ```json
 {
@@ -83,9 +110,9 @@ Restart Claude Desktop.
 
 ## Use it
 
-1. Press **⌥⇧C** (or ask Claude: *"start recording"*). Pick a window or screen in the
-   macOS picker. The menu-bar circle fills in. Close the picker to cancel.
-2. Work. Any time, press **⌥⇧V** and say what you're doing and why; press ⌥⇧V again
+1. Press **⌥⇧C** (Windows/Linux: **Ctrl+Alt+Shift+C**), or ask Claude: *"start
+   recording"*. Pick a window or screen in the picker. The menu-bar circle fills in. Close the picker to cancel.
+2. Work. Any time, press **⌥⇧V** (Ctrl+Alt+Shift+V) and say what you're doing and why; press it again
    to finish (see *Voice notes* below).
 3. Press **⌥⇧C** again (or *"stop recording"*).
 4. Ask Claude: *"Make a capsule from my last session."* Claude reads the timeline,
@@ -103,9 +130,10 @@ backs them up.
 - Press **⌥⇧V** (or menu → *Add voice note*), talk, press **⌥⇧V** again. The menu-bar
   icon shows a microphone while it listens. A note stops by itself after 2 minutes.
 - The microphone is open **only** between the two presses.
-- Speech is turned into text **on your Mac** (Apple Speech, on-device only). If your
-  language has no on-device model, Context Capsule tells you and does nothing; it never
-  falls back to Apple's servers. Set another language with `"voice_locale": "en-GB"` in
+- Speech is turned into text **on your computer**: Apple Speech (on-device only) on
+  macOS; whisper.cpp on Windows and Linux (a one-time ~148 MB model download, only
+  after you agree). If your language has no on-device model, Context Capsule tells you
+  and does nothing; it never falls back to a cloud service. Set another language with `"voice_locale": "en-GB"` in
   `~/.context-capsule/config.json`.
 - **No audio is saved.** Only the text goes into the session, redacted like screen text.
   Silent clips are skipped ("Didn't catch that").
@@ -157,7 +185,9 @@ decide what leaves your laptop.
 
 ## Develop
 
-- `capture/tests/run.sh`: recorder logic tests (Swift)
+- `capture/tests/run.sh`: macOS recorder logic tests (Swift)
+- `cd capture-rs && cargo test -p context-capsule-core`: shared Windows/Linux core (same test vectors as Swift)
+- `cargo test -p context-capsule-windows` / Linux in Docker: see `capture-rs/ci/linux.Dockerfile`
 - `cd mcp && bun run test`: server tests
 - [SPEC.md](SPEC.md): the contract between the recorder and the server
 
