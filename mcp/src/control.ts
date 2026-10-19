@@ -1,4 +1,5 @@
 // karya-capsule — mcp: talk to the Capsule menu-bar app (control file out, state.json in)
+import fs from "node:fs";
 import { controlFile, stateFile } from "./paths.js";
 import { readJson, writeFileAtomic } from "./fsutil.js";
 
@@ -7,6 +8,10 @@ export interface RecorderState {
   session_id: string | null;
   started_at: string | null;
   pid: number | null;
+  /** The macOS content picker is open, waiting for the user to choose what to record. */
+  picking: boolean;
+  /** Why the last start did not happen ("cancelled", "picker: …", "capture: …"); null after a good start. */
+  last_error: string | null;
 }
 
 export type Command = "start" | "stop";
@@ -18,6 +23,16 @@ export const APP_NOT_RUNNING =
   "you can drag it to /Applications). A circle icon appears in the menu bar when it's ready. " +
   "Then ask me again, or press ⌥⇧C (Option-Shift-C) to start recording yourself.";
 
+export const PICKER_OPEN =
+  "The macOS picker is open — choose the window or screen to record, then I'll be recording.";
+
+/** A clear sentence for a `last_error` from state.json. */
+export function describeStartError(err: string): string {
+  if (err === "cancelled")
+    return "Recording did not start: the picker was closed without choosing a window or screen. Ask me again when you're ready.";
+  return `Recording did not start: ${err}. Try again, or start it from the Capsule menu-bar icon (⌥⇧C).`;
+}
+
 /** Read state.json; null if the app never wrote one. */
 export function readState(): RecorderState | null {
   const s = readJson<Partial<RecorderState>>(stateFile());
@@ -27,6 +42,8 @@ export function readState(): RecorderState | null {
     session_id: typeof s.session_id === "string" ? s.session_id : null,
     started_at: typeof s.started_at === "string" ? s.started_at : null,
     pid: typeof s.pid === "number" && Number.isInteger(s.pid) ? s.pid : null,
+    picking: s.picking === true,
+    last_error: typeof s.last_error === "string" && s.last_error ? s.last_error : null,
   };
 }
 
@@ -65,4 +82,42 @@ export async function waitForState(
     await new Promise((r) => setTimeout(r, intervalMs));
     state = readState();
   }
+}
+
+export type StartOutcome =
+  | { kind: "recording"; state: RecorderState }
+  | { kind: "picking"; state: RecorderState }
+  | { kind: "error"; state: RecorderState; error: string }
+  | { kind: "timeout"; state: RecorderState | null };
+
+function stateStamp(): string {
+  try {
+    const st = fs.statSync(stateFile());
+    return `${st.mtimeMs}:${st.size}:${fs.readFileSync(stateFile(), "utf8")}`;
+  } catch {
+    return "";
+  }
+}
+
+/**
+ * Write the start command, then wait for the app: the picker opened, recording began, or it
+ * reported an error. A `last_error` left over from before the command is ignored until
+ * state.json changes (the app clears it on every start).
+ */
+export async function startAndWait(timeoutMs: number, intervalMs = 200): Promise<StartOutcome> {
+  const before = stateStamp();
+  writeControl("start");
+  let fresh = false;
+  const { state, confirmed } = await waitForState(
+    (s) => {
+      if (!fresh && stateStamp() !== before) fresh = true;
+      return s.recording || s.picking || (fresh && !!s.last_error);
+    },
+    timeoutMs,
+    intervalMs,
+  );
+  if (!confirmed || !state) return { kind: "timeout", state };
+  if (state.recording) return { kind: "recording", state };
+  if (state.picking) return { kind: "picking", state };
+  return { kind: "error", state, error: state.last_error! };
 }

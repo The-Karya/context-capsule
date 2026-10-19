@@ -19,6 +19,8 @@ export interface CaptureEvent {
   bundle?: string;
   title?: string;
   text?: string;
+  /** Where `text` came from: Accessibility or OCR. Missing in older sessions. */
+  src?: "ax" | "ocr";
 }
 
 export interface SessionSummary {
@@ -29,6 +31,8 @@ export interface SessionSummary {
   duration_ms: number;
   events: number;
   top_apps: { app: string; ms: number }[];
+  /** How many events got their text from Accessibility vs OCR. */
+  sources: { ax: number; ocr: number };
 }
 
 /** Minimum time we credit to one sample (the app samples every 3 s). */
@@ -100,6 +104,7 @@ export function readEvents(id: string): CaptureEvent[] {
         bundle: typeof e.bundle === "string" ? e.bundle : undefined,
         title: typeof e.title === "string" ? e.title : "",
         text: typeof e.text === "string" ? e.text : "",
+        src: e.src === "ax" || e.src === "ocr" ? e.src : undefined,
       });
     } catch {
       // skip partial or broken lines
@@ -136,6 +141,10 @@ export function summarizeSession(id: string): SessionSummary {
     duration_ms: Number.isFinite(start) && Number.isFinite(end) ? Math.max(0, end - start) : 0,
     events: events.length,
     top_apps: appTimes(events).slice(0, 5),
+    sources: {
+      ax: events.filter((e) => e.src === "ax").length,
+      ocr: events.filter((e) => e.src === "ocr").length,
+    },
   };
 }
 

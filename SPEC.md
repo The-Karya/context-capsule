@@ -107,10 +107,10 @@ Tools:
 
 | tool | does |
 |---|---|
-| `start_recording` | writes `control` start; returns state (errors clearly if the app isn't running, with how to start it) |
+| `start_recording` | writes `control` start, waits up to ~6 s for `picking` (picker open), `recording` (session id) or `last_error` (e.g. cancelled); errors clearly if the app isn't running, with how to open it |
 | `stop_recording` | writes `control` stop; returns the session id |
-| `recording_status` | reads `state.json` |
-| `list_sessions` | id, start, end, duration, top apps |
+| `recording_status` | reads `state.json`: running, picking, recording, last_error |
+| `list_sessions` | id, start, end, duration, text source mix (ax / ocr), top apps |
 | `get_session_activity` `{session_id, max_chars?=60000}` | a condensed timeline for the AI: grouped by app/window, time spans, de-duplicated text (drop lines seen before, collapse whitespace), trimmed to `max_chars` keeping a fair share per segment |
 | `save_capsule` `{title, markdown, session_ids?}` | validates + writes `capsules/<slug>.capsule.md` with front matter; returns path |
 | `list_capsules` | title, author, created, path |

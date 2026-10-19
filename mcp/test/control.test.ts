@@ -6,7 +6,7 @@ import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { InMemoryTransport } from "@modelcontextprotocol/sdk/inMemory.js";
 import { appRunning, readState, writeControl } from "../src/control.ts";
 import { createServer } from "../src/server.ts";
-import { tempHome, writeFixtureSession } from "./helpers.ts";
+import { ev, tempHome, writeFixtureSession, writeSession } from "./helpers.ts";
 
 let home: string;
 let client: Client;
@@ -45,7 +45,16 @@ describe("files", () => {
     expect(readState()).toBeNull();
     writeState({ recording: true, session_id: "20261019-100000", started_at: "2026-10-19T10:00:00Z", pid: process.pid });
     const s = readState()!;
-    expect(s).toEqual({ recording: true, session_id: "20261019-100000", started_at: "2026-10-19T10:00:00Z", pid: process.pid });
+    expect(s).toEqual({
+      recording: true,
+      session_id: "20261019-100000",
+      started_at: "2026-10-19T10:00:00Z",
+      pid: process.pid,
+      picking: false,
+      last_error: null,
+    });
+    writeState({ recording: false, pid: process.pid, picking: true, last_error: "cancelled" });
+    expect(readState()).toMatchObject({ picking: true, last_error: "cancelled" });
     expect(appRunning(s)).toBe(true);
     expect(appRunning({ ...s, pid: 999999 })).toBe(false);
   });
@@ -72,6 +81,37 @@ describe("tools", () => {
     expect(r.text).toContain("Recording started: session 20261019-120000");
   });
 
+  test("start_recording says the picker is open while the user chooses", async () => {
+    writeState({ recording: false, session_id: null, started_at: null, pid: process.pid, picking: false, last_error: null });
+    const timer = setTimeout(() => {
+      writeState({ recording: false, session_id: null, started_at: null, pid: process.pid, picking: true, last_error: null });
+    }, 300);
+    const r = await call("start_recording");
+    clearTimeout(timer);
+    expect(readControl().command).toBe("start");
+    expect(r.isError).toBe(false);
+    expect(r.text).toContain("The macOS picker is open");
+  });
+
+  test("start_recording reports a cancelled picker", async () => {
+    writeState({ recording: false, session_id: null, started_at: null, pid: process.pid, picking: false, last_error: null });
+    const timer = setTimeout(() => {
+      writeState({ recording: false, session_id: null, started_at: null, pid: process.pid, picking: false, last_error: "cancelled" });
+    }, 300);
+    const r = await call("start_recording");
+    clearTimeout(timer);
+    expect(r.isError).toBe(true);
+    expect(r.text).toContain("picker was closed");
+  });
+
+  test("start_recording ignores a last_error left from before, and never mentions Screen Recording", async () => {
+    writeState({ recording: false, session_id: null, started_at: null, pid: process.pid, picking: false, last_error: "cancelled" });
+    const r = await call("start_recording"); // the app never answers
+    expect(r.isError).toBe(false);
+    expect(r.text).toContain("hasn't answered yet");
+    expect(r.text).not.toContain("Screen Recording");
+  });
+
   test("stop_recording writes stop and returns the session id", async () => {
     writeState({ recording: true, session_id: "20261019-120000", started_at: "2026-10-19T12:00:00Z", pid: process.pid });
     const timer = setTimeout(() => {
@@ -90,6 +130,28 @@ describe("tools", () => {
     const r = await call("recording_status");
     expect(r.text).toContain("Recording: yes");
     expect(r.text).toContain("Session: 20261019-120000");
+
+    writeState({ recording: false, pid: process.pid, picking: true, last_error: null });
+    expect((await call("recording_status")).text).toContain("Picker: open");
+    writeState({ recording: false, pid: process.pid, picking: false, last_error: "cancelled" });
+    const c = await call("recording_status");
+    expect(c.text).toContain("Recording: no");
+    expect(c.text).toContain("picker closed without a choice");
+  });
+
+  test("list_sessions shows where the text came from", async () => {
+    writeSession(home, "20261019-090000", [
+      { ...ev(0, "Notes", "A", "alpha line here"), src: "ax" },
+      { ...ev(1, "Notes", "B", "beta line here"), src: "ax" },
+      { ...ev(2, "Preview", "C", "gamma line here"), src: "ax" },
+      { ...ev(3, "Preview", "D", "delta line here"), src: "ocr" },
+    ]);
+    writeFixtureSession(home, "20261019-100000"); // older format, no src
+    const r = await call("list_sessions");
+    expect(r.text).toContain("(text: 75% accessibility, 25% OCR)");
+    expect(r.text.split("\n").find((l) => l.includes("20261019-100000"))).not.toContain("text:");
+    const a = await call("get_session_activity", { session_id: "20261019-090000" });
+    expect(a.text).toContain("Accessibility (3 samples) and OCR (1 sample,");
   });
 
   test("unknown session gives a friendly error", async () => {
