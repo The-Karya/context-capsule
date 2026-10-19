@@ -468,7 +468,7 @@ do {
     let r = VoiceRig()
     r.press(recording: false)
     check(r.resetOK || r.indicator.isEmpty, "not recording: mic never opens")
-    check(r.outcomes == [.notRecording] && r.outcomes[0].message == "Start recording first (⌥⇧C)", "not recording message")
+    check(r.outcomes == [.notRecording] && r.outcomes[0].message == "Start recording first (⌥C)", "not recording message")
     check(r.notes.phase == .idle && !r.engine.micOpen, "not recording: idle")
 }
 do {

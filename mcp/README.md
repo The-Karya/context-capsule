@@ -55,9 +55,9 @@ claude mcp add context-capsule -- node /Users/you/context-capsule/mcp/dist/index
 ## Use it
 
 1. Open the Context Capsule app (`open -a "Context Capsule"`). A circle shows in the menu bar.
-2. Say "start recording" to Claude (or press ⌥⇧C). The macOS picker opens: choose the
+2. Say "start recording" to Claude (or press ⌥C). The macOS picker opens: choose the
    window or screen to record. Work as usual.
-   While recording, press ⌥⇧V to say what you're doing and why (a voice note), or
+   While recording, press ⌥V to say what you're doing and why (a voice note), or
    tell Claude "add a note: …".
 3. Say "stop recording", then use the **make_capsule** prompt (or ask "make a capsule
    from my last session").
@@ -100,7 +100,7 @@ Also:
 
 ## Voice notes
 
-While recording, press **⌥⇧V** in the app, talk, press it again. Speech becomes text on
+While recording, press **⌥V** in the app, talk, press it again. Speech becomes text on
 the Mac (Apple Speech, on-device only, no audio kept) and goes into the session as
 `"kind":"voice"`. Or type: `add_note`. The `make_capsule` prompt treats notes as the
 user's own words, the primary source for decisions, reasons and intent; screen text is

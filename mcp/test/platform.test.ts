@@ -17,7 +17,7 @@ describe("platform words", () => {
   });
 
   test("each OS names its own hotkey and how to open the app", () => {
-    expect(words("mac").recordKeyShort).toBe("⌥⇧C");
+    expect(words("mac").recordKeyShort).toBe("⌥C");
     expect(words("mac").openApp).toContain("open -a");
     expect(words("windows").recordKeyShort).toBe("Ctrl+Alt+Shift+C");
     expect(words("windows").openApp).not.toContain("open -a");

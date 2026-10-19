@@ -1,4 +1,4 @@
-// context-capsule — capture: the menu-bar app — status icon, menu, ⌥⇧C / ⌥⇧V hotkeys, voice notes, optional Accessibility.
+// context-capsule — capture: the menu-bar app — status icon, menu, ⌥C / ⌥V hotkeys, voice notes, optional Accessibility.
 
 import AppKit
 import Carbon.HIToolbox
@@ -32,8 +32,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         let menu = NSMenu()
         infoItem.isEnabled = false
         skipItem.isEnabled = false
-        toggleItem.keyEquivalentModifierMask = [.option, .shift]
-        voiceItem.keyEquivalentModifierMask = [.option, .shift]
+        toggleItem.keyEquivalentModifierMask = [.option]
+        voiceItem.keyEquivalentModifierMask = [.option]
         menu.addItem(infoItem)
         menu.addItem(skipItem)
         menu.addItem(.separator())
@@ -65,10 +65,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
             }())
         }
 
-        hotKey = HotKey(keyCode: kVK_ANSI_C, modifiers: optionKey | shiftKey, id: 1) { [weak self] in self?.toggle() }
-        if hotKey == nil { NSLog("Context Capsule: ⌥⇧C is taken by another app; use the menu instead") }
-        voiceKey = HotKey(keyCode: kVK_ANSI_V, modifiers: optionKey | shiftKey, id: 2) { [weak self] in self?.toggleVoice() }
-        if voiceKey == nil { NSLog("Context Capsule: ⌥⇧V is taken by another app; use the menu instead") }
+        hotKey = HotKey(keyCode: kVK_ANSI_C, modifiers: optionKey, id: 1) { [weak self] in self?.toggle() }
+        if hotKey == nil { NSLog("Context Capsule: ⌥C is taken by another app; use the menu instead") }
+        voiceKey = HotKey(keyCode: kVK_ANSI_V, modifiers: optionKey, id: 2) { [weak self] in self?.toggleVoice() }
+        if voiceKey == nil { NSLog("Context Capsule: ⌥V is taken by another app; use the menu instead") }
 
         control = ControlWatcher(url: paths.control) { [weak self] cmd in
             switch cmd.kind {
@@ -108,8 +108,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         }
         statusItem.button?.image = image
         announce(recording: recording, listening: listening)
-        statusItem.button?.toolTip = listening ? "Listening — press ⌥⇧V to finish the voice note"
-            : recording ? "Context Capsule is recording (⌥⇧C to stop, ⌥⇧V for a voice note)" : "Context Capsule (⌥⇧C to record)"
+        statusItem.button?.toolTip = listening ? "Listening — press ⌥V to finish the voice note"
+            : recording ? "Context Capsule is recording (⌥C to stop, ⌥V for a voice note)" : "Context Capsule (⌥C to record)"
         voiceItem.title = listening ? "Finish voice note" : "Add voice note"
 
         if let id = recorder.sessionID, let started = recorder.startedAt {
@@ -132,7 +132,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         if recording != wasRecording {
             wasRecording = recording
             if recording {
-                toast.show("● Recording started. Press ⌥⇧C to stop, ⌥⇧V for a voice note.", under: statusItem.button, seconds: 4)
+                toast.show("● Recording started. Press ⌥C to stop, ⌥V for a voice note.", under: statusItem.button, seconds: 4)
             } else {
                 let n = recorder.eventCount
                 toast.show("■ Recording stopped: \(n) event\(n == 1 ? "" : "s") saved.", under: statusItem.button, seconds: 4)
@@ -141,7 +141,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         if listening != wasListening {
             wasListening = listening
             if listening {
-                listenToast.show("🎙 Listening… press ⌥⇧V to finish", under: statusItem.button, seconds: Voice.maxSeconds + 5)
+                listenToast.show("🎙 Listening… press ⌥V to finish", under: statusItem.button, seconds: Voice.maxSeconds + 5)
             } else {
                 listenToast.hideNow()
             }
@@ -150,7 +150,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
 
     @objc private func toggle() { recorder.toggle() }
 
-    /// ⌥⇧V: start talking, press again to stop. Only while recording.
+    /// ⌥V: start talking, press again to stop. Only while recording.
     @objc private func toggleVoice() { voice.toggle(locale: recorder.voiceLocale, target: recorder.noteTarget()) }
 
     @objc private func openSessions() {
@@ -239,7 +239,7 @@ final class HotKey {
 }
 
 /// A small message under the menu-bar icon that fades by itself ("Voice note saved",
-/// "Start recording first (⌥⇧C)"). Needs no notification permission.
+/// "Start recording first (⌥C)"). Needs no notification permission.
 final class Toast {
     private var panel: NSPanel?
     private var hide: DispatchWorkItem?

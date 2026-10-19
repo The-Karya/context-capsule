@@ -25,7 +25,7 @@ A small menu-bar app, built with `swiftc` (no Xcode project needed), one or a fe
 files. Build script `capture/build.sh` → `capture/build/Context Capsule.app`
 (executable `ContextCapsule`, bundle id `com.thekarya.contextcapsule`).
 
-- **Hotkey** `⌥⇧C` (Option-Shift-C) toggles recording. Also a menu: Start / Stop
+- **Hotkey** `⌥C` (Option-C) toggles recording. Also a menu: Start / Stop
   recording, Read text directly (Accessibility)…, Open sessions folder, Quit. Icon:
   hollow circle idle, filled circle while recording.
 - **Start = the system picker.** Hotkey, menu or the `control` start command present
@@ -65,8 +65,8 @@ files. Build script `capture/build.sh` → `capture/build/Context Capsule.app`
     else the `CGWindowList` name when macOS gives it out (never prompted for), else empty;
   - if the app, title and text are the same as the previous sample, skip it
     (only extend the previous event's `end`).
-- **Voice notes** — `⌥⇧V` (menu *Add voice note*) starts talking, press again to stop;
-  only while recording (else a message: "Start recording first (⌥⇧C)"). The mic opens
+- **Voice notes** — `⌥V` (menu *Add voice note*) starts talking, press again to stop;
+  only while recording (else a message: "Start recording first (⌥C)"). The mic opens
   only between the presses; the menu-bar icon shows a mic while listening and resets on
   every way out (saved, empty, denied, error, 2-min limit, recording stopped).
   `AVAudioEngine` input tap → `SFSpeechRecognizer` with `requiresOnDeviceRecognition`;

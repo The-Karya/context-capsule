@@ -8,9 +8,9 @@ export function currentOS(platform: string = process.platform): OS {
 }
 
 export interface PlatformWords {
-  /** Start/stop recording, e.g. "⌥⇧C (Option-Shift-C)". */
+  /** Start/stop recording, e.g. "⌥C (Option-C)". */
   recordKey: string;
-  /** Short form, e.g. "⌥⇧C". */
+  /** Short form, e.g. "⌥C". */
   recordKeyShort: string;
   voiceKeyShort: string;
   /** "the macOS picker" / "the Windows picker" / "the screen-sharing picker". */
@@ -25,9 +25,9 @@ export interface PlatformWords {
 
 const WORDS: Record<OS, PlatformWords> = {
   mac: {
-    recordKey: "⌥⇧C (Option-Shift-C)",
-    recordKeyShort: "⌥⇧C",
-    voiceKeyShort: "⌥⇧V",
+    recordKey: "⌥C (Option-C)",
+    recordKeyShort: "⌥C",
+    voiceKeyShort: "⌥V",
     picker: "the macOS picker",
     tray: "menu bar",
     openApp:

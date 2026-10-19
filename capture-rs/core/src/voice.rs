@@ -54,8 +54,8 @@ pub struct PlatformText {
 
 impl PlatformText {
     pub const MACOS: PlatformText = PlatformText {
-        record_hotkey: "⌥⇧C",
-        voice_hotkey: "⌥⇧V",
+        record_hotkey: "⌥C",
+        voice_hotkey: "⌥V",
         sound_input: "System Settings → Sound → Input",
         mic_privacy: "System Settings → Privacy & Security → Microphone",
         speech_privacy: "System Settings → Privacy & Security → Speech Recognition",

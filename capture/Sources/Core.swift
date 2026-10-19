@@ -629,7 +629,7 @@ enum VoiceOutcome: Equatable {
         case .silent(let device):
             let mic = device.map { "“\($0)”" } ?? "the microphone"
             return "Didn't catch that. Nothing was heard from \(mic). Check System Settings → Sound → Input."
-        case .notRecording: return "Start recording first (⌥⇧C)"
+        case .notRecording: return "Start recording first (⌥C)"
         case .denied(.microphone):
             return "Context Capsule can't use the microphone. Turn it on in System Settings → Privacy & Security → Microphone."
         case .denied(.speech):

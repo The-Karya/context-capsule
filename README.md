@@ -30,13 +30,13 @@ their Claude knows it too.
 > | | macOS | Windows | Linux |
 > |---|---|---|---|
 > | Recorder | `capture/` (Swift) | `capture-rs/windows/` (Rust) | `capture-rs/linux/` (Rust) |
-> | Record / voice note | ⌥⇧C / ⌥⇧V | Ctrl+Alt+Shift+C / V | Ctrl+Alt+Shift+C / V |
+> | Record / voice note | ⌥C / ⌥V | Ctrl+Alt+Shift+C / V | Ctrl+Alt+Shift+C / V |
 > | Status | tested | built, being tested | built, not yet tried on a real desktop |
 
 ## How it works
 
 ```
- ⌥⇧C  ──►  Context Capsule.app  ──►  ~/.context-capsule/sessions/<id>/events.jsonl
+ ⌥C  ──►  Context Capsule.app  ──►  ~/.context-capsule/sessions/<id>/events.jsonl
                                               │  (app, window, on-screen text, times)
                                               ▼
  Claude  ◄──►  context-capsule-mcp  ──►  ~/.context-capsule/capsules/<name>.capsule.md
@@ -110,11 +110,11 @@ Restart Claude Desktop.
 
 ## Use it
 
-1. Press **⌥⇧C** (Windows/Linux: **Ctrl+Alt+Shift+C**), or ask Claude: *"start
+1. Press **⌥C** (Windows/Linux: **Ctrl+Alt+Shift+C**), or ask Claude: *"start
    recording"*. Pick a window or screen in the picker. The menu-bar circle fills in. Close the picker to cancel.
-2. Work. Any time, press **⌥⇧V** (Ctrl+Alt+Shift+V) and say what you're doing and why; press it again
+2. Work. Any time, press **⌥V** (Ctrl+Alt+Shift+V) and say what you're doing and why; press it again
    to finish (see *Voice notes* below).
-3. Press **⌥⇧C** again (or *"stop recording"*).
+3. Press **⌥C** again (or *"stop recording"*).
 4. Ask Claude: *"Make a capsule from my last session."* Claude reads the timeline,
    writes the capsule and saves it. Read it; edit anything you don't want to share.
 5. *"Export the capsule"* puts it on your Desktop, ready to email.
@@ -127,7 +127,7 @@ While recording, explain your work out loud: what you're doing, how, and the dec
 you make and why. Your words become the main source for the capsule; the screen text
 backs them up.
 
-- Press **⌥⇧V** (or menu → *Add voice note*), talk, press **⌥⇧V** again. The menu-bar
+- Press **⌥V** (or menu → *Add voice note*), talk, press **⌥V** again. The menu-bar
   icon shows a microphone while it listens. A note stops by itself after 2 minutes.
 - The microphone is open **only** between the two presses.
 - Speech is turned into text **on your computer**: Apple Speech (on-device only) on

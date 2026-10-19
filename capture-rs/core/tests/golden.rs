@@ -626,7 +626,7 @@ fn voice_not_recording() {
     let mut r = Rig::new(FakeVoice::new());
     r.press(false);
     assert!(r.reset_ok() || r.indicator.is_empty(), "not recording: mic never opens");
-    assert!(r.outcomes == [VoiceOutcome::NotRecording] && r.outcomes[0].message(&PlatformText::MACOS) == "Start recording first (⌥⇧C)",
+    assert!(r.outcomes == [VoiceOutcome::NotRecording] && r.outcomes[0].message(&PlatformText::MACOS) == "Start recording first (⌥C)",
         "not recording message");
     assert_eq!(r.outcomes[0].message(&PlatformText::WINDOWS), "Start recording first (Ctrl+Alt+Shift+C)");
     assert!(r.notes.phase() == VoicePhase::Idle && !r.notes.engine().mic_open, "not recording: idle");
