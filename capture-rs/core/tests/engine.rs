@@ -486,7 +486,7 @@ fn empty_session_says_why() {
 fn voice_needs_recording() {
     let mut r = Rig::new("voice-idle");
     r.engine.toggle_voice();
-    assert_eq!(r.engine.platform().toasts, ["Start recording first (Alt+Shift+C)"]);
+    assert_eq!(r.engine.platform().toasts, ["Start recording first (Ctrl+Alt+Shift+C)"]);
     assert!(!r.engine.platform().indicators.contains(&Indicator::Listening));
     assert!(!r.voice.borrow().mic_open);
 }

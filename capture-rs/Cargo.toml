@@ -1,10 +1,7 @@
-# context-capsule — Rust workspace for the Windows and Linux recorders (macOS stays Swift in capture/).
+# context-capsule — Rust workspace: shared core + the Windows and Linux recorders (macOS stays Swift in capture/).
 [workspace]
 resolver = "2"
-members = [
-    "core",
-    # "recorder", # the Windows + Linux recorder (tray, hotkeys, picker, UIA / AT-SPI, OCR) — next
-]
+members = ["core", "windows", "linux"]
 
 [workspace.package]
 edition = "2021"

@@ -1,0 +1,392 @@
+// context-capsule — windows: the UI thread — a hidden owner window for the tray, hotkeys, menu, toasts,
+// alerts and the capture picker; it starts the core engine on its own thread and relays messages.
+
+use crate::hotkeys::{self, RECORD_LABEL, VOICE_LABEL};
+use crate::picker::Capture;
+use crate::platform::WinPlatform;
+use crate::toast::Toast;
+use crate::tray::{self, Tray};
+use crate::{changes, voice, win};
+use context_capsule_core::{Engine, Indicator, Msg, Options, Paths, PlatformText, Status};
+use std::cell::{Cell, RefCell};
+use std::sync::atomic::{AtomicU32, Ordering};
+use std::sync::mpsc::{channel, Receiver, Sender};
+use std::sync::Arc;
+use std::time::{Duration, Instant, SystemTime};
+use windows::core::{w, HSTRING};
+use windows::Win32::Foundation::{GetLastError, ERROR_ALREADY_EXISTS, HWND, LPARAM, LRESULT, POINT, WPARAM};
+use windows::Win32::Globalization::{GetTimeFormatEx, GetUserDefaultLocaleName, TIME_NOSECONDS};
+use windows::Win32::System::Console::{AttachConsole, ATTACH_PARENT_PROCESS};
+use windows::Win32::System::LibraryLoader::GetModuleHandleW;
+use windows::Win32::System::Threading::CreateMutexW;
+use windows::Win32::UI::HiDpi::{SetProcessDpiAwarenessContext, DPI_AWARENESS_CONTEXT_PER_MONITOR_AWARE_V2};
+use windows::Win32::UI::Shell::{ShellExecuteW, NINF_KEY, NIN_SELECT};
+use windows::Win32::UI::WindowsAndMessaging::{
+    AppendMenuW, CreatePopupMenu, CreateWindowExW, DefWindowProcW, DestroyMenu, DestroyWindow, DispatchMessageW, GetCursorPos,
+    GetMessageW, PostMessageW, PostQuitMessage, RegisterClassW, RegisterWindowMessageW, SetForegroundWindow, TrackPopupMenu,
+    TranslateMessage, HMENU, MF_GRAYED, MF_SEPARATOR, MF_STRING, MSG, SW_SHOWNORMAL, TPM_BOTTOMALIGN, TPM_NONOTIFY,
+    TPM_RETURNCMD, TPM_RIGHTBUTTON, WINDOW_EX_STYLE, WM_APP, WM_CONTEXTMENU, WM_DESTROY, WM_ENDSESSION, WM_HOTKEY, WM_NULL,
+    WM_QUERYENDSESSION, WM_SETTINGCHANGE, WNDCLASSW, WS_EX_TOOLWINDOW, WS_POPUP,
+};
+
+const WM_TRAY: u32 = WM_APP + 1;
+const WM_CMD: u32 = WM_APP + 2;
+
+const ID_TOGGLE: u32 = 10;
+const ID_VOICE: u32 = 11;
+const ID_OPEN: u32 = 12;
+const ID_QUIT: u32 = 13;
+
+/// User-facing words for Windows (our hotkeys use Ctrl too: Alt+Shift alone switches keyboard layouts).
+pub const TEXT: PlatformText = PlatformText { record_hotkey: RECORD_LABEL, voice_hotkey: VOICE_LABEL, ..PlatformText::WINDOWS };
+
+/// What the engine thread asks the UI thread to do.
+pub enum UiCmd {
+    Indicator(Indicator),
+    Status(Box<Status>),
+    Toast(String),
+    Alert(String, String),
+    PresentPicker,
+    EngineDone,
+}
+
+/// A handle to the UI thread that any thread may hold.
+#[derive(Clone)]
+pub struct Ui {
+    hwnd: usize,
+}
+
+impl Ui {
+    fn hwnd(&self) -> HWND {
+        HWND(self.hwnd as *mut core::ffi::c_void)
+    }
+
+    pub fn post(&self, cmd: UiCmd) {
+        let raw = Box::into_raw(Box::new(cmd));
+        // SAFETY: the UI thread takes ownership of `raw` in `WM_CMD`; if posting fails we take it back.
+        unsafe {
+            if PostMessageW(Some(self.hwnd()), WM_CMD, WPARAM(0), LPARAM(raw as isize)).is_err() {
+                drop(Box::from_raw(raw));
+            }
+        }
+    }
+}
+
+struct App {
+    paths: Paths,
+    tray: Tray,
+    toast: Option<Toast>,
+    capture: Arc<Capture>,
+    tx: Sender<Msg>,
+    status: Status,
+    engine: Option<std::thread::JoinHandle<()>>,
+}
+
+thread_local! {
+    static APP: RefCell<Option<App>> = const { RefCell::new(None) };
+    /// Alerts open right now, and whether the engine finished meanwhile (close once they are dismissed).
+    static ALERTS: Cell<u32> = const { Cell::new(0) };
+    static CLOSE_PENDING: Cell<bool> = const { Cell::new(false) };
+}
+
+/// Explorer restarted: the tray icon must be added again.
+static TASKBAR_CREATED: AtomicU32 = AtomicU32::new(0);
+
+/// Run `f` on the app, unless it is already in use further up the stack (a nested modal loop).
+fn with_app<R>(f: impl FnOnce(&mut App) -> R) -> Option<R> {
+    APP.with(|a| a.try_borrow_mut().ok().and_then(|mut a| a.as_mut().map(f)))
+}
+
+pub fn run() {
+    // SAFETY: process-wide setup calls before any window exists.
+    unsafe {
+        // Every coordinate (windows, monitors, capture) in physical pixels.
+        let _ = SetProcessDpiAwarenessContext(DPI_AWARENESS_CONTEXT_PER_MONITOR_AWARE_V2);
+        // Started from a terminal: show our log lines there.
+        let _ = AttachConsole(ATTACH_PARENT_PROCESS);
+    }
+    // One recorder at a time.
+    // SAFETY: a named mutex held for the life of the process.
+    let _single = unsafe { CreateMutexW(None, true, w!("Local\\ContextCapsuleRecorder")) };
+    // SAFETY: reads this thread's last error.
+    if unsafe { GetLastError() } == ERROR_ALREADY_EXISTS {
+        win::alert(None, "Context Capsule", "Context Capsule is already running. Look for its icon in the tray.");
+        return;
+    }
+    win::init_com(true);
+
+    let Some(hwnd) = create_window() else {
+        eprintln!("Context Capsule: cannot create the tray window");
+        return;
+    };
+    // SAFETY: registers a well-known message name.
+    TASKBAR_CREATED.store(unsafe { RegisterWindowMessageW(w!("TaskbarCreated")) }, Ordering::Relaxed);
+
+    let paths = Paths::standard();
+    let _ = std::fs::create_dir_all(paths.sessions());
+    let (tx, rx) = channel();
+    let capture = Capture::new(tx.clone());
+    let ui = Ui { hwnd: hwnd.0 as usize };
+
+    let mut tray = Tray::new(hwnd, WM_TRAY);
+    tray.set_tip(tray::tooltip(&Status::default()));
+    tray.add();
+    hotkeys::register(hwnd);
+    changes::install();
+    let engine = spawn_engine(paths.clone(), ui, capture.clone(), tx.clone(), rx);
+
+    APP.with(|a| {
+        *a.borrow_mut() =
+            Some(App { paths, tray, toast: Toast::new(), capture, tx, status: Status::default(), engine: Some(engine) })
+    });
+
+    let mut msg = MSG::default();
+    // SAFETY: the standard message loop for this thread.
+    unsafe {
+        while GetMessageW(&mut msg, None, 0, 0).as_bool() {
+            let _ = TranslateMessage(&msg);
+            DispatchMessageW(&msg);
+        }
+    }
+}
+
+fn create_window() -> Option<HWND> {
+    // SAFETY: registers our class and creates a never-shown tool window (no taskbar button). A real
+    // (hidden) window rather than a message-only one: the tray menu and the picker need an owner that
+    // can take the foreground.
+    unsafe {
+        let instance = GetModuleHandleW(None).ok()?;
+        let class = WNDCLASSW {
+            lpfnWndProc: Some(proc),
+            hInstance: instance.into(),
+            lpszClassName: w!("ContextCapsuleTray"),
+            ..Default::default()
+        };
+        RegisterClassW(&class);
+        CreateWindowExW(
+            WINDOW_EX_STYLE(WS_EX_TOOLWINDOW.0),
+            w!("ContextCapsuleTray"),
+            w!("Context Capsule"),
+            WS_POPUP,
+            0,
+            0,
+            0,
+            0,
+            None,
+            None,
+            Some(instance.into()),
+            None,
+        )
+        .ok()
+    }
+}
+
+fn spawn_engine(paths: Paths, ui: Ui, capture: Arc<Capture>, tx: Sender<Msg>, rx: Receiver<Msg>) -> std::thread::JoinHandle<()> {
+    std::thread::Builder::new()
+        .name("engine".into())
+        .spawn(move || {
+            win::init_com(false);
+            let toast_ui = ui.clone();
+            let notify: voice::Notify = Arc::new(move |text: String| toast_ui.post(UiCmd::Toast(text)));
+            let voice = voice::engine(&paths.root, TEXT.voice_hotkey, notify);
+            let opts = Options { own_app_id: own_app_id(), text: TEXT, locale: user_locale() };
+            let mut engine = Engine::new(paths, WinPlatform::new(ui.clone(), capture), voice, opts);
+            engine.set_voice_wake(Arc::new(move || {
+                let _ = tx.send(Msg::VoiceReady);
+            }));
+            engine.run(rx);
+            ui.post(UiCmd::EngineDone);
+        })
+        .expect("cannot start the engine thread")
+}
+
+/// Our exe name: never recorded (our own menu and toasts).
+fn own_app_id() -> Option<String> {
+    let exe = std::env::current_exe().ok()?;
+    Some(exe.file_name()?.to_string_lossy().into_owned())
+}
+
+/// The user's locale ("en-US") for voice notes.
+fn user_locale() -> String {
+    let mut buf = [0u16; 85];
+    // SAFETY: writes at most buf.len() chars.
+    let n = unsafe { GetUserDefaultLocaleName(&mut buf) };
+    if n > 1 { String::from_utf16_lossy(&buf[..n as usize - 1]) } else { "en-US".into() }
+}
+
+/// "2:57 PM" / "14:57", as the user's clock shows it.
+fn short_time(t: SystemTime) -> String {
+    use chrono::{Datelike, Timelike};
+    let local = chrono::DateTime::<chrono::Local>::from(t);
+    let st = windows::Win32::Foundation::SYSTEMTIME {
+        wYear: local.year() as u16,
+        wMonth: local.month() as u16,
+        wDay: local.day() as u16,
+        wHour: local.hour() as u16,
+        wMinute: local.minute() as u16,
+        ..Default::default()
+    };
+    let mut buf = [0u16; 64];
+    // SAFETY: writes at most buf.len() chars.
+    let n = unsafe { GetTimeFormatEx(None, TIME_NOSECONDS, Some(&st), None, Some(&mut buf)) };
+    if n > 1 { String::from_utf16_lossy(&buf[..n as usize - 1]) } else { local.format("%H:%M").to_string() }
+}
+
+extern "system" fn proc(hwnd: HWND, msg: u32, wp: WPARAM, lp: LPARAM) -> LRESULT {
+    match msg {
+        WM_TRAY => {
+            let event = (lp.0 & 0xFFFF) as u32;
+            if event == WM_CONTEXTMENU || event == NIN_SELECT || event == NIN_SELECT | NINF_KEY {
+                show_menu(hwnd);
+            }
+        }
+        WM_HOTKEY => {
+            if let Some(m) = hotkeys::msg_for(wp.0) {
+                with_app(|a| a.tx.send(m));
+            }
+        }
+        WM_CMD => {
+            // SAFETY: `Ui::post` boxed this command and handed it to us.
+            let cmd = unsafe { Box::from_raw(lp.0 as *mut UiCmd) };
+            handle(hwnd, *cmd);
+        }
+        WM_SETTINGCHANGE => {
+            with_app(|a| a.tray.retheme()); // light / dark taskbar
+        }
+        WM_QUERYENDSESSION => return LRESULT(1),
+        WM_ENDSESSION if wp.0 != 0 => quit_now(),
+        WM_DESTROY => {
+            // SAFETY: ends this thread's message loop.
+            unsafe { PostQuitMessage(0) };
+        }
+        m if m != 0 && m == TASKBAR_CREATED.load(Ordering::Relaxed) => {
+            with_app(|a| a.tray.add());
+        }
+        // SAFETY: default handling for everything else.
+        _ => return unsafe { DefWindowProcW(hwnd, msg, wp, lp) },
+    }
+    LRESULT(0)
+}
+
+fn handle(hwnd: HWND, cmd: UiCmd) {
+    match cmd {
+        UiCmd::Indicator(i) => {
+            with_app(|a| a.tray.set_indicator(i));
+        }
+        UiCmd::Status(s) => {
+            with_app(|a| {
+                a.tray.set_tip(tray::tooltip(&s));
+                a.status = *s;
+            });
+        }
+        UiCmd::Toast(text) => {
+            with_app(|a| {
+                let icon = a.tray.rect();
+                if let Some(t) = &a.toast {
+                    t.show(&text, icon);
+                }
+            });
+        }
+        // Outside the app borrow: the message box runs a nested message loop.
+        UiCmd::Alert(title, body) => {
+            ALERTS.set(ALERTS.get() + 1);
+            win::alert(Some(hwnd), &title, &body);
+            ALERTS.set(ALERTS.get() - 1);
+            if ALERTS.get() == 0 && CLOSE_PENDING.get() {
+                close(hwnd);
+            }
+        }
+        UiCmd::PresentPicker => {
+            if let Some(capture) = with_app(|a| a.capture.clone()) {
+                capture.present(hwnd);
+            }
+        }
+        // Quitting: let an open alert (e.g. "Nothing was recorded") be read first.
+        UiCmd::EngineDone if ALERTS.get() > 0 => CLOSE_PENDING.set(true),
+        UiCmd::EngineDone => close(hwnd),
+    }
+}
+
+fn close(hwnd: HWND) {
+    with_app(|a| a.tray.remove());
+    // SAFETY: our own window; WM_DESTROY ends the loop.
+    unsafe {
+        let _ = DestroyWindow(hwnd);
+    }
+}
+
+fn show_menu(hwnd: HWND) {
+    let Some(model) = with_app(|a| tray::menu_model(&a.status, &short_time)) else { return };
+    // SAFETY: a popup menu we build, show and destroy here. TrackPopupMenu runs a nested loop, so the
+    // app is not borrowed meanwhile.
+    let chosen = unsafe {
+        let Ok(menu) = CreatePopupMenu() else { return };
+        let item = |menu: HMENU, id: u32, text: &str, enabled: bool| {
+            let flags = if enabled { MF_STRING } else { MF_STRING | MF_GRAYED };
+            let _ = AppendMenuW(menu, flags, id as usize, &HSTRING::from(text));
+        };
+        item(menu, 0, &model.info, false);
+        if let Some(skip) = &model.skip {
+            item(menu, 0, skip, false);
+        }
+        let _ = AppendMenuW(menu, MF_SEPARATOR, 0, None);
+        item(menu, ID_TOGGLE, &model.toggle, true);
+        item(menu, ID_VOICE, &model.voice, true);
+        item(menu, ID_OPEN, "Open sessions folder", true);
+        let _ = AppendMenuW(menu, MF_SEPARATOR, 0, None);
+        item(menu, ID_QUIT, "Quit Context Capsule", true);
+
+        let mut pt = POINT::default();
+        let _ = GetCursorPos(&mut pt);
+        // The menu closes when clicking elsewhere only if our window is in front.
+        let _ = SetForegroundWindow(hwnd);
+        let flags = TPM_RETURNCMD | TPM_NONOTIFY | TPM_RIGHTBUTTON | TPM_BOTTOMALIGN;
+        let chosen = TrackPopupMenu(menu, flags, pt.x, pt.y, None, hwnd, None).0 as u32;
+        let _ = PostMessageW(Some(hwnd), WM_NULL, WPARAM(0), LPARAM(0));
+        let _ = DestroyMenu(menu);
+        chosen
+    };
+    match chosen {
+        ID_TOGGLE => send(Msg::ToggleRecord),
+        ID_VOICE => send(Msg::ToggleVoice),
+        ID_OPEN => open_sessions(),
+        ID_QUIT => quit(hwnd),
+        _ => {}
+    }
+}
+
+fn send(msg: Msg) {
+    with_app(|a| a.tx.send(msg));
+}
+
+fn open_sessions() {
+    let Some(dir) = with_app(|a| a.paths.sessions()) else { return };
+    let _ = std::fs::create_dir_all(&dir);
+    // SAFETY: opens a folder in Explorer.
+    unsafe {
+        ShellExecuteW(None, w!("open"), &HSTRING::from(dir.as_os_str()), None, None, SW_SHOWNORMAL);
+    }
+}
+
+/// Quit: the engine ends any session and writes state.json, then tells us to close (`EngineDone`).
+fn quit(hwnd: HWND) {
+    let sent = with_app(|a| a.tx.send(Msg::Quit).is_ok()).unwrap_or(false);
+    if !sent {
+        close(hwnd);
+    }
+}
+
+/// Windows is logging off: stop now and wait (briefly) for the engine to write its files.
+fn quit_now() {
+    let engine = with_app(|a| {
+        let _ = a.tx.send(Msg::Quit);
+        a.tray.remove();
+        a.engine.take()
+    });
+    if let Some(Some(engine)) = engine {
+        let deadline = Instant::now() + Duration::from_secs(3);
+        while !engine.is_finished() && Instant::now() < deadline {
+            std::thread::sleep(Duration::from_millis(20));
+        }
+    }
+}

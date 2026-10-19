@@ -64,8 +64,8 @@ impl PlatformText {
         add_language: "add the language in System Settings → Keyboard → Dictation",
     };
     pub const WINDOWS: PlatformText = PlatformText {
-        record_hotkey: "Alt+Shift+C",
-        voice_hotkey: "Alt+Shift+V",
+        record_hotkey: "Ctrl+Alt+Shift+C",
+        voice_hotkey: "Ctrl+Alt+Shift+V",
         sound_input: "Settings → System → Sound → Input",
         mic_privacy: "Settings → Privacy & security → Microphone",
         speech_privacy: "Settings → Privacy & security → Speech",
@@ -74,8 +74,8 @@ impl PlatformText {
         add_language: "install a speech model for that language",
     };
     pub const LINUX: PlatformText = PlatformText {
-        record_hotkey: "Alt+Shift+C",
-        voice_hotkey: "Alt+Shift+V",
+        record_hotkey: "Ctrl+Alt+Shift+C",
+        voice_hotkey: "Ctrl+Alt+Shift+V",
         sound_input: "your Sound settings (Input)",
         mic_privacy: "your Privacy settings (Microphone)",
         speech_privacy: "your Privacy settings",
@@ -98,6 +98,8 @@ pub enum VoiceOutcome {
     Failed(String),
     /// Recording stopped and there was nowhere to write it.
     Discarded,
+    /// Not an error: something the user should know first (e.g. "downloading the speech model").
+    Notice(String),
 }
 
 impl VoiceOutcome {
@@ -123,6 +125,7 @@ impl VoiceOutcome {
             ),
             VoiceOutcome::Failed(why) => format!("Voice note failed: {why}"),
             VoiceOutcome::Discarded => "Voice note not saved: recording had stopped".into(),
+            VoiceOutcome::Notice(text) => text.clone(),
         }
     }
 
@@ -136,6 +139,7 @@ impl VoiceOutcome {
             VoiceOutcome::Unavailable { .. } => "voice note: on-device recognition unavailable".into(),
             VoiceOutcome::Failed(_) => "voice note: failed".into(),
             VoiceOutcome::Discarded => "voice note: discarded".into(),
+            VoiceOutcome::Notice(_) => "voice note: notice".into(),
         }
     }
 }
@@ -441,5 +445,23 @@ impl<E: VoiceEngine> VoiceNotes<E> {
     fn report(&mut self, outcome: VoiceOutcome) {
         eprintln!("Context Capsule: {}", outcome.log_summary());
         self.signals.push(VoiceSignal::Outcome(outcome));
+    }
+}
+
+#[cfg(test)]
+mod notice_tests {
+    use super::*;
+
+    #[test]
+    fn notice_is_shown_as_is_and_logged_without_words() {
+        let n = VoiceOutcome::Notice("Downloading the speech model (148 MB)…".into());
+        assert_eq!(n.message(&PlatformText::WINDOWS), "Downloading the speech model (148 MB)…");
+        assert_eq!(n.log_summary(), "voice note: notice");
+    }
+
+    #[test]
+    fn windows_and_linux_hotkeys() {
+        assert_eq!(VoiceOutcome::NotRecording.message(&PlatformText::WINDOWS), "Start recording first (Ctrl+Alt+Shift+C)");
+        assert_eq!(PlatformText::LINUX.voice_hotkey, "Ctrl+Alt+Shift+V");
     }
 }

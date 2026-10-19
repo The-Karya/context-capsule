@@ -1,0 +1,102 @@
+# Context Capsule — the Windows recorder
+
+A small tray app for Windows 10 (2004+) and 11. It drives the shared engine in
+[`../core`](../core) and writes exactly the same files as the macOS app (see
+[`../../SPEC.md`](../../SPEC.md)), so the MCP server works with it unchanged.
+
+Press **Ctrl+Alt+Shift+C**: the Windows capture picker opens. Pick a window or a screen and
+recording starts; close the picker to cancel. Press Ctrl+Alt+Shift+C again to stop.
+
+While recording, every 3 seconds it notes the front app and, **only if the front window is
+part of what you picked**, its title and text. Text comes from UI Automation (password fields
+are never read); when that gives too little (canvas apps, video, games), from Windows OCR of
+the picked content, cropped to the front window, with private app windows and notification
+toasts painted out. OCR never uses a frame from before the last app or desktop switch, and
+nothing is read while Task View or Alt-Tab is open. Only text is saved, in
+`%USERPROFILE%\.context-capsule\sessions\`. Frames stay in memory and are never written to disk.
+
+Tray icon: hollow circle = idle, filled circle = recording, microphone = listening. The menu
+shows the event count and, when a sample is skipped, why. If a recording ends with nothing
+written, a message says why. Menu: Start / Stop recording, Add / Finish voice note, Open
+sessions folder, Quit.
+
+## Hotkeys
+
+| keys | does |
+|---|---|
+| Ctrl+Alt+Shift+C | start (opens the picker) / cancel the picker / stop recording |
+| Ctrl+Alt+Shift+V | start / finish a voice note (only while recording) |
+
+If another app already uses one of them, Context Capsule logs it and the tray menu still works.
+
+## The yellow border
+
+While Windows shares a window or screen with an app, it draws a **yellow border** around it.
+That is Windows telling you what Context Capsule can see; it goes away when you stop
+recording. Context Capsule leaves it on.
+
+## Voice notes
+
+While recording, press **Ctrl+Alt+Shift+V**, talk, press it again.
+
+- Recognition runs on this PC with [whisper.cpp](https://github.com/ggerganov/whisper.cpp)
+  (the multilingual "base" model). The first time, a dialog asks before downloading the model
+  (about 148 MB, once) into `%USERPROFILE%\.context-capsule\models\`. It is checked by size
+  and SHA-256 before it is used. Until then, voice notes say how to get it. You can also put
+  `ggml-base.bin` there yourself.
+- The microphone is open only between the two presses; the tray icon is a microphone while it
+  listens. No audio is written anywhere and nothing is sent to any server.
+- Language: your Windows locale (region format), or `"voice_locale"` in
+  `%USERPROFILE%\.context-capsule\config.json` (e.g. `"de-DE"`).
+- Silent or very short clips are dropped ("Didn't catch that"). Logs say only counts and
+  durations, never the words.
+
+## Permissions
+
+- **Screen capture** — none needed. The picker is the consent: only what you pick is captured.
+- **UI Automation** — none needed.
+- **Microphone** — only for voice notes. If it is off, the message says where to turn it on:
+  Settings → Privacy & security → Microphone (also "Let desktop apps access your microphone").
+
+## Build
+
+Needs Rust (MSVC toolchain). For voice notes also CMake, the Visual Studio C++ build tools and
+LLVM (whisper.cpp is compiled from source: `winget install Kitware.CMake LLVM.LLVM`).
+
+```powershell
+cd capture-rs\windows
+.\build.ps1            # with voice notes
+.\build.ps1 -NoVoice   # without (no C++ toolchain needed)
+..\target\release\context-capsule.exe
+```
+
+Started from a terminal, it prints its log lines there. Data folder: `CONTEXT_CAPSULE_HOME`
+if set, else `%USERPROFILE%\.context-capsule` (the same rule as the MCP server).
+
+## Tests
+
+The pure rules (which window or screen was picked, UI Automation roles, window classes for
+toasts and overviews, 16 kHz resampling, model checks, menu text, toast placement) run on any OS:
+
+```sh
+cd capture-rs && cargo test -p context-capsule-windows
+```
+
+## Files
+
+| file | does |
+|---|---|
+| `src/main.rs` | entry point |
+| `src/app.rs` | the UI thread: hidden owner window, tray menu, alerts; starts the engine thread |
+| `src/platform.rs` | the core's `Platform` for Windows |
+| `src/picker.rs` | `GraphicsCapturePicker`, which item was picked, the capture and its latest frame |
+| `src/windows_list.rs` | front app, on-screen windows (EnumWindows + DWM), monitors, toast / overview rules |
+| `src/uia.rs` | UI Automation text |
+| `src/ocr.rs` | Windows.Media.Ocr |
+| `src/voice.rs` | microphone (cpal) + whisper.cpp voice notes |
+| `src/model.rs` | the speech model: path, SHA-256 check, consented download |
+| `src/tray.rs` | tray icon (drawn in code) and menu text |
+| `src/toast.rs` | fading messages near the tray |
+| `src/hotkeys.rs` | global hotkeys |
+| `src/changes.rs` | when the front app or virtual desktop last changed |
+| `src/win.rs` | small Win32 helpers |
