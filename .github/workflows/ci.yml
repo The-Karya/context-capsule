@@ -1,0 +1,85 @@
+# context-capsule — CI: tests and builds on macOS, Windows and Linux.
+name: ci
+on:
+  push:
+  pull_request:
+
+jobs:
+  mcp:
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [macos-latest, windows-latest, ubuntu-latest]
+    defaults:
+      run:
+        working-directory: mcp
+    steps:
+      - uses: actions/checkout@v4
+      - uses: oven-sh/setup-bun@v2
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+      - run: bun install --frozen-lockfile
+      - run: bun run test
+      - run: bun run build
+
+  mac-recorder:
+    runs-on: macos-latest
+    defaults:
+      run:
+        working-directory: capture
+    steps:
+      - uses: actions/checkout@v4
+      - run: ./tests/run.sh
+      - run: ARCHS=arm64 ./build.sh
+      - run: '"./build/Context Capsule.app/Contents/MacOS/ContextCapsule" --selftest'
+
+  core:
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [macos-latest, windows-latest, ubuntu-latest]
+    defaults:
+      run:
+        working-directory: capture-rs
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: clippy
+      - run: cargo test -p context-capsule-core
+      - run: cargo clippy -p context-capsule-core --all-targets -- -D warnings
+
+  windows-recorder:
+    runs-on: windows-latest
+    defaults:
+      run:
+        working-directory: capture-rs
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: clippy
+      - run: cargo test -p context-capsule-windows
+      - run: cargo clippy -p context-capsule-windows --all-targets -- -D warnings
+      - run: cargo build --release -p context-capsule-windows
+      - uses: actions/upload-artifact@v4
+        with:
+          name: context-capsule-windows
+          path: capture-rs/target/release/context-capsule.exe
+
+  linux-recorder:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Build the Linux box
+        run: docker build -t context-capsule-linux -f capture-rs/ci/linux.Dockerfile capture-rs/ci
+      - name: Test, lint and build
+        run: >
+          docker run --rm -v "$PWD:/work" -w /work/capture-rs context-capsule-linux sh -c
+          "rustup component add clippy &&
+          cargo test -p context-capsule-linux &&
+          cargo clippy -p context-capsule-linux --all-targets -- -D warnings &&
+          cargo build --release -p context-capsule-linux"

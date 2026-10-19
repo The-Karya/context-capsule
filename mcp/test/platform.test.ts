@@ -37,11 +37,12 @@ describe("data folder", () => {
     delete process.env.CONTEXT_CAPSULE_HOME;
     process.env.HOME = "/home/saachi";
     process.env.XDG_DATA_HOME = "/home/saachi/.local/share";
-    expect(capsuleHome("linux")).toBe("/home/saachi/.local/share/context-capsule");
-    expect(capsuleHome("darwin")).toBe("/home/saachi/.context-capsule");
+    const home = path.join("/home/saachi", ".context-capsule");
+    expect(capsuleHome("linux")).toBe(path.join("/home/saachi/.local/share", "context-capsule"));
+    expect(capsuleHome("darwin")).toBe(home);
     delete process.env.XDG_DATA_HOME;
-    expect(capsuleHome("linux")).toBe("/home/saachi/.context-capsule");
+    expect(capsuleHome("linux")).toBe(home);
     process.env.XDG_DATA_HOME = "relative/path";
-    expect(capsuleHome("linux")).toBe("/home/saachi/.context-capsule");
+    expect(capsuleHome("linux")).toBe(home);
   });
 });
