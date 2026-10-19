@@ -1,9 +1,16 @@
 // context-capsule — windows: a small message near the tray icon that fades by itself ("Voice note saved",
 // "Start recording first (Ctrl+Alt+Shift+C)"). A topmost borderless window: no notification permission.
 
-/// Seconds on screen before fading (like the Mac: short for good news, longer for problems).
+/// Seconds on screen before fading (like the Mac: short for good news and project changes, longer
+/// for problems).
 pub fn seconds_for(text: &str) -> u32 {
-    if text == "Voice note saved" { 2 } else { 6 }
+    if text == "Voice note saved" {
+        2
+    } else if text.starts_with("Project: ") {
+        3
+    } else {
+        6
+    }
 }
 
 /// Where a `w`×`h` toast goes: next to the tray icon on the taskbar's side, inside the work area.
@@ -225,6 +232,7 @@ mod tests {
     fn durations() {
         assert_eq!(seconds_for("Voice note saved"), 2);
         assert_eq!(seconds_for("Start recording first (Ctrl+Alt+Shift+C)"), 6);
+        assert_eq!(seconds_for("Project: Client report"), 3);
     }
 
     #[test]

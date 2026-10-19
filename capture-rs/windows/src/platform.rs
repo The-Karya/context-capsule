@@ -94,4 +94,12 @@ impl Platform for WinPlatform {
     fn status_changed(&mut self, status: &Status) {
         self.ui.post(UiCmd::Status(Box::new(status.clone())));
     }
+
+    /// Browsers only: the address bar through UI Automation. Other apps: None.
+    fn location(&mut self, front: &Front) -> Option<String> {
+        let browser = crate::uia::browser_for(front.app_id.as_deref())?;
+        let id = front.window.as_ref()?.id;
+        let hwnd = windows::Win32::Foundation::HWND(id as usize as *mut core::ffi::c_void);
+        self.uia()?.address(hwnd, browser)
+    }
 }

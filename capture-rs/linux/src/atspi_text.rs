@@ -1,8 +1,11 @@
 // context-capsule — linux: the active window's text from its AT-SPI tree — depth first, within the
 // core's node, depth and time limits. Password fields (and anything inside them) are never read.
+// The walk also notes the first document it passes, whose address is the window's `where`.
 
 use atspi::proxy::accessible::{AccessibleProxy, ObjectRefExt};
+use atspi::proxy::document::DocumentProxy;
 use atspi::proxy::text::TextProxy;
+use std::collections::HashMap;
 use atspi::{Interface, ObjectRefOwned, Role, State};
 use context_capsule_core::{NodeKind, TextNode, UiText};
 use std::time::Instant;
@@ -57,13 +60,43 @@ pub fn text_range(role: Role, count: i32, max: i32) -> (i32, i32) {
     }
 }
 
+/// A document or web view: where the page address or file lives.
+pub fn is_document(role: Role) -> bool {
+    matches!(
+        role,
+        Role::DocumentWeb
+            | Role::DocumentFrame
+            | Role::DocumentText
+            | Role::DocumentEmail
+            | Role::DocumentSpreadsheet
+            | Role::DocumentPresentation
+    )
+}
+
+/// The address among a document's attributes: "DocURL" (Firefox, WebKit, LibreOffice), else "URI".
+pub fn address_of(attributes: &HashMap<String, String>) -> Option<String> {
+    ["DocURL", "URI", "URL"]
+        .iter()
+        .filter_map(|k| attributes.get(*k))
+        .map(|v| v.trim())
+        .find(|v| !v.is_empty() && *v != "about:blank")
+        .map(String::from)
+}
+
+/// A window's text, and the first on-screen document met on the way.
+pub struct WindowText {
+    pub text: String,
+    pub document: Option<ObjectRefOwned>,
+}
+
 /// Walk the window's tree and assemble its text. None if the walk could not start.
-pub async fn read(conn: &zbus::Connection, window: &ObjectRefOwned) -> Option<String> {
+pub async fn read(conn: &zbus::Connection, window: &ObjectRefOwned) -> Option<WindowText> {
     let start = Instant::now();
     let mut nodes: Vec<TextNode> = vec![];
     // Depth first, parents before children: a stack of (object, depth), children pushed in reverse.
     let mut stack: Vec<(ObjectRefOwned, usize)> = vec![(window.clone(), 0)];
     let mut first = true;
+    let mut document = None;
     while let Some((obj, depth)) = stack.pop() {
         if nodes.len() >= UiText::MAX_NODES || start.elapsed() >= UiText::BUDGET {
             break;
@@ -85,6 +118,9 @@ pub async fn read(conn: &zbus::Connection, window: &ObjectRefOwned) -> Option<St
         if depth > 0 && !state.contains(State::Showing) {
             continue;
         }
+        if document.is_none() && is_document(role) {
+            document = Some(obj.clone());
+        }
         let kind = node_kind(role);
         let mut node = TextNode { depth, kind, ..Default::default() };
         if matches!(kind, NodeKind::Value | NodeKind::Label) {
@@ -103,7 +139,21 @@ pub async fn read(conn: &zbus::Connection, window: &ObjectRefOwned) -> Option<St
             }
         }
     }
-    Some(UiText::assemble(&nodes, UiText::MAX_CHARS))
+    Some(WindowText { text: UiText::assemble(&nodes, UiText::MAX_CHARS), document })
+}
+
+/// A document's page address or file path (one call), if it says.
+pub async fn document_address(conn: &zbus::Connection, doc: &ObjectRefOwned) -> Option<String> {
+    let proxy = DocumentProxy::builder(conn)
+        .destination(doc.name()?.clone())
+        .ok()?
+        .path(doc.path().clone())
+        .ok()?
+        .cache_properties(CacheProperties::No)
+        .build()
+        .await
+        .ok()?;
+    address_of(&proxy.get_attributes().await.ok()?)
 }
 
 async fn text_of(
@@ -169,6 +219,17 @@ mod tests {
             n(1, Role::Label, "Forgot it?"),
         ];
         assert_eq!(UiText::assemble(&nodes, UiText::MAX_CHARS), "Sign in\nForgot it?");
+    }
+
+    #[test]
+    fn documents_and_addresses() {
+        assert!(is_document(Role::DocumentWeb) && is_document(Role::DocumentText));
+        assert!(!is_document(Role::Frame) && !is_document(Role::Paragraph));
+        let attrs = |pairs: &[(&str, &str)]| pairs.iter().map(|(k, v)| (k.to_string(), v.to_string())).collect::<HashMap<_, _>>();
+        assert_eq!(address_of(&attrs(&[("DocURL", "https://x.com/a"), ("URI", "y")])).as_deref(), Some("https://x.com/a"));
+        assert_eq!(address_of(&attrs(&[("DocURL", " "), ("URI", "file:///home/s/a.odt")])).as_deref(), Some("file:///home/s/a.odt"));
+        assert_eq!(address_of(&attrs(&[("DocURL", "about:blank")])), None);
+        assert_eq!(address_of(&attrs(&[("MimeType", "text/html")])), None);
     }
 
     #[test]

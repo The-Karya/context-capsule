@@ -32,6 +32,9 @@ pub struct StateJson {
     pub skip: Option<Skip>,
     pub listening: bool,
     pub note_at: Option<i64>,
+    /// The current project's id, and how it was chosen ("auto" / "you").
+    pub project: Option<String>,
+    pub project_by: Option<String>,
 }
 
 impl StateJson {
@@ -47,6 +50,8 @@ impl StateJson {
             ("skip", JsonValue::opt_str(self.skip.map(|s| s.as_str()))),
             ("listening", JsonValue::Bool(self.listening)),
             ("note_at", self.note_at.map(JsonValue::Int).unwrap_or(JsonValue::Null)),
+            ("project", JsonValue::opt_str(self.project.clone())),
+            ("project_by", JsonValue::opt_str(self.project_by.clone())),
         ])
     }
 }
@@ -56,6 +61,7 @@ pub enum ControlKind {
     Start,
     Stop,
     Note,
+    Project,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -64,17 +70,21 @@ pub struct ControlCommand {
     pub at: i64,
     /// The typed note, for `note`.
     pub text: Option<String>,
+    /// A project id, or "auto", for `project`.
+    pub project: Option<String>,
 }
 
 impl ControlCommand {
-    /// `{"command":"start"|"stop","at":<ms>}` or `{"command":"note","text":"…","at":<ms>}`;
-    /// anything else (a note without text too) is ignored.
+    /// `{"command":"start"|"stop","at":<ms>}`, `{"command":"note","text":"…","at":<ms>}` or
+    /// `{"command":"project","project":"<id>"|"auto","at":<ms>}`; anything else (a note without text,
+    /// a project without an id) is ignored.
     pub fn parse(data: &[u8]) -> Option<ControlCommand> {
         let serde_json::Value::Object(obj) = serde_json::from_slice(data).ok()? else { return None };
         let kind = match obj.get("command")?.as_str()?.to_lowercase().as_str() {
             "start" => ControlKind::Start,
             "stop" => ControlKind::Stop,
             "note" => ControlKind::Note,
+            "project" => ControlKind::Project,
             _ => return None,
         };
         // Like NSNumber.int64Value: floats truncate, booleans are 1 / 0, anything else is 0.
@@ -91,6 +101,14 @@ impl ControlCommand {
             }
             text = Some(t.to_string());
         }
-        Some(ControlCommand { kind, at, text })
+        let mut project = None;
+        if kind == ControlKind::Project {
+            let p = crate::projects::trim_spaces(obj.get("project")?.as_str()?);
+            if p.is_empty() {
+                return None;
+            }
+            project = Some(p.to_string());
+        }
+        Some(ControlCommand { kind, at, text, project })
     }
 }

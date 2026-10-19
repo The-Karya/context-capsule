@@ -1,5 +1,7 @@
 // context-capsule — core: the recorder — start (via the picker) / stop, a sample every 3 s, state.json,
 // typed and voice notes, and the `control` file the MCP server writes to drive us from outside.
+//! Projects: projects.json is reloaded when it changes; each sample, voice note and typed note gets
+//! the pinned project or the one its window's clues point to.
 //! A port of `capture/Sources/Recorder.swift`. Single-threaded: file writes and OCR happen inline on
 //! the engine's thread (the platform gives it its own), so a slow OCR only delays the next message.
 
@@ -11,6 +13,7 @@ use crate::json::write_atomically;
 use crate::membership::{Freshness, Membership, OcrDecision, PickStyle, Skip};
 use crate::paths::Paths;
 use crate::platform::{Indicator, Msg, PickOutcome, Platform, Status};
+use crate::projects::{Location, Project, ProjectChoice, Projects};
 use crate::redact::Redactor;
 use crate::state::{session_json, ControlCommand, ControlKind, StateJson};
 use crate::text::{TextSource, UiText};
@@ -113,6 +116,15 @@ pub struct Engine<P: Platform> {
     changed_at: Option<SystemTime>,
     indicator: Indicator,
     now: Box<dyn Fn() -> SystemTime>,
+    /// Projects from projects.json (reloaded when its time changes), and auto-detect vs. pinned.
+    projects: Vec<Project>,
+    projects_modified: Option<SystemTime>,
+    choice: ProjectChoice,
+    /// The project of the latest sample (id, "auto" / "you").
+    current_project: Option<(String, String)>,
+    /// The front window as of the latest sample (title, where, app): what "New project from this
+    /// window" uses.
+    last_window: Option<(String, String, String)>,
 }
 
 impl<P: Platform> Engine<P> {
@@ -137,6 +149,11 @@ impl<P: Platform> Engine<P> {
             changed_at: None,
             indicator: Indicator::Idle,
             now: Box::new(SystemTime::now),
+            projects: vec![],
+            projects_modified: None,
+            choice: ProjectChoice::default(),
+            current_project: None,
+            last_window: None,
         }
     }
 
@@ -186,6 +203,17 @@ impl<P: Platform> Engine<P> {
         self.last_skip
     }
 
+    pub fn projects(&self) -> &[Project] {
+        &self.projects
+    }
+    pub fn project_choice(&self) -> &ProjectChoice {
+        &self.choice
+    }
+    /// The current project (id, "auto" / "you").
+    pub fn current_project(&self) -> Option<(&str, &str)> {
+        self.current_project.as_ref().map(|(id, by)| (id.as_str(), by.as_str()))
+    }
+
     pub fn status(&self) -> Status {
         Status {
             recording: self.is_recording(),
@@ -196,12 +224,18 @@ impl<P: Platform> Engine<P> {
             events: self.event_count,
             skip: self.last_skip,
             last_error: self.last_error.clone(),
+            projects: self.projects.clone(),
+            pinned: self.choice.pinned.clone(),
+            project: self.current_project.as_ref().map(|p| p.0.clone()),
+            project_by: self.current_project.as_ref().map(|p| p.1.clone()),
+            new_project_clue: self.new_project_clue(),
         }
     }
 
     /// At launch: the sessions folder and a fresh state.json.
     pub fn launch(&mut self) {
         let _ = std::fs::create_dir_all(self.paths.sessions());
+        self.reload_projects(true);
         self.changed();
     }
 
@@ -214,6 +248,10 @@ impl<P: Platform> Engine<P> {
             Msg::ToggleVoice => self.toggle_voice(),
             Msg::Pick(outcome) => self.on_pick(outcome),
             Msg::VoiceReady => self.pump_voice(),
+            Msg::PickProject(id) => self.pin_project(id.as_deref()),
+            Msg::NewProject { name, clue } => {
+                self.new_project(&name, clue.as_deref());
+            }
             Msg::Quit => {
                 self.shutdown();
                 return false;
@@ -232,6 +270,9 @@ impl<P: Platform> Engine<P> {
             if now >= next_poll {
                 self.poll_control();
                 self.pump_voice();
+                if self.reload_projects(false) {
+                    self.changed(); // the tray's project list
+                }
                 next_poll = now + POLL;
             }
             if let Some(s) = &mut self.session {
@@ -356,6 +397,8 @@ impl<P: Platform> Engine<P> {
         self.last_skip = None;
         self.skip_counts = [0; 7];
         self.changed_at = Some(now);
+        self.reload_projects(true);
+        self.current_project = self.choice.pinned.clone().map(|id| (id, ProjectChoice::YOU.to_string()));
         self.session = Some(Session { id, started_at: now, dir, log, next_tick: Instant::now() + INTERVAL });
     }
 
@@ -397,6 +440,8 @@ impl<P: Platform> Engine<P> {
             skip: self.last_skip,
             listening: self.listening,
             note_at: self.note_at,
+            project: self.current_project.as_ref().map(|p| p.0.clone()),
+            project_by: self.current_project.as_ref().map(|p| p.1.clone()),
         };
         let _ = write_atomically(&self.paths.state(), &state.json());
         let indicator = if self.listening {
@@ -429,6 +474,125 @@ impl<P: Platform> Engine<P> {
                     self.add_typed_note(&text, cmd.at)
                 }
             }
+            ControlKind::Project => {
+                let id = cmd.project.filter(|p| p != "auto");
+                self.pin_project(id.as_deref())
+            }
+        }
+    }
+
+    // MARK: projects
+
+    /// Read projects.json again if its time changed (or `force`). true: the list changed.
+    pub fn reload_projects(&mut self, force: bool) -> bool {
+        let path = self.paths.projects();
+        let modified = std::fs::metadata(&path).and_then(|m| m.modified()).ok();
+        if !force && modified == self.projects_modified {
+            return false;
+        }
+        self.projects_modified = modified;
+        let projects = Projects::load(&path);
+        let changed = projects != self.projects;
+        self.projects = projects;
+        changed
+    }
+
+    /// Pin to a project (menu, or the MCP's `set_project`), or None to auto-detect again. An id that
+    /// is not in projects.json means auto-detect.
+    pub fn pin_project(&mut self, id: Option<&str>) {
+        self.reload_projects(false);
+        self.choice.pinned = id.filter(|id| self.projects.iter().any(|p| p.id == *id)).map(String::from);
+        match &self.choice.pinned {
+            Some(p) => eprintln!("Context Capsule: project pinned: {p}"),
+            None => eprintln!("Context Capsule: project: auto-detect"),
+        }
+        if let Some(pinned) = self.choice.pinned.clone() {
+            self.set_current(Some((pinned, ProjectChoice::YOU.into())));
+        } else if self.current_project.as_ref().is_some_and(|c| c.1 == ProjectChoice::YOU) {
+            self.set_current(None);
+        }
+        self.changed(); // the menu's check marks
+    }
+
+    /// Make a project: the name the user typed, `clue` (if any) as its `match`. An existing project
+    /// with the same id gets the clue added. None: no usable name, or projects.json cannot be written.
+    pub fn create_project(&mut self, name: &str, clue: Option<&str>) -> Option<Project> {
+        self.reload_projects(true);
+        let id = Projects::slug(name);
+        if id.is_empty() {
+            return None;
+        }
+        let clue = clue.map(str::trim).filter(|c| !c.is_empty());
+        if let Some(p) = self.projects.iter_mut().find(|p| p.id == id) {
+            if let Some(clue) = clue {
+                if !p.clues.iter().any(|m| m.to_lowercase() == clue.to_lowercase()) {
+                    p.clues.push(clue.to_string());
+                }
+            }
+        } else {
+            let clues = clue.map(|c| vec![c.to_string()]).unwrap_or_default();
+            self.projects.push(Project { id: id.clone(), name: name.to_string(), clues });
+        }
+        if let Err(e) = Projects::save(&self.projects, &self.paths.projects()) {
+            eprintln!("Context Capsule: cannot save projects.json: {e}");
+            self.reload_projects(true);
+            return None;
+        }
+        self.reload_projects(true);
+        self.projects.iter().find(|p| p.id == id).cloned()
+    }
+
+    /// A clue from the window of the latest sample (see `Projects::clue`).
+    pub fn new_project_clue(&self) -> Option<String> {
+        let (title, location, _) = self.last_window.as_ref()?;
+        Projects::clue(title, location)
+    }
+
+    /// "New project from this window…": create it, then with a clue let auto-detect find it from now
+    /// on; without one (or while another project is pinned) stick to it until changed.
+    pub fn new_project(&mut self, name: &str, clue: Option<&str>) -> Option<Project> {
+        let name = name.trim();
+        if name.is_empty() {
+            return None;
+        }
+        let project = self.create_project(name, clue);
+        match &project {
+            Some(p) if clue.is_none() || self.choice.pinned.is_some() => self.pin_project(Some(&p.id.clone())),
+            _ => self.changed(),
+        }
+        project
+    }
+
+    /// The current project, as (id, by). The platform hears about a new id while recording.
+    fn set_current(&mut self, next: Option<(String, String)>) {
+        if next == self.current_project {
+            return;
+        }
+        let new_id = next.as_ref().map(|n| &n.0) != self.current_project.as_ref().map(|c| &c.0);
+        self.current_project = next;
+        self.changed();
+        if new_id && self.is_recording() {
+            let id = self.current_project.as_ref().map(|c| c.0.clone());
+            let project = id.and_then(|id| self.projects.iter().find(|p| p.id == id).cloned());
+            self.platform.project_changed(project.as_ref());
+        }
+    }
+
+    /// After a written sample: remember its window, and its project if it got one. Auto mode keeps the
+    /// last project across windows with no clue (chat, mail…) for display only; those events stay
+    /// unassigned.
+    fn sampled_project(&mut self, found: Option<(String, String)>, window: (String, String, String)) {
+        if !self.is_recording() {
+            return;
+        }
+        let clue_before = self.new_project_clue();
+        self.last_window = Some(window);
+        if found.is_some() {
+            self.set_current(found);
+        }
+        if self.new_project_clue() != clue_before {
+            let status = self.status();
+            self.platform.status_changed(&status); // the dialog's prefilled name
         }
     }
 
@@ -438,7 +602,11 @@ impl<P: Platform> Engine<P> {
     pub fn add_typed_note(&mut self, text: &str, at: i64) {
         let Some(s) = &mut self.session else { return };
         let now = (self.now)();
-        let event = Voice::event(text, Event::NOTE, "typed", now, now, "", "", "");
+        let mut event = Voice::event(text, Event::NOTE, "typed", now, now, "", "", "");
+        if let Some((id, by)) = &self.current_project {
+            event.project = id.clone();
+            event.project_by = by.clone();
+        }
         if let Err(e) = s.log.record(&event) {
             eprintln!("Context Capsule: cannot write note: {e}");
         }
@@ -477,7 +645,8 @@ impl<P: Platform> Engine<P> {
         let is_excluded = move |id: Option<&str>, name: &str| {
             (id.is_some() && id == own.as_deref()) || Exclusion::is_excluded(id, Some(name), &user)
         };
-        let mut target = VoiceTarget { app: String::new(), bundle: String::new(), title: String::new(), session };
+        let (project, project_by) = self.current_project.clone().unwrap_or_default();
+        let mut target = VoiceTarget { session, project, project_by, ..Default::default() };
         if let Some(front) = self.platform.front(&is_excluded) {
             if !is_excluded(front.app_id.as_deref(), &front.app_name) {
                 let title = self.platform.ui_title(&front).or_else(|| front.window.as_ref().and_then(|w| w.name.clone()));
@@ -575,8 +744,10 @@ impl<P: Platform> Engine<P> {
             }
         }
         let title = self.platform.ui_title(&front).or_else(|| window.name.clone()).unwrap_or_default();
+        let location = Location::clean(self.platform.location(&front).as_deref());
+        self.reload_projects(false);
         let stamp = clock::iso(now);
-        let event = Event {
+        let mut event = Event {
             t: stamp.clone(),
             end: stamp,
             app: front.app_name.clone(),
@@ -584,14 +755,22 @@ impl<P: Platform> Engine<P> {
             title: Redactor::clean(&title),
             src: source.as_str().into(),
             text: Redactor::clean(&text),
-            kind: String::new(),
+            location,
+            ..Default::default()
         };
+        let found = self.choice.resolve(&self.projects, &event.title, &event.location, &front.app_name);
+        if let Some((id, by)) = &found {
+            event.project = id.clone();
+            event.project_by = by.clone();
+        }
+        let window = (event.title.clone(), event.location.clone(), front.app_name.clone());
         let Some(s) = &mut self.session else { return };
         if let Err(e) = s.log.record(&event) {
             eprintln!("Context Capsule: cannot write event: {e}");
         }
         let count = s.log.appended();
         self.sampled(None, count);
+        self.sampled_project(found, window);
     }
 
     fn skip(&mut self, why: Skip) {

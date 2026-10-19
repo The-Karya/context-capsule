@@ -1,8 +1,9 @@
 // context-capsule — linux: the tray icon (StatusNotifierItem) and its menu, like the Mac menu bar —
 // hollow circle idle, filled while recording, a mic while listening; status, skip reason and actions.
 
-use context_capsule_core::{Indicator, Msg, Status};
-use ksni::menu::StandardItem;
+use crate::notify::Notifier;
+use context_capsule_core::{Indicator, Msg, ProjectItem, Status};
+use ksni::menu::{CheckmarkItem, StandardItem, SubMenu};
 use ksni::{MenuItem, TrayMethods};
 use std::path::PathBuf;
 use std::sync::mpsc::Sender;
@@ -14,6 +15,7 @@ pub const VOICE_KEY: &str = "Ctrl+Alt+Shift+V";
 
 pub struct CapsuleTray {
     tx: Sender<Msg>,
+    notifier: Notifier,
     sessions: PathBuf,
     status: Status,
     indicator: Indicator,
@@ -40,6 +42,15 @@ pub fn toggle_label(status: &Status) -> &'static str {
         "Start recording…"
     }
 }
+
+/// Menu labels treat "_" as an access-key marker: double it so names show as typed.
+pub fn label(s: &str) -> String {
+    s.replace('_', "__")
+}
+
+/// Said when there is no zenity or kdialog to type a name in.
+pub const NO_DIALOG: &str =
+    "To name a new project, install zenity (or kdialog), or ask Claude to create it (create_project).";
 
 fn local_time(t: SystemTime) -> String {
     chrono::DateTime::<chrono::Local>::from(t).format("%H:%M").to_string()
@@ -99,6 +110,7 @@ impl ksni::Tray for CapsuleTray {
                 ..Default::default()
             }
             .into(),
+            self.project_menu(),
             StandardItem {
                 label: "Open sessions folder".into(),
                 activate: Box::new(|t: &mut Self| open_folder(&t.sessions)),
@@ -109,6 +121,52 @@ impl ksni::Tray for CapsuleTray {
             StandardItem { label: "Quit Context Capsule".into(), activate: send(Msg::Quit), ..Default::default() }
                 .into(),
         ]
+    }
+}
+
+impl CapsuleTray {
+    /// "Project: …" with Auto-detect, each project (the picked one checked) and "New project from
+    /// this window…".
+    fn project_menu(&self) -> MenuItem<Self> {
+        let pick = |id: Option<String>| {
+            Box::new(move |t: &mut Self| drop(t.tx.send(Msg::PickProject(id.clone())))) as Box<dyn Fn(&mut Self) + Send>
+        };
+        let submenu = self
+            .status
+            .project_items()
+            .into_iter()
+            .map(|item| match item {
+                ProjectItem::Auto { checked } => {
+                    CheckmarkItem { label: ProjectItem::AUTO.into(), checked, activate: pick(None), ..Default::default() }
+                        .into()
+                }
+                ProjectItem::Project { id, name, checked } => {
+                    CheckmarkItem { label: label(&name), checked, activate: pick(Some(id)), ..Default::default() }.into()
+                }
+                ProjectItem::Separator => MenuItem::Separator,
+                ProjectItem::New => StandardItem {
+                    label: ProjectItem::NEW.into(),
+                    activate: Box::new(|t: &mut Self| t.new_project()),
+                    ..Default::default()
+                }
+                .into(),
+            })
+            .collect();
+        SubMenu { label: label(&self.status.project_title()), submenu, ..Default::default() }.into()
+    }
+
+    /// Ask for a name (prefilled with the window's clue) on a thread of its own: the dialog blocks.
+    fn new_project(&self) {
+        let (tx, notifier) = (self.tx.clone(), self.notifier.clone());
+        let clue = self.status.new_project_clue.clone();
+        let prompt = self.status.new_project_prompt();
+        std::thread::spawn(move || {
+            match notifier.ask_text("New project", &prompt, clue.as_deref().unwrap_or("")) {
+                Ok(Some(name)) => drop(tx.send(Msg::NewProject { name, clue })),
+                Ok(None) => {}
+                Err(()) => notifier.toast(NO_DIALOG),
+            }
+        });
     }
 }
 
@@ -132,8 +190,8 @@ pub struct Tray {
 
 impl Tray {
     /// Show the tray icon. On GNOME this needs the AppIndicator extension; without it we log and go on.
-    pub fn spawn(rt: &Handle, tx: Sender<Msg>, sessions: PathBuf) -> Tray {
-        let tray = CapsuleTray { tx, sessions, status: Status::default(), indicator: Indicator::Idle };
+    pub fn spawn(rt: &Handle, tx: Sender<Msg>, notifier: Notifier, sessions: PathBuf) -> Tray {
+        let tray = CapsuleTray { tx, notifier, sessions, status: Status::default(), indicator: Indicator::Idle };
         let handle = match rt.block_on(tray.spawn()) {
             Ok(h) => Some(h),
             Err(e) => {
@@ -272,5 +330,14 @@ mod tests {
         };
         assert_eq!(info_line(&s, &t), "Recording since 10:01 — 1 event — 20261019-100103");
         assert_eq!(toggle_label(&s), "Stop recording");
+    }
+
+    #[test]
+    fn project_labels() {
+        assert_eq!(label("my_project"), "my__project");
+        let p = context_capsule_core::Project { id: "a-b".into(), name: "a_b".into(), clues: vec![] };
+        let s = Status { projects: vec![p], pinned: Some("a-b".into()), project: Some("a-b".into()), ..Default::default() };
+        assert_eq!(label(&s.project_title()), "Project: a__b");
+        assert!(NO_DIALOG.contains("create_project"));
     }
 }

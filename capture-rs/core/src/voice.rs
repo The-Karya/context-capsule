@@ -175,6 +175,7 @@ impl Voice {
             src: src.into(),
             text: Redactor::clean(text.trim()),
             kind: kind.into(),
+            ..Default::default()
         }
     }
 }
@@ -236,13 +237,16 @@ impl<T: VoiceEngine + ?Sized> VoiceEngine for Box<T> {
 }
 
 /// Where a note goes and what it is about, captured when the user starts talking.
-#[derive(Clone, Debug, PartialEq, Eq)]
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub struct VoiceTarget {
     pub app: String,
     pub bundle: String,
     pub title: String,
     /// The session the note belongs to (it is written there even if recording stopped meanwhile).
     pub session: String,
+    /// The current project when the user started talking ("" = none), and how it was chosen.
+    pub project: String,
+    pub project_by: String,
 }
 
 /// What happened, for the owner to act on (drained with `take_signals`).
@@ -252,7 +256,7 @@ pub enum VoiceSignal {
     Indicator(bool),
     Outcome(VoiceOutcome),
     /// Write this note into `session`'s events.jsonl.
-    Save { session: String, event: Event },
+    Save { session: String, event: Box<Event> },
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -422,9 +426,11 @@ impl<E: VoiceEngine> VoiceNotes<E> {
         let Some(target) = self.target.clone() else { return self.end(VoiceOutcome::Discarded, false) };
         let ended = self.ended_at.unwrap_or_else(|| (self.now)());
         let started = self.started_at.unwrap_or(ended);
-        let event = Voice::event(&clip.text, Event::VOICE, "voice", started, ended, &target.app, &target.bundle, &target.title);
+        let mut event = Voice::event(&clip.text, Event::VOICE, "voice", started, ended, &target.app, &target.bundle, &target.title);
+        event.project = target.project;
+        event.project_by = target.project_by;
         let chars = char_count(&event.text);
-        self.signals.push(VoiceSignal::Save { session: target.session, event });
+        self.signals.push(VoiceSignal::Save { session: target.session, event: Box::new(event) });
         self.end(VoiceOutcome::Saved { chars, seconds: clip.seconds }, false);
     }
 

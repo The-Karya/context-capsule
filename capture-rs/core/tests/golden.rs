@@ -158,7 +158,7 @@ fn event_lines() {
     };
     let expected = r#"{"t":"2026-10-19T10:01:03Z","end":"2026-10-19T10:01:03Z","app":"Google Chrome","bundle":"com.google.Chrome","title":"Pricing — Linear","text":"line 1\nsays \"hi\"\t\\ end"}"#;
     assert_eq!(e1.line(), expected, "events.jsonl line format");
-    let e2 = Event { t: "a".into(), end: "a".into(), app: "X".into(), bundle: "x".into(), title: "T".into(), src: "ax".into(), text: "hi".into(), kind: "".into() };
+    let e2 = Event { t: "a".into(), end: "a".into(), app: "X".into(), bundle: "x".into(), title: "T".into(), src: "ax".into(), text: "hi".into(), ..Default::default() };
     assert_eq!(e2.line(), r#"{"t":"a","end":"a","app":"X","bundle":"x","title":"T","src":"ax","text":"hi"}"#, "src before text");
     assert_eq!(json_string("a\u{01}b"), r#""a\u0001b""#, "control chars escaped");
     assert_eq!(json_string("\u{1f}\r\u{2028}\u{2029}é"), "\"\\u001f\\r\\u2028\\u2029é\"", "U+2028/2029 escaped like Swift");
@@ -226,27 +226,27 @@ fn session_and_state_json() {
     assert!(sj2.contains(r#""ended_at":"2026-10-19T10:02:03Z""#), "session.json ended_at {sj2}");
     let st = |s: StateJson| s.json();
     assert_eq!(st(StateJson { pid: 42, ..Default::default() }),
-        r#"{"recording":false,"session_id":null,"started_at":null,"pid":42,"picking":false,"last_error":null,"events":0,"skip":null,"listening":false,"note_at":null}"#, "state.json idle");
+        r#"{"recording":false,"session_id":null,"started_at":null,"pid":42,"picking":false,"last_error":null,"events":0,"skip":null,"listening":false,"note_at":null,"project":null,"project_by":null}"#, "state.json idle");
     assert_eq!(st(StateJson { recording: true, session_id: Some("20261019-100103".into()), started_at: Some(date()), pid: 7, ..Default::default() }),
-        r#"{"recording":true,"session_id":"20261019-100103","started_at":"2026-10-19T10:01:03Z","pid":7,"picking":false,"last_error":null,"events":0,"skip":null,"listening":false,"note_at":null}"#, "state.json recording");
+        r#"{"recording":true,"session_id":"20261019-100103","started_at":"2026-10-19T10:01:03Z","pid":7,"picking":false,"last_error":null,"events":0,"skip":null,"listening":false,"note_at":null,"project":null,"project_by":null}"#, "state.json recording");
     assert_eq!(st(StateJson { pid: 1, picking: true, ..Default::default() }),
-        r#"{"recording":false,"session_id":null,"started_at":null,"pid":1,"picking":true,"last_error":null,"events":0,"skip":null,"listening":false,"note_at":null}"#, "state.json picking");
+        r#"{"recording":false,"session_id":null,"started_at":null,"pid":1,"picking":true,"last_error":null,"events":0,"skip":null,"listening":false,"note_at":null,"project":null,"project_by":null}"#, "state.json picking");
     assert_eq!(st(StateJson { pid: 1, last_error: Some("cancelled".into()), ..Default::default() }),
-        r#"{"recording":false,"session_id":null,"started_at":null,"pid":1,"picking":false,"last_error":"cancelled","events":0,"skip":null,"listening":false,"note_at":null}"#, "state.json cancelled");
+        r#"{"recording":false,"session_id":null,"started_at":null,"pid":1,"picking":false,"last_error":"cancelled","events":0,"skip":null,"listening":false,"note_at":null,"project":null,"project_by":null}"#, "state.json cancelled");
     assert!(st(StateJson { recording: true, session_id: Some("s".into()), pid: 1, events: 3, skip: Some(Skip::NotPicked), ..Default::default() })
-        .ends_with(r#""events":3,"skip":"not_picked","listening":false,"note_at":null}"#), "state.json events + skip");
+        .ends_with(r#""events":3,"skip":"not_picked","listening":false,"note_at":null,"project":null,"project_by":null}"#), "state.json events + skip");
     assert!(st(StateJson { recording: true, session_id: Some("s".into()), pid: 1, listening: true, note_at: Some(5), ..Default::default() })
-        .ends_with(r#""listening":true,"note_at":5}"#), "state.json listening + note_at");
+        .ends_with(r#""listening":true,"note_at":5,"project":null,"project_by":null}"#), "state.json listening + note_at");
 }
 
 #[test]
 fn control_commands() {
     let p = |s: &str| ControlCommand::parse(s.as_bytes());
-    assert_eq!(p(r#"{"command":"start","at":1792404063000}"#), Some(ControlCommand { kind: ControlKind::Start, at: 1_792_404_063_000, text: None }), "control start");
+    assert_eq!(p(r#"{"command":"start","at":1792404063000}"#), Some(ControlCommand { kind: ControlKind::Start, at: 1_792_404_063_000, text: None, project: None }), "control start");
     assert_eq!(p(r#"{"command":"stop","at":5}"#).map(|c| c.kind), Some(ControlKind::Stop), "control stop");
     assert_eq!(p(r#"{"command":"pause","at":5}"#), None, "control unknown");
     assert_eq!(p("garbage"), None, "control garbage");
-    assert_eq!(p(r#"{"command":"note","text":" decided X ","at":9}"#), Some(ControlCommand { kind: ControlKind::Note, at: 9, text: Some("decided X".into()) }), "control note");
+    assert_eq!(p(r#"{"command":"note","text":" decided X ","at":9}"#), Some(ControlCommand { kind: ControlKind::Note, at: 9, text: Some("decided X".into()), project: None }), "control note");
     assert_eq!(p(r#"{"command":"note","text":"  ","at":9}"#), None, "empty note ignored");
     assert_eq!(p(r#"{"command":"note","at":9}"#), None, "note without text ignored");
     assert_eq!(p(r#"{"command":"START"}"#).map(|c| (c.kind, c.at)), Some((ControlKind::Start, 0)), "case-insensitive, at defaults to 0");
@@ -530,12 +530,12 @@ impl Rig {
             match s {
                 VoiceSignal::Indicator(on) => self.indicator.push(on),
                 VoiceSignal::Outcome(o) => self.outcomes.push(o),
-                VoiceSignal::Save { event, .. } => self.written.push(event),
+                VoiceSignal::Save { event, .. } => self.written.push(*event),
             }
         }
     }
     fn press(&mut self, recording: bool) {
-        let target = VoiceTarget { app: "Figma".into(), bundle: "com.figma.Desktop".into(), title: "Pricing".into(), session: "s".into() };
+        let target = VoiceTarget { app: "Figma".into(), bundle: "com.figma.Desktop".into(), title: "Pricing".into(), session: "s".into(), ..Default::default() };
         self.notes.toggle("en-US", recording.then_some(target));
         self.drain();
     }
@@ -672,4 +672,119 @@ fn voice_stale_reply_ignored() {
     // Now a duplicate send from a cloned token would be stale; the phase guard drops it too.
     r.notes.pump();
     assert_eq!(r.written.len(), 1);
+}
+
+// MARK: projects
+
+fn pj() -> Vec<Project> {
+    let p = |id: &str, name: &str, clues: &[&str]| Project { id: id.into(), name: name.into(), clues: clues.iter().map(|c| c.to_string()).collect() };
+    vec![
+        p("capsule", "Context Capsule", &["karya-capsule", "context capsule"]),
+        p("report", "Client report", &["acme", "docs.google.com/document/d/1abc"]),
+        p("design", "Design", &["Figma"]),
+    ]
+}
+
+#[test]
+fn project_slugs() {
+    assert_eq!(Projects::slug("Client Report (Q3)!"), "client-report-q3", "project slug");
+    assert_eq!(Projects::slug("Café déjà vu"), "cafe-deja-vu", "slug folds accents");
+    let long_name = format!("{} b", "a".repeat(59));
+    assert_eq!(Projects::slug(&long_name), "a".repeat(59), "long slug never ends on a dash");
+}
+
+#[test]
+fn project_detection() {
+    let pj = pj();
+    let id = |p: Option<&Project>| p.map(|p| p.id.clone());
+    assert_eq!(id(Projects::detect(&pj, "main.swift — karya-capsule", "", "Xcode")), Some("capsule".into()), "clue in title");
+    assert_eq!(id(Projects::detect(&pj, "Q3 numbers", "https://docs.google.com/document/d/1AbC/edit", "Chrome")), Some("report".into()),
+        "clue in location, case-insensitive");
+    assert_eq!(id(Projects::detect(&pj, "Untitled", "", "Figma")), Some("design".into()), "clue is the app");
+    assert_eq!(id(Projects::detect(&pj, "Inbox", "", "Mail")), None, "no clue: no project");
+    assert_eq!(id(Projects::detect(&pj, "acme in Figma", "", "Figma")), Some("design".into()), "longest clue wins a tie");
+    let one = [Project { id: "x".into(), name: "X".into(), clues: vec!["a".into()] }];
+    assert_eq!(id(Projects::detect(&one, "a", "", "")), None, "1-letter clues ignored");
+    let pick = |pinned: Option<&str>, title: &str, app: &str| {
+        ProjectChoice { pinned: pinned.map(String::from) }.resolve(&pj, title, "", app)
+    };
+    assert_eq!(pick(Some("report"), "karya-capsule", ""), Some(("report".into(), "you".into())), "pinned wins");
+    assert_eq!(pick(None, "karya-capsule", ""), Some(("capsule".into(), "auto".into())), "auto");
+    assert_eq!(pick(None, "Inbox", "Mail"), None, "auto, nothing found");
+}
+
+#[test]
+fn project_clues() {
+    assert_eq!(Projects::clue("x", "file:///Users/s/karya-capsule/SPEC.md").as_deref(), Some("SPEC"), "clue from a file name");
+    assert_eq!(Projects::clue("x", "https://linear.app/karya/issue/KAR-12").as_deref(), Some("linear.app/karya/issue"), "clue from a page");
+    let t = Projects::clue("main.swift — karya-capsule", "");
+    assert!(t.as_deref() == Some("karya-capsule") || t.as_deref() == Some("main.swift"), "clue from the title {t:?}");
+    // Beyond the Swift vectors: the exact rule.
+    assert_eq!(t.as_deref(), Some("karya-capsule"), "the longest part");
+    assert_eq!(Projects::clue("Inbox | Mail", "").as_deref(), Some("Inbox"), "first of the longest");
+    assert_eq!(Projects::clue("ab", ""), None);
+    assert_eq!(Projects::clue("Docs — Notes", "https://example.com").as_deref(), Some("example.com"), "a host alone");
+    assert_eq!(Projects::clue("Pricing — Linear", "file:///a/b/x.md").as_deref(), Some("Pricing"), "a short file name: the title");
+    assert_eq!(Projects::clue("Report", r"C:\Users\s\report.docx").as_deref(), Some("Report"), "a Windows path is not a URL");
+}
+
+#[test]
+fn projects_json() {
+    let dir = tmp("projects");
+    let path = dir.join("projects.json");
+    Projects::save(&pj(), &path).unwrap();
+    assert_eq!(Projects::load(&path), pj(), "projects.json round trip");
+    std::fs::write(&path, r#"{"projects":[{"name":"No Id Given","match":[" a b ",""]},{"id":"x"}]}"#).unwrap();
+    assert_eq!(Projects::load(&path), vec![Project { id: "no-id-given".into(), name: "No Id Given".into(), clues: vec!["a b".into()] }],
+        "load fills ids, drops bad entries");
+    assert!(Projects::load(&dir.join("none.json")).is_empty(), "no projects.json: no projects");
+    // Byte for byte what Foundation writes on the Mac (pretty, keys sorted, "/" escaped).
+    let two = [
+        Project { id: "a".into(), name: "A/B \"q\" é\u{1}\n".into(), clues: vec!["x/y".into(), "z".into()] },
+        Project { id: "b".into(), name: "B".into(), clues: vec![] },
+    ];
+    assert_eq!(Projects::json(&two), "{\n  \"projects\" : [\n    {\n      \"id\" : \"a\",\n      \"match\" : [\n        \"x\\/y\",\n        \"z\"\n      ],\n      \"name\" : \"A\\/B \\\"q\\\" é\\u0001\\n\"\n    },\n    {\n      \"id\" : \"b\",\n      \"match\" : [\n\n      ],\n      \"name\" : \"B\"\n    }\n  ]\n}");
+    assert_eq!(Projects::json(&[]), "{\n  \"projects\" : [\n\n  ]\n}");
+    assert_eq!(Projects::parse(Projects::json(&two).as_bytes()), two, "parses back");
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+#[test]
+fn locations() {
+    assert_eq!(Location::clean(Some("https://x.com/a/b?token=sk-abc123&u=1#frag")), "https://x.com/a/b", "location drops query and fragment");
+    assert!(Location::clean(Some("  ")).is_empty() && Location::clean(None).is_empty(), "empty location");
+    assert_eq!(Location::clean(Some("file:///home/s/sk-proj-abcdefghijklmnop1234567890.txt")), "file:///home/s/[redacted].txt", "redacted like text");
+}
+
+#[test]
+fn project_event_lines() {
+    let mut pe = Event { t: "a".into(), end: "a".into(), app: "Chrome".into(), bundle: "c".into(), title: "T".into(), src: "ax".into(), text: "hi".into(), ..Default::default() };
+    pe.location = "https://x.com/a".into();
+    pe.project = "report".into();
+    pe.project_by = "auto".into();
+    assert_eq!(pe.line(), r#"{"t":"a","end":"a","app":"Chrome","bundle":"c","title":"T","where":"https://x.com/a","project":"report","project_by":"auto","src":"ax","text":"hi"}"#,
+        "event line with where + project");
+    let mut pv = Voice::event("why", Event::VOICE, "voice", date(), date(), "Figma", "f", "T");
+    pv.project = "design".into();
+    pv.project_by = "you".into();
+    assert!(pv.line().contains(r#""kind":"voice","src":"voice","app":"Figma","bundle":"f","title":"T","project":"design","project_by":"you","text":"why"}"#),
+        "voice line with project {}", pv.line());
+    let mut pe2 = pe.clone();
+    pe2.project = "capsule".into();
+    assert!(!pe.same_content(&pe2), "another project is a new event");
+    let mut pe3 = pe.clone();
+    pe3.location = "https://x.com/b".into();
+    assert!(!pe.same_content(&pe3), "another page is a new event");
+    assert!(pe.same_content(&pe.clone()));
+}
+
+#[test]
+fn project_control_and_state() {
+    let p = |s: &str| ControlCommand::parse(s.as_bytes());
+    assert_eq!(p(r#"{"command":"project","project":"report","at":3}"#),
+        Some(ControlCommand { kind: ControlKind::Project, at: 3, text: None, project: Some("report".into()) }), "control project");
+    assert_eq!(p(r#"{"command":"project","at":3}"#), None, "project without id ignored");
+    assert_eq!(p(r#"{"command":"project","project":"  ","at":3}"#), None, "blank id ignored");
+    let st = StateJson { recording: true, session_id: Some("s".into()), pid: 1, project: Some("report".into()), project_by: Some("auto".into()), ..Default::default() };
+    assert!(st.json().ends_with(r#""project":"report","project_by":"auto"}"#), "state.json project");
 }

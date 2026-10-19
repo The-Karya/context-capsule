@@ -47,5 +47,6 @@ pub fn run(mut p: LinuxPlatform) -> bool {
         }
         None => println!("text: accessibility not available → OCR"),
     }
+    println!("where: {:?}", p.location(&front));
     true
 }

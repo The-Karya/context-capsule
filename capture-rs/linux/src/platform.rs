@@ -34,6 +34,8 @@ pub struct LinuxPlatform {
     pub ocr: Ocr,
     /// The AT-SPI active window of the current sample (front() sets it, ui_text / ui_title use it).
     current: Option<ActiveWindow>,
+    /// The first document in the window's tree, from the latest text walk (for `location`).
+    document: Option<atspi::ObjectRefOwned>,
     /// The window whose size matches a picked window's stream (None: none, or more than one).
     matched: Option<u64>,
     ocr_hint_shown: bool,
@@ -78,6 +80,7 @@ impl LinuxPlatform {
             tray,
             ocr: Ocr::new(locale),
             current: None,
+            document: None,
             matched: None,
             ocr_hint_shown: false,
         }
@@ -212,9 +215,20 @@ impl Platform for LinuxPlatform {
     }
 
     fn ui_text(&mut self, front: &Front) -> Option<String> {
+        self.document = None;
         let a11y = self.a11y.clone()?;
         let obj = self.current_for(front.pid)?.obj.clone();
-        self.wait(atspi_text::read(a11y.connection(), &obj)).flatten()
+        let read = self.wait(atspi_text::read(a11y.connection(), &obj)).flatten()?;
+        self.document = read.document;
+        Some(read.text)
+    }
+
+    /// The address of the document the text walk found (a web view's page, an editor's file).
+    fn location(&mut self, front: &Front) -> Option<String> {
+        let a11y = self.a11y.clone()?;
+        self.current_for(front.pid)?;
+        let doc = self.document.clone()?;
+        self.wait(atspi_text::document_address(a11y.connection(), &doc)).flatten()
     }
 
     fn ui_title(&mut self, front: &Front) -> Option<String> {

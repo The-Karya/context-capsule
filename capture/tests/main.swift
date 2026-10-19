@@ -508,6 +508,8 @@ check(VoiceOutcome.failed("speech recognition stopped (kAFAssistantErrorDomain 1
 
 check(Projects.slug("Client Report (Q3)!") == "client-report-q3", "project slug", Projects.slug("Client Report (Q3)!"))
 check(Projects.slug("Café déjà vu") == "cafe-deja-vu", "slug folds accents", Projects.slug("Café déjà vu"))
+let longName = String(repeating: "a", count: 59) + " b"
+check(Projects.slug(longName) == String(repeating: "a", count: 59), "long slug never ends on a dash", Projects.slug(longName))
 let pj = [
     Project(id: "capsule", name: "Context Capsule", match: ["karya-capsule", "context capsule"]),
     Project(id: "report", name: "Client report", match: ["acme", "docs.google.com/document/d/1abc"]),

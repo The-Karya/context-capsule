@@ -5,9 +5,9 @@ use crate::hotkeys::{self, RECORD_LABEL, VOICE_LABEL};
 use crate::picker::Capture;
 use crate::platform::WinPlatform;
 use crate::toast::Toast;
-use crate::tray::{self, Tray};
-use crate::{changes, voice, win};
-use context_capsule_core::{Engine, Indicator, Msg, Options, Paths, PlatformText, Status};
+use crate::tray::{self, menu_text, Tray};
+use crate::{changes, input, voice, win};
+use context_capsule_core::{Engine, Indicator, Msg, Options, Paths, PlatformText, ProjectItem, Status};
 use std::cell::{Cell, RefCell};
 use std::sync::atomic::{AtomicU32, Ordering};
 use std::sync::mpsc::{channel, Receiver, Sender};
@@ -24,7 +24,7 @@ use windows::Win32::UI::Shell::{ShellExecuteW, NINF_KEY, NIN_SELECT};
 use windows::Win32::UI::WindowsAndMessaging::{
     AppendMenuW, CreatePopupMenu, CreateWindowExW, DefWindowProcW, DestroyMenu, DestroyWindow, DispatchMessageW, GetCursorPos,
     GetMessageW, PostMessageW, PostQuitMessage, RegisterClassW, RegisterWindowMessageW, SetForegroundWindow, TrackPopupMenu,
-    TranslateMessage, HMENU, MF_GRAYED, MF_SEPARATOR, MF_STRING, MSG, SW_SHOWNORMAL, TPM_BOTTOMALIGN, TPM_NONOTIFY,
+    TranslateMessage, HMENU, MF_CHECKED, MF_GRAYED, MF_POPUP, MF_SEPARATOR, MF_STRING, MSG, SW_SHOWNORMAL, TPM_BOTTOMALIGN, TPM_NONOTIFY,
     TPM_RETURNCMD, TPM_RIGHTBUTTON, WINDOW_EX_STYLE, WM_APP, WM_CONTEXTMENU, WM_DESTROY, WM_ENDSESSION, WM_HOTKEY, WM_NULL,
     WM_QUERYENDSESSION, WM_SETTINGCHANGE, WNDCLASSW, WS_EX_TOOLWINDOW, WS_POPUP,
 };
@@ -36,6 +36,11 @@ const ID_TOGGLE: u32 = 10;
 const ID_VOICE: u32 = 11;
 const ID_OPEN: u32 = 12;
 const ID_QUIT: u32 = 13;
+const ID_PROJECT_AUTO: u32 = 20;
+const ID_PROJECT_NEW: u32 = 21;
+/// Projects are 100, 101, … in list order.
+const ID_PROJECT_FIRST: u32 = 100;
+const MAX_PROJECTS: usize = 500;
 
 /// User-facing words for Windows (our hotkeys use Ctrl too: Alt+Shift alone switches keyboard layouts).
 pub const TEXT: PlatformText = PlatformText { record_hotkey: RECORD_LABEL, voice_hotkey: VOICE_LABEL, ..PlatformText::WINDOWS };
@@ -316,7 +321,8 @@ fn close(hwnd: HWND) {
 }
 
 fn show_menu(hwnd: HWND) {
-    let Some(model) = with_app(|a| tray::menu_model(&a.status, &short_time)) else { return };
+    let Some((model, status)) = with_app(|a| (tray::menu_model(&a.status, &short_time), a.status.clone())) else { return };
+    let projects = status.project_items();
     // SAFETY: a popup menu we build, show and destroy here. TrackPopupMenu runs a nested loop, so the
     // app is not borrowed meanwhile.
     let chosen = unsafe {
@@ -332,6 +338,25 @@ fn show_menu(hwnd: HWND) {
         let _ = AppendMenuW(menu, MF_SEPARATOR, 0, None);
         item(menu, ID_TOGGLE, &model.toggle, true);
         item(menu, ID_VOICE, &model.voice, true);
+        if let Ok(sub) = CreatePopupMenu() {
+            let mut n = 0;
+            for p in &projects {
+                let check = |on: bool| if on { MF_STRING | MF_CHECKED } else { MF_STRING };
+                let _ = match p {
+                    ProjectItem::Auto { checked } => AppendMenuW(sub, check(*checked), ID_PROJECT_AUTO as usize, &HSTRING::from(ProjectItem::AUTO)),
+                    ProjectItem::Project { name, checked, .. } if n < MAX_PROJECTS => {
+                        n += 1;
+                        let id = ID_PROJECT_FIRST as usize + n - 1;
+                        AppendMenuW(sub, check(*checked), id, &HSTRING::from(menu_text(name)))
+                    }
+                    ProjectItem::Project { .. } => Ok(()),
+                    ProjectItem::Separator => AppendMenuW(sub, MF_SEPARATOR, 0, None),
+                    ProjectItem::New => AppendMenuW(sub, MF_STRING, ID_PROJECT_NEW as usize, &HSTRING::from(ProjectItem::NEW)),
+                };
+            }
+            // The submenu is destroyed with the menu.
+            let _ = AppendMenuW(menu, MF_STRING | MF_POPUP, sub.0 as usize, &HSTRING::from(model.project.as_str()));
+        }
         item(menu, ID_OPEN, "Open sessions folder", true);
         let _ = AppendMenuW(menu, MF_SEPARATOR, 0, None);
         item(menu, ID_QUIT, "Quit Context Capsule", true);
@@ -351,7 +376,24 @@ fn show_menu(hwnd: HWND) {
         ID_VOICE => send(Msg::ToggleVoice),
         ID_OPEN => open_sessions(),
         ID_QUIT => quit(hwnd),
+        ID_PROJECT_AUTO => send(Msg::PickProject(None)),
+        ID_PROJECT_NEW => new_project(hwnd, &status),
+        id if id >= ID_PROJECT_FIRST => {
+            if let Some(p) = status.projects.get((id - ID_PROJECT_FIRST) as usize) {
+                send(Msg::PickProject(Some(p.id.clone())));
+            }
+        }
         _ => {}
+    }
+}
+
+/// Ask for a name (prefilled with the window's clue); the engine saves it and remembers the clue.
+fn new_project(hwnd: HWND, status: &Status) {
+    let clue = status.new_project_clue.clone();
+    let initial = clue.clone().unwrap_or_default();
+    // Outside the app borrow: the dialog runs a nested message loop.
+    if let Some(name) = input::ask(hwnd, "New project", &status.new_project_prompt(), &initial) {
+        send(Msg::NewProject { name, clue });
     }
 }
 

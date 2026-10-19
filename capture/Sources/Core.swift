@@ -913,7 +913,9 @@ enum Projects {
             }
         }
         while out.hasSuffix("-") { out.removeLast() }
-        return String(out.prefix(60))
+        var cut = String(out.prefix(60))
+        while cut.hasSuffix("-") { cut.removeLast() } // same as the MCP: never end on a dash
+        return cut
     }
 
     /// `{"projects":[{"id","name","match":[…]}]}`; a missing or broken file means no projects.

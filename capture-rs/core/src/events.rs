@@ -17,6 +17,11 @@ pub struct Event {
     pub text: String,
     /// "voice" or "note" for what the user said or typed; empty for screen samples (written without it).
     pub kind: String,
+    /// The window's page address or file path, when known (see `Location::clean`). JSON key "where".
+    pub location: String,
+    /// Project id, and how it was chosen: "auto" (matched a clue) or "you" (picked by the user).
+    pub project: String,
+    pub project_by: String,
 }
 
 impl Event {
@@ -37,31 +42,27 @@ impl Event {
             && self.bundle == o.bundle
             && self.title == o.title
             && self.text == o.text
+            && self.location == o.location
+            && self.project == o.project
+            && self.project_by == o.project_by
     }
 
-    /// One events.jsonl line (no newline), keys in SPEC order.
+    /// One events.jsonl line (no newline), keys in SPEC order:
+    /// t, end, [kind, src,] app, bundle, title, [where], [project, project_by], [src,] text.
     pub fn line(&self) -> String {
         let s = |v: &str| JsonValue::Str(v.to_string());
+        let mut pairs = vec![("t", s(&self.t)), ("end", s(&self.end))];
         if !self.kind.is_empty() {
-            return json_object(&[
-                ("t", s(&self.t)),
-                ("end", s(&self.end)),
-                ("kind", s(&self.kind)),
-                ("src", s(&self.src)),
-                ("app", s(&self.app)),
-                ("bundle", s(&self.bundle)),
-                ("title", s(&self.title)),
-                ("text", s(&self.text)),
-            ]);
+            pairs.extend([("kind", s(&self.kind)), ("src", s(&self.src))]);
         }
-        let mut pairs = vec![
-            ("t", s(&self.t)),
-            ("end", s(&self.end)),
-            ("app", s(&self.app)),
-            ("bundle", s(&self.bundle)),
-            ("title", s(&self.title)),
-        ];
-        if !self.src.is_empty() {
+        pairs.extend([("app", s(&self.app)), ("bundle", s(&self.bundle)), ("title", s(&self.title))]);
+        if !self.location.is_empty() {
+            pairs.push(("where", s(&self.location)));
+        }
+        if !self.project.is_empty() {
+            pairs.extend([("project", s(&self.project)), ("project_by", s(&self.project_by))]);
+        }
+        if self.kind.is_empty() && !self.src.is_empty() {
             pairs.push(("src", s(&self.src)));
         }
         pairs.push(("text", s(&self.text)));

@@ -75,6 +75,8 @@ pub struct MenuModel {
     pub skip: Option<String>,
     pub toggle: String,
     pub voice: String,
+    /// "Project: …", the title of the project submenu.
+    pub project: String,
 }
 
 pub fn menu_model(s: &Status, short_time: &dyn Fn(SystemTime) -> String) -> MenuModel {
@@ -95,7 +97,12 @@ pub fn menu_model(s: &Status, short_time: &dyn Fn(SystemTime) -> String) -> Menu
         format!("Start recording…\t{RECORD_LABEL}")
     };
     let voice = if s.listening { format!("Finish voice note\t{VOICE_LABEL}") } else { format!("Add voice note\t{VOICE_LABEL}") };
-    MenuModel { info, skip, toggle, voice }
+    MenuModel { info, skip, toggle, voice, project: menu_text(&s.project_title()) }
+}
+
+/// Menu text shows "&" as a shortcut marker: double it so names show as typed.
+pub fn menu_text(s: &str) -> String {
+    s.replace('&', "&&")
 }
 
 /// The hover text (at most 127 characters, the tray's limit).
@@ -337,8 +344,18 @@ mod tests {
         assert_eq!(menu_model(&one, &t).info, "Recording since 14:57 — 1 event — 20261019-145700");
         assert_eq!(menu_model(&one, &t).skip, None);
 
+        assert_eq!(idle.project, "Project: Auto-detect");
+
         let stale = Status { skip: Some(Skip::Overlay), ..Default::default() };
         assert_eq!(menu_model(&stale, &t).skip, None, "skip line only while recording");
+    }
+
+    #[test]
+    fn project_menu_text() {
+        let p = context_capsule_core::Project { id: "rd".into(), name: "R&D".into(), clues: vec![] };
+        let s = Status { projects: vec![p], pinned: Some("rd".into()), project: Some("rd".into()), ..Default::default() };
+        assert_eq!(menu_model(&s, &|_| String::new()).project, "Project: R&&D");
+        assert_eq!(menu_text("a && b"), "a &&&& b");
     }
 
     #[test]

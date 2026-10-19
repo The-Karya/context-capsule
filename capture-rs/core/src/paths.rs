@@ -61,6 +61,10 @@ impl Paths {
     pub fn state(&self) -> PathBuf {
         self.root.join("state.json")
     }
+    /// The user's projects (written by the app and the MCP server, editable by hand).
+    pub fn projects(&self) -> PathBuf {
+        self.root.join("projects.json")
+    }
 }
 
 /// The data root as a pure function of an environment lookup. Empty values count as unset.
@@ -141,5 +145,6 @@ mod tests {
         assert_eq!(p.control(), Path::new("/r/control"));
         assert_eq!(p.config(), Path::new("/r/config.json"));
         assert_eq!(p.capsules(), Path::new("/r/capsules"));
+        assert_eq!(p.projects(), Path::new("/r/projects.json"));
     }
 }

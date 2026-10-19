@@ -6,6 +6,7 @@
 #![cfg_attr(not(windows), allow(dead_code))]
 
 mod hotkeys;
+mod input;
 // Only used by voice notes.
 #[cfg_attr(not(feature = "voice"), allow(dead_code, unused_imports))]
 mod model;

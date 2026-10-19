@@ -15,6 +15,7 @@ pub mod json;
 pub mod membership;
 pub mod paths;
 pub mod platform;
+pub mod projects;
 pub mod redact;
 pub mod state;
 pub mod text;
@@ -29,7 +30,8 @@ pub use membership::{
     Freshness, ListedWindow, Membership, OcrDecision, PickStyle, PickedContent, Skip, WindowList,
 };
 pub use paths::Paths;
-pub use platform::{Frame, Front, Indicator, Msg, PickOutcome, Platform, Status};
+pub use platform::{project_message, Frame, Front, Indicator, Msg, PickOutcome, Platform, ProjectItem, Status};
+pub use projects::{Location, Project, ProjectChoice, Projects};
 pub use redact::Redactor;
 pub use state::{session_json, ControlCommand, ControlKind, StateJson};
 pub use text::{NodeKind, TextNode, TextSource, UiText};

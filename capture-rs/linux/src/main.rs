@@ -67,7 +67,7 @@ fn main() {
     let (tx, rx) = mpsc::channel::<Msg>();
     let changed = Arc::new(Mutex::new(None));
     let notifier = notify::Notifier::new(handle.clone());
-    let tray = if probe { tray::Tray::none(&handle) } else { tray::Tray::spawn(&handle, tx.clone(), paths.sessions()) };
+    let tray = if probe { tray::Tray::none(&handle) } else { tray::Tray::spawn(&handle, tx.clone(), notifier.clone(), paths.sessions()) };
     if !probe && !tray.is_shown() {
         notifier.toast("Context Capsule is running, but this desktop shows no tray icon (on GNOME, install the AppIndicator extension). Use the hotkeys: Ctrl+Alt+Shift+C to record.");
     }

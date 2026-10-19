@@ -16,6 +16,42 @@ pub const DOCUMENT: i32 = 50030;
 pub const HEADER: i32 = 50034;
 pub const HEADER_ITEM: i32 = 50035;
 
+/// Browsers whose address bar we read for `where`.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Browser {
+    /// Chrome, Edge, Brave, Vivaldi, Opera: the first edit field in the window is the address bar.
+    Chromium,
+    /// Firefox: the field with automation id "urlbar-input".
+    Firefox,
+}
+
+/// The browser behind an app id (the exe name), if we know how to read its address bar.
+pub fn browser_for(app_id: Option<&str>) -> Option<Browser> {
+    let exe = app_id?.to_ascii_lowercase();
+    match exe.strip_suffix(".exe").unwrap_or(&exe) {
+        "chrome" | "msedge" | "brave" | "vivaldi" | "opera" => Some(Browser::Chromium),
+        "firefox" => Some(Browser::Firefox),
+        _ => None,
+    }
+}
+
+/// The address bar's text as a page address. Browsers hide "https://" while the field is not being
+/// edited, so a bare "host/path" gets it back. Anything else (a search being typed) is not an address.
+pub fn page_address(value: &str) -> Option<String> {
+    let v = value.trim();
+    if v.is_empty() || v.chars().any(char::is_whitespace) {
+        return None;
+    }
+    if v.contains("://") || ["about:", "chrome:", "edge:", "file:", "view-source:"].iter().any(|s| v.starts_with(s)) {
+        return Some(v.to_string());
+    }
+    let host = v.split(['/', '?', '#']).next().unwrap_or("");
+    let looks_like_host = host.contains('.') && !host.starts_with('.') && !host.ends_with('.')
+        || host == "localhost"
+        || host.starts_with("localhost:");
+    looks_like_host.then(|| format!("https://{v}"))
+}
+
 /// A control's role for `UiText::assemble`. A password field is `Secure` whatever its type.
 pub fn kind_for(control_type: i32, is_password: bool) -> NodeKind {
     if is_password {
@@ -44,10 +80,12 @@ mod win {
     use windows::core::Interface;
     use windows::Win32::Foundation::HWND;
     use windows::Win32::System::Com::{CoCreateInstance, CLSCTX_INPROC_SERVER};
+    use windows::Win32::System::Variant::VARIANT;
     use windows::Win32::UI::Accessibility::{
         CUIAutomation, CUIAutomation8, IUIAutomation, IUIAutomation2, IUIAutomationCacheRequest, IUIAutomationElement,
-        IUIAutomationTextPattern, IUIAutomationTreeWalker, IUIAutomationValuePattern, UIA_ControlTypePropertyId,
-        UIA_HelpTextPropertyId, UIA_IsPasswordPropertyId, UIA_NamePropertyId, UIA_TextPatternId, UIA_ValuePatternId,
+        IUIAutomationTextPattern, IUIAutomationTreeWalker, IUIAutomationValuePattern, TreeScope_Descendants,
+        UIA_AutomationIdPropertyId, UIA_ControlTypePropertyId, UIA_EditControlTypeId, UIA_HelpTextPropertyId,
+        UIA_IsPasswordPropertyId, UIA_NamePropertyId, UIA_TextPatternId, UIA_ValuePatternId,
     };
 
     /// One UI Automation client, made on the engine thread (COM, multithreaded apartment).
@@ -91,6 +129,32 @@ mod win {
             let mut walk = Walk { uia: self, nodes: vec![], deadline: Instant::now() + UiText::BUDGET };
             walk.visit(&root, 0);
             Some(UiText::assemble(&walk.nodes, UiText::MAX_CHARS))
+        }
+
+        /// The page address in a browser window's address bar. One search (the bar comes before the
+        /// page in the tree); the transaction timeout keeps a slow browser from stalling the sample.
+        pub fn address(&self, hwnd: HWND, browser: Browser) -> Option<String> {
+            // SAFETY: COM calls; a dead window or a missing field just fails.
+            unsafe {
+                let root = self.automation.ElementFromHandle(hwnd).ok()?;
+                let condition = match browser {
+                    Browser::Firefox => self.automation.CreatePropertyCondition(UIA_AutomationIdPropertyId, &VARIANT::from("urlbar-input")),
+                    Browser::Chromium => {
+                        self.automation.CreatePropertyCondition(UIA_ControlTypePropertyId, &VARIANT::from(UIA_EditControlTypeId.0))
+                    }
+                }
+                .ok()?;
+                let field = root.FindFirst(TreeScope_Descendants, &condition).ok()?;
+                if field.CurrentIsPassword().is_ok_and(|b| b.as_bool()) {
+                    return None;
+                }
+                let value = field
+                    .GetCurrentPatternAs::<IUIAutomationValuePattern>(UIA_ValuePatternId)
+                    .and_then(|p| p.CurrentValue())
+                    .ok()?
+                    .to_string();
+                page_address(&value)
+            }
         }
     }
 
@@ -172,6 +236,27 @@ mod win {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn browsers() {
+        assert_eq!(browser_for(Some("chrome.exe")), Some(Browser::Chromium));
+        assert_eq!(browser_for(Some("MSEdge.EXE")), Some(Browser::Chromium));
+        assert_eq!(browser_for(Some("firefox.exe")), Some(Browser::Firefox));
+        assert_eq!(browser_for(Some("notepad.exe")), None);
+        assert_eq!(browser_for(None), None);
+    }
+
+    #[test]
+    fn page_addresses() {
+        assert_eq!(page_address("github.com/karya/capsule").as_deref(), Some("https://github.com/karya/capsule"));
+        assert_eq!(page_address(" https://linear.app/karya?x=1 ").as_deref(), Some("https://linear.app/karya?x=1"));
+        assert_eq!(page_address("localhost:3000/app").as_deref(), Some("https://localhost:3000/app"));
+        assert_eq!(page_address("edge://settings").as_deref(), Some("edge://settings"));
+        assert_eq!(page_address("about:blank").as_deref(), Some("about:blank"));
+        assert_eq!(page_address("how to slugify in rust"), None, "a search being typed");
+        assert_eq!(page_address("pricing"), None);
+        assert_eq!(page_address(""), None);
+    }
 
     #[test]
     fn roles_mirror_ax() {

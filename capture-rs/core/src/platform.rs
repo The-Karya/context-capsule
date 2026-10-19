@@ -6,6 +6,7 @@
 use crate::engine::empty_session_alert;
 use crate::image::Image;
 use crate::membership::{ListedWindow, PickedContent, Skip};
+use crate::projects::Project;
 use std::sync::Arc;
 use std::time::SystemTime;
 
@@ -69,6 +70,78 @@ pub struct Status {
     pub events: usize,
     pub skip: Option<Skip>,
     pub last_error: Option<String>,
+    /// Every project in projects.json, for the "Project: …" submenu.
+    pub projects: Vec<Project>,
+    /// The project the user picked (None: auto-detect).
+    pub pinned: Option<String>,
+    /// The current project's id and how it was chosen ("auto" / "you").
+    pub project: Option<String>,
+    pub project_by: Option<String>,
+    /// A clue from the window of the latest sample, to prefill "New project from this window…".
+    pub new_project_clue: Option<String>,
+}
+
+impl Status {
+    /// The current project, if it is in projects.json.
+    pub fn current_project(&self) -> Option<&Project> {
+        let id = self.project.as_deref()?;
+        self.projects.iter().find(|p| p.id == id)
+    }
+
+    /// The submenu's title: "Project: Client report" when picked, "Project: Auto-detect (Client report)"
+    /// when detected, "Project: Auto-detect" when nothing matched yet.
+    pub fn project_title(&self) -> String {
+        let current = self.current_project().map(|p| p.name.as_str());
+        match (&self.pinned, current) {
+            (Some(pinned), current) => format!("Project: {}", current.unwrap_or(pinned)),
+            (None, Some(name)) => format!("Project: Auto-detect ({name})"),
+            (None, None) => "Project: Auto-detect".into(),
+        }
+    }
+
+    /// The "Project" submenu, like the Mac's: Auto-detect, every project (the picked one checked),
+    /// then "New project from this window…".
+    pub fn project_items(&self) -> Vec<ProjectItem> {
+        let mut items = vec![ProjectItem::Auto { checked: self.pinned.is_none() }];
+        if !self.projects.is_empty() {
+            items.push(ProjectItem::Separator);
+        }
+        for p in &self.projects {
+            let checked = self.pinned.as_deref() == Some(p.id.as_str());
+            items.push(ProjectItem::Project { id: p.id.clone(), name: p.name.clone(), checked });
+        }
+        items.extend([ProjectItem::Separator, ProjectItem::New]);
+        items
+    }
+
+    /// The words above the name field of "New project from this window…".
+    pub fn new_project_prompt(&self) -> String {
+        match &self.new_project_clue {
+            Some(clue) => format!("Windows with “{clue}” will count as this project from now on."),
+            None => "Name the project. Pick it from this menu while you work on it.".into(),
+        }
+    }
+}
+
+/// One line of the "Project" submenu.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum ProjectItem {
+    /// "Auto-detect", checked when no project is picked.
+    Auto { checked: bool },
+    Project { id: String, name: String, checked: bool },
+    Separator,
+    /// "New project from this window…"
+    New,
+}
+
+impl ProjectItem {
+    pub const AUTO: &'static str = "Auto-detect";
+    pub const NEW: &'static str = "New project from this window…";
+}
+
+/// The short message when the current project changes.
+pub fn project_message(project: Option<&Project>) -> String {
+    format!("Project: {}", project.map_or("not sure yet", |p| p.name.as_str()))
 }
 
 /// What the platform sends the engine's thread.
@@ -82,6 +155,10 @@ pub enum Msg {
     Pick(PickOutcome),
     /// A voice engine reply arrived (send this from `VoiceNotes::set_wake`).
     VoiceReady,
+    /// The "Project" menu: stick to this project id, or auto-detect again (None).
+    PickProject(Option<String>),
+    /// "New project from this window…": the name the user typed, and the clue the dialog showed.
+    NewProject { name: String, clue: Option<String> },
     /// Stop any session, write state.json, and return from `run`.
     Quit,
 }
@@ -137,6 +214,17 @@ pub trait Platform {
 
     /// Anything shown in the tray menu changed.
     fn status_changed(&mut self, _status: &Status) {}
+
+    /// The front window's page address (browsers) or file path, if the accessibility API gives it
+    /// cheaply. Never slow: None rather than wait.
+    fn location(&mut self, _front: &Front) -> Option<String> {
+        None
+    }
+
+    /// While recording, the current project changed (None: auto-detect found nothing yet).
+    fn project_changed(&mut self, project: Option<&Project>) {
+        self.toast(&project_message(project));
+    }
 
     /// A session ended with nothing written; `why` is the most common skip.
     fn empty_session(&mut self, why: Option<Skip>) {

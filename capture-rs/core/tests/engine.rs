@@ -33,6 +33,10 @@ struct Fake {
     indicators: Vec<Indicator>,
     toasts: Vec<String>,
     alerts: Vec<(String, String)>,
+    location: Option<String>,
+    /// Names given to `project_changed` (None: "not sure yet").
+    project_changes: Vec<Option<String>>,
+    status: Option<Status>,
 }
 
 impl Platform for Fake {
@@ -79,6 +83,15 @@ impl Platform for Fake {
     }
     fn host_name(&self) -> String {
         "test-host".into()
+    }
+    fn status_changed(&mut self, status: &Status) {
+        self.status = Some(status.clone());
+    }
+    fn location(&mut self, _front: &Front) -> Option<String> {
+        self.location.clone()
+    }
+    fn project_changed(&mut self, project: Option<&Project>) {
+        self.project_changes.push(project.map(|p| p.name.clone()));
     }
 }
 
@@ -588,4 +601,220 @@ fn late_transcript_goes_to_its_session() {
     let ev = r.events(&id);
     assert!(ev.len() == 1 && ev[0]["text"] == "late words", "{ev:?}");
     assert_eq!(r.engine.platform().indicators.last(), Some(&Indicator::Idle));
+}
+
+// MARK: projects
+
+const PROJECTS: &str = r#"{"projects":[
+  {"id":"linear-work","name":"Linear work","match":["linear.app/karya"]},
+  {"id":"report","name":"Client report","match":["acme"]}
+]}"#;
+
+impl Rig {
+    fn projects(&self, json: &str) {
+        std::fs::write(self.root.join("projects.json"), json).unwrap();
+    }
+    fn changes(&self) -> Vec<Option<String>> {
+        self.engine.platform().project_changes.clone()
+    }
+    fn control(&mut self, json: &str) {
+        std::fs::write(self.root.join("control"), json).unwrap();
+        self.engine.poll_control();
+    }
+    fn title(&mut self, title: &str) {
+        self.p().ui_title = Some(title.into());
+    }
+}
+
+fn some(s: &str) -> Option<String> {
+    Some(s.into())
+}
+
+#[test]
+fn auto_project_from_where_and_title() {
+    let mut r = Rig::new("project-auto");
+    r.projects(PROJECTS);
+    r.scene();
+    r.p().location = some("https://linear.app/karya/issue/KAR-12?token=sk-abc#c");
+    let id = r.record();
+    assert!(r.state()["project"].is_null(), "nothing sampled yet");
+    r.advance(Duration::from_secs(3));
+    r.engine.tick();
+    let line = std::fs::read_to_string(r.session_dir(&id).join("events.jsonl")).unwrap();
+    assert_eq!(line, "{\"t\":\"2026-10-19T10:01:06Z\",\"end\":\"2026-10-19T10:01:06Z\",\"app\":\"Google Chrome\",\"bundle\":\"chrome.exe\",\"title\":\"Pricing — Linear\",\"where\":\"https://linear.app/karya/issue/KAR-12\",\"project\":\"linear-work\",\"project_by\":\"auto\",\"src\":\"ocr\",\"text\":\"Pricing tiers\\nkey [redacted]\"}\n");
+    let s = r.state();
+    assert!(s["project"] == "linear-work" && s["project_by"] == "auto", "{s}");
+    assert_eq!(r.changes(), [some("Linear work")], "said once");
+    r.engine.tick();
+    assert_eq!(r.changes().len(), 1, "same project: no new message");
+    assert_eq!(r.events(&id).len(), 1, "same sample extends");
+
+    // A window with no clue: unassigned, but the current project stays (display only).
+    r.p().location = None;
+    r.title("Inbox");
+    r.engine.tick();
+    let ev = r.events(&id);
+    assert!(ev[1].get("project").is_none() && ev[1].get("project_by").is_none() && ev[1].get("where").is_none(), "{:?}", ev[1]);
+    assert_eq!(r.state()["project"], "linear-work");
+    assert_eq!(r.changes().len(), 1);
+
+    // Another project's clue in the title.
+    r.title("ACME Q3 — Docs");
+    r.engine.tick();
+    assert_eq!(r.events(&id)[2]["project"], "report");
+    assert_eq!(r.changes(), [some("Linear work"), some("Client report")]);
+    let status = r.engine.platform().status.clone().unwrap();
+    assert_eq!(status.project.as_deref(), Some("report"));
+    assert_eq!(status.project_title(), "Project: Auto-detect (Client report)");
+    assert_eq!(status.projects.len(), 2);
+    assert_eq!(status.new_project_clue.as_deref(), Some("ACME Q3"));
+}
+
+#[test]
+fn pinned_project_wins_and_auto_returns() {
+    let mut r = Rig::new("project-pinned");
+    r.projects(PROJECTS);
+    r.scene();
+    r.p().location = some("https://linear.app/karya/x");
+    let id = r.record();
+    r.control(r#"{"command":"project","project":"report","at":1}"#);
+    let s = r.state();
+    assert!(s["project"] == "report" && s["project_by"] == "you", "{s}");
+    assert_eq!(r.changes(), [some("Client report")]);
+    r.engine.tick();
+    let ev = r.events(&id);
+    assert!(ev[0]["project"] == "report" && ev[0]["project_by"] == "you", "the pick beats the clue {:?}", ev[0]);
+    let status = r.engine.platform().status.clone().unwrap();
+    assert_eq!(status.pinned.as_deref(), Some("report"));
+    assert_eq!(status.project_title(), "Project: Client report");
+
+    // Back to auto-detect: the picked project is dropped, then the clue finds one.
+    r.control(r#"{"command":"project","project":"auto","at":2}"#);
+    assert!(r.state()["project"].is_null() && r.state()["project_by"].is_null());
+    assert_eq!(r.changes(), [some("Client report"), None]);
+    r.engine.tick();
+    assert_eq!(r.events(&id)[1]["project_by"], "auto");
+    assert_eq!(r.changes(), [some("Client report"), None, some("Linear work")]);
+
+    // An unknown id means auto-detect.
+    r.engine.handle(Msg::PickProject(some("nope")));
+    assert_eq!(r.engine.project_choice().pinned, None);
+    assert_eq!(r.state()["project_by"], "auto", "a detected project is kept");
+}
+
+#[test]
+fn pinned_before_recording() {
+    let mut r = Rig::new("project-pin-idle");
+    r.projects(PROJECTS);
+    r.engine.handle(Msg::PickProject(some("report")));
+    assert_eq!(r.state()["project"], "report");
+    assert!(r.changes().is_empty(), "no message while not recording");
+    r.scene();
+    let id = r.record();
+    assert!(r.state()["project"] == "report" && r.state()["project_by"] == "you");
+    r.engine.tick();
+    assert_eq!(r.events(&id)[0]["project"], "report");
+    assert!(r.changes().is_empty(), "already the current project at the start");
+}
+
+#[test]
+fn notes_get_the_current_project() {
+    let mut r = Rig::new("project-notes");
+    r.projects(PROJECTS);
+    r.scene();
+    r.p().location = some("https://linear.app/karya/x");
+    let id = r.record();
+    r.control(r#"{"command":"note","text":"before any sample","at":1}"#);
+    r.engine.tick();
+    r.control(r#"{"command":"note","text":"decided X","at":2}"#);
+    r.engine.toggle_voice();
+    r.engine.pin_project(Some("report")); // changed mid-note
+    r.engine.toggle_voice();
+    let lines: Vec<String> = std::fs::read_to_string(r.session_dir(&id).join("events.jsonl")).unwrap().lines().map(String::from).collect();
+    assert_eq!(lines[0], "{\"t\":\"2026-10-19T10:01:03Z\",\"end\":\"2026-10-19T10:01:03Z\",\"kind\":\"note\",\"src\":\"typed\",\"app\":\"\",\"bundle\":\"\",\"title\":\"\",\"text\":\"before any sample\"}");
+    assert_eq!(lines[2], "{\"t\":\"2026-10-19T10:01:03Z\",\"end\":\"2026-10-19T10:01:03Z\",\"kind\":\"note\",\"src\":\"typed\",\"app\":\"\",\"bundle\":\"\",\"title\":\"\",\"project\":\"linear-work\",\"project_by\":\"auto\",\"text\":\"decided X\"}");
+    let ev = r.events(&id);
+    assert!(ev[3]["kind"] == "voice" && ev[3]["project"] == "linear-work" && ev[3]["project_by"] == "auto",
+        "a voice note keeps the project it was started in {:?}", ev[3]);
+}
+
+#[test]
+fn projects_json_reloads_when_it_changes() {
+    let mut r = Rig::new("project-reload");
+    r.scene();
+    let id = r.record();
+    r.engine.tick();
+    assert!(r.events(&id)[0].get("project").is_none());
+    r.projects(PROJECTS);
+    let later = SystemTime::now() + Duration::from_secs(5);
+    std::fs::File::options().write(true).open(r.root.join("projects.json")).unwrap().set_modified(later).unwrap();
+    r.title("Pricing — acme");
+    r.engine.tick();
+    assert_eq!(r.events(&id)[1]["project"], "report", "picked up without a restart");
+    assert_eq!(r.engine.projects().len(), 2);
+}
+
+#[test]
+fn new_project_from_this_window() {
+    let mut r = Rig::new("project-new");
+    r.scene();
+    r.p().location = some("https://linear.app/karya/issue/KAR-12");
+    let id = r.record();
+    assert_eq!(r.engine.new_project_clue(), None, "no sample yet");
+    r.engine.tick();
+    let clue = r.engine.new_project_clue();
+    assert_eq!(clue.as_deref(), Some("linear.app/karya/issue"));
+    assert_eq!(r.engine.platform().status.as_ref().unwrap().new_project_clue, clue, "the tray knows the clue");
+    r.engine.handle(Msg::NewProject { name: "  Karya issues ".into(), clue: clue.clone() });
+    let saved = std::fs::read_to_string(r.root.join("projects.json")).unwrap();
+    assert_eq!(saved, "{\n  \"projects\" : [\n    {\n      \"id\" : \"karya-issues\",\n      \"match\" : [\n        \"linear.app\\/karya\\/issue\"\n      ],\n      \"name\" : \"Karya issues\"\n    }\n  ]\n}\n");
+    assert_eq!(r.engine.project_choice().pinned, None, "with a clue, auto-detect finds it");
+    r.advance(Duration::from_secs(3));
+    r.engine.tick();
+    let ev = r.events(&id);
+    assert!(ev[1]["project"] == "karya-issues" && ev[1]["project_by"] == "auto", "{:?}", ev[1]);
+    assert_eq!(r.changes(), [some("Karya issues")]);
+
+    // Again with the same name: the clue is not added twice; a new clue is.
+    r.engine.handle(Msg::NewProject { name: "Karya Issues".into(), clue: some("LINEAR.APP/karya/issue") });
+    r.engine.handle(Msg::NewProject { name: "Karya Issues".into(), clue: some("KAR-") });
+    assert_eq!(r.engine.projects()[0].clues, ["linear.app/karya/issue", "KAR-"]);
+
+    // Without a clue: stick to it.
+    r.engine.handle(Msg::NewProject { name: "Side quest".into(), clue: None });
+    assert_eq!(r.engine.project_choice().pinned.as_deref(), Some("side-quest"));
+    assert!(r.state()["project"] == "side-quest" && r.state()["project_by"] == "you");
+    // A name with no letters or digits makes nothing.
+    assert_eq!(r.engine.new_project("!!!", None), None);
+    assert_eq!(r.engine.projects().len(), 2);
+}
+
+#[test]
+fn project_message_words() {
+    let p = Project { id: "r".into(), name: "Client report".into(), clues: vec![] };
+    assert_eq!(project_message(Some(&p)), "Project: Client report");
+    assert_eq!(project_message(None), "Project: not sure yet");
+    let s = Status { new_project_clue: some("acme"), ..Default::default() };
+    assert_eq!(s.new_project_prompt(), "Windows with “acme” will count as this project from now on.");
+    assert_eq!(Status::default().new_project_prompt(), "Name the project. Pick it from this menu while you work on it.");
+    assert_eq!(Status::default().project_title(), "Project: Auto-detect");
+    let gone = Status { pinned: some("deleted"), project: some("deleted"), ..Default::default() };
+    assert_eq!(gone.project_title(), "Project: deleted", "a pinned project missing from the file shows its id");
+
+    assert_eq!(Status::default().project_items(), [ProjectItem::Auto { checked: true }, ProjectItem::Separator, ProjectItem::New]);
+    let two = Status {
+        projects: vec![p.clone(), Project { id: "d".into(), name: "Design".into(), clues: vec![] }],
+        pinned: some("d"),
+        project: some("d"),
+        ..Default::default()
+    };
+    assert_eq!(two.project_items(), [
+        ProjectItem::Auto { checked: false },
+        ProjectItem::Separator,
+        ProjectItem::Project { id: "r".into(), name: "Client report".into(), checked: false },
+        ProjectItem::Project { id: "d".into(), name: "Design".into(), checked: true },
+        ProjectItem::Separator,
+        ProjectItem::New,
+    ]);
+    assert_eq!(two.project_title(), "Project: Design");
 }
