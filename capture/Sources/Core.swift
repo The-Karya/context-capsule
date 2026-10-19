@@ -13,6 +13,8 @@ struct Paths {
     var config: URL { root.appendingPathComponent("config.json") }
     var control: URL { root.appendingPathComponent("control") }
     var state: URL { root.appendingPathComponent("state.json") }
+    /// Diagnostics: counts, durations, error codes and reasons only — never screen text or words.
+    var log: URL { root.appendingPathComponent("app.log") }
 
     static let standard = Paths(root: FileManager.default.homeDirectoryForCurrentUser
         .appendingPathComponent(".context-capsule", isDirectory: true))
@@ -648,7 +650,7 @@ enum VoiceOutcome: Equatable {
         case .notRecording: return "voice note: not recording"
         case .denied(let p): return "voice note: \(p.rawValue) permission denied"
         case .unavailable: return "voice note: on-device recognition unavailable"
-        case .failed: return "voice note: failed"
+        case .failed(let why): return "voice note: failed (\(why))" // system error text, never the user's words
         case .discarded: return "voice note: discarded"
         }
     }
@@ -822,7 +824,50 @@ final class VoiceNotes {
     }
 
     private func report(_ outcome: VoiceOutcome) {
-        NSLog("Context Capsule: \(outcome.logSummary)")
+        log(outcome.logSummary)
         onOutcome(outcome)
+    }
+
+    /// Where log lines go (the app's AppLog; tests can swap it).
+    var log: (String) -> Void = { AppLog.shared.write($0) }
+}
+
+// MARK: - Diagnostics log
+
+/// `~/.context-capsule/app.log`: one line per notable thing (recording started/stopped and why, voice-note
+/// numbers and error codes). Never screen text, titles or spoken words. Kept under `maxBytes`.
+final class AppLog {
+    static let shared = AppLog(url: Paths.standard.log)
+    static let maxBytes = 256 * 1024
+
+    let url: URL
+    private let queue = DispatchQueue(label: "com.thekarya.contextcapsule.log")
+
+    init(url: URL) { self.url = url }
+
+    func write(_ message: String, at date: Date = Date()) {
+        let line = "\(Clock.iso(date)) \(message)\n"
+        queue.async { [url] in AppLog.append(line, to: url) }
+        NSLog("Context Capsule: \(message)")
+    }
+
+    /// Waits for pending writes (tests, quitting).
+    func flush() { queue.sync {} }
+
+    static func append(_ line: String, to url: URL) {
+        let fm = FileManager.default
+        try? fm.createDirectory(at: url.deletingLastPathComponent(), withIntermediateDirectories: true)
+        if let size = (try? fm.attributesOfItem(atPath: url.path))?[.size] as? Int, size > maxBytes,
+           let data = try? Data(contentsOf: url) {
+            // Keep the newer half, starting at a line.
+            var tail = data.suffix(maxBytes / 2)
+            if let nl = tail.firstIndex(of: 0x0A) { tail = tail[(nl + 1)...] }
+            try? Data(tail).write(to: url, options: .atomic)
+        }
+        if !fm.fileExists(atPath: url.path) { fm.createFile(atPath: url.path, contents: nil) }
+        guard let h = try? FileHandle(forWritingTo: url) else { return }
+        defer { try? h.close() }
+        _ = try? h.seekToEnd()
+        try? h.write(contentsOf: Data(line.utf8))
     }
 }

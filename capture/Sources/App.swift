@@ -69,7 +69,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         control = ControlWatcher(url: paths.control) { [weak self] cmd in
             switch cmd.kind {
             case .start: self?.recorder.start()
-            case .stop: self?.recorder.stop()
+            case .stop:
+                if self?.recorder.isRecording == true { AppLog.shared.write("stop: control file (Claude / MCP)") }
+                self?.recorder.stop()
             case .note: if let text = cmd.text { self?.recorder.addTypedNote(text, at: cmd.at) }
             }
         }
@@ -81,7 +83,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     func menuWillOpen(_ menu: NSMenu) { refresh() } // the Accessibility check mark may have changed
 
     func applicationWillTerminate(_ notification: Notification) {
+        if recorder.isRecording { AppLog.shared.write("stop: quit") }
         recorder.stop(wait: true)
+        AppLog.shared.flush()
         recorder.writeState()
     }
 

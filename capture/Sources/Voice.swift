@@ -20,6 +20,11 @@ final class SpeechEngine: VoiceEngine {
     private var done: ((Result<VoiceClip, Error>) -> Void)?
     private var finalTimer: DispatchWorkItem?
     private var ended = false // the recognizer already stopped on its own (an error mid-note)
+    private var firstError: NSError?
+    private var buffers = 0
+    private var gotFinal = false
+    private var converter: AVAudioConverter?
+    private var inputRate: Double = 0
 
     struct Failure: LocalizedError {
         var errorDescription: String?
@@ -55,18 +60,27 @@ final class SpeechEngine: VoiceEngine {
         let input = audio.inputNode
         let format = input.outputFormat(forBus: 0)
         guard format.sampleRate > 0, format.channelCount > 0 else { throw Failure("no microphone found") }
+        // Give the recognizer the format it prefers (mics can run at 96 kHz, stereo…).
+        let target = request.nativeAudioFormat
+        let converter = format == target ? nil : AVAudioConverter(from: format, to: target)
         lock.lock()
         peak = 0
         frames = 0
         sampleRate = format.sampleRate
+        inputRate = format.sampleRate
         transcript = ""
         done = nil
         ended = false
+        firstError = nil
+        buffers = 0
+        gotFinal = false
+        self.converter = converter
         lock.unlock()
 
-        input.installTap(onBus: 0, bufferSize: 2048, format: format) { [weak self, weak request] buffer, _ in
-            request?.append(buffer) // memory only
-            self?.measure(buffer)
+        input.installTap(onBus: 0, bufferSize: 4096, format: format) { [weak self, weak request] buffer, _ in
+            guard let self, let request else { return }
+            self.measure(buffer)
+            if let out = self.convert(buffer, with: converter, to: target) { request.append(out) } // memory only
         }
         tapped = true
         self.request = request
@@ -118,6 +132,29 @@ final class SpeechEngine: VoiceEngine {
         lock.unlock()
     }
 
+    private func convert(_ buffer: AVAudioPCMBuffer, with converter: AVAudioConverter?,
+                         to target: AVAudioFormat) -> AVAudioPCMBuffer? {
+        guard let converter else { return buffer }
+        let ratio = target.sampleRate / buffer.format.sampleRate
+        let capacity = AVAudioFrameCount(Double(buffer.frameLength) * ratio) + 16
+        guard let out = AVAudioPCMBuffer(pcmFormat: target, frameCapacity: capacity) else { return nil }
+        var fed = false
+        var error: NSError?
+        let status = converter.convert(to: out, error: &error) { _, inputStatus in
+            if fed { inputStatus.pointee = .noDataNow; return nil }
+            fed = true
+            inputStatus.pointee = .haveData
+            return buffer
+        }
+        if status == .error {
+            lock.lock()
+            if firstError == nil { firstError = error }
+            lock.unlock()
+            return nil
+        }
+        return out.frameLength > 0 ? out : nil
+    }
+
     private func measure(_ buffer: AVAudioPCMBuffer) {
         guard let channels = buffer.floatChannelData else { return }
         var p: Float = 0
@@ -128,6 +165,7 @@ final class SpeechEngine: VoiceEngine {
         lock.lock()
         peak = max(peak, p)
         frames += AVAudioFramePosition(n)
+        buffers += 1
         lock.unlock()
     }
 
@@ -135,9 +173,13 @@ final class SpeechEngine: VoiceEngine {
         if let result {
             lock.lock()
             transcript = result.bestTranscription.formattedString
+            if result.isFinal { gotFinal = true }
             lock.unlock()
             if result.isFinal { complete(nil) }
         } else if let error {
+            lock.lock()
+            if firstError == nil { firstError = error as NSError }
+            lock.unlock()
             complete(error)
         }
     }
@@ -149,17 +191,27 @@ final class SpeechEngine: VoiceEngine {
         self.done = nil
         let clip = VoiceClip(text: transcript, peak: peak, seconds: sampleRate > 0 ? Double(frames) / sampleRate : 0)
         if done == nil { ended = true }
+        let problem = firstError ?? (error as NSError?)
+        let numbers = "voice clip: input \(Int(inputRate)) Hz\(converter == nil ? "" : " → \(Int(request?.nativeAudioFormat.sampleRate ?? 0)) Hz"), "
+            + "\(buffers) buffers, \(String(format: "%.1f", clip.seconds)) s, peak \(String(format: "%.3f", clip.peak)), "
+            + "final \(gotFinal), \(clip.text.count) chars"
+            + (problem.map { ", error \($0.domain) \($0.code)" } ?? "")
         lock.unlock()
         guard let done else { return } // not finishing yet (a mid-note error waits for finish)
+        AppLog.shared.write(numbers) // numbers and codes only, never the words
         DispatchQueue.main.async { self.reset() }
-        // "No speech detected" is not a failure: it is an empty clip.
-        if let error, !Self.isNoSpeech(error), clip.text.isEmpty { done(.failure(error)) } else { done(.success(clip)) }
+        // "No speech detected" is not a failure: it is an empty clip. Any other error with no words is shown.
+        if clip.text.isEmpty, let problem, !Self.isNoSpeech(problem) {
+            done(.failure(Failure("speech recognition stopped: \(problem.localizedDescription) (\(problem.domain) \(problem.code))")))
+        } else {
+            done(.success(clip))
+        }
     }
 
     private static func isNoSpeech(_ error: Error) -> Bool {
         let e = error as NSError
-        return (e.domain == "kAFAssistantErrorDomain" && [203, 1110].contains(e.code))
-            || e.domain == "kLSRErrorDomain"
+        return (e.domain == "kAFAssistantErrorDomain" && e.code == 1110) // no speech detected
+            || (e.domain == "kLSRErrorDomain" && e.code == 301)           // request was cancelled
     }
 
     // MARK: permissions

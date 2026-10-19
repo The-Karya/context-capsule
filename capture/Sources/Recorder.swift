@@ -52,7 +52,7 @@ final class Recorder {
     // MARK: start / stop (main thread)
 
     func toggle() {
-        if isRecording { stop() } else if isPicking { cancelPicking() } else { start() }
+        if isRecording { AppLog.shared.write("stop: hotkey or menu"); stop() } else if isPicking { cancelPicking() } else { start() }
     }
 
     /// Opens the system picker. Recording begins only once the user picks something.
@@ -76,13 +76,14 @@ final class Recorder {
         case .picked:
             beginSession()
         case .cancelled:
+            AppLog.shared.write("picker: cancelled")
             lastError = "cancelled"
         case .failed(let message):
-            NSLog("Context Capsule: \(message)")
+            AppLog.shared.write("start failed: \(message)")
             if isRecording { endSession(wait: false) }
             lastError = message
         case .stopped(let message):
-            if let message { NSLog("Context Capsule: capture stopped: \(message)") }
+            AppLog.shared.write(message.map { "stop: capture error: \($0)" } ?? "stop: sharing was stopped from macOS")
             endSession(wait: false)
             lastError = message.map { "capture: \($0)" }
         }
@@ -114,6 +115,8 @@ final class Recorder {
         sessionID = id
         startedAt = now
         sessionDir = dir
+        let style = capture.pickedContent().map { "\($0.style)" } ?? "unknown"
+        AppLog.shared.write("recording started: \(id), picked \(style)")
         timer = repeating(Self.interval) { [weak self] in self?.tick() }
     }
 
@@ -136,6 +139,8 @@ final class Recorder {
         startedAt = nil
         sessionDir = nil
         let top = skipCounts.max { $0.value < $1.value }?.key
+        let skips = skipCounts.map { "\($0.key.rawValue) \($0.value)" }.sorted().joined(separator: ", ")
+        AppLog.shared.write("recording ended: \(id), \(eventCount) events" + (skips.isEmpty ? "" : ", skipped: \(skips)"))
         if let log { // checked after any sample still running
             work.async { if log.appended == 0 { DispatchQueue.main.async { self.onEmptySession?(top) } } }
         }
@@ -190,7 +195,7 @@ final class Recorder {
                                 app: "", bundle: "", title: "")
         noteAt = at
         write(event, to: log)
-        NSLog("Context Capsule: typed note saved: \(event.text.count) chars")
+        AppLog.shared.write("typed note saved: \(event.text.count) chars")
     }
 
     private func write(_ event: Event, to log: EventLog) {

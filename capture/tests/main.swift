@@ -400,6 +400,7 @@ final class VoiceRig {
     init() {
         notes = VoiceNotes(engine: engine)
         notes.hop = { $0() }
+        notes.log = { _ in }
         notes.onIndicator = { [unowned self] in self.indicator.append($0) }
         notes.onOutcome = { [unowned self] in self.outcomes.append($0) }
         notes.schedule = { [unowned self] _, block in self.timers.append(block); return {} }
@@ -486,6 +487,22 @@ do {
     r.engine.pendingFinish?(.success(VoiceClip(text: "late words", peak: 0.3, seconds: 2)))
     check(r.resetOK && r.written.count == 1, "late transcript still saved, then reset")
 }
+
+// MARK: diagnostics log
+
+let appLogURL = tmp.appendingPathComponent("logs/app.log")
+let appLog = AppLog(url: appLogURL)
+appLog.write("recording started: x", at: date)
+appLog.write("voice clip: 1 buffers", at: date)
+appLog.flush()
+let logText = (try? String(contentsOf: appLogURL, encoding: .utf8)) ?? ""
+check(logText == "2026-10-19T10:01:03Z recording started: x\n2026-10-19T10:01:03Z voice clip: 1 buffers\n", "app.log lines", logText)
+let big = String(repeating: "x", count: 1000) + "\n"
+for _ in 0..<300 { AppLog.append(big, to: appLogURL) }
+let size = ((try? FileManager.default.attributesOfItem(atPath: appLogURL.path))?[.size] as? Int) ?? 0
+check(size <= AppLog.maxBytes + 2000, "app.log stays small", "\(size)")
+check(VoiceOutcome.failed("speech recognition stopped (kAFAssistantErrorDomain 1101)").logSummary
+      .contains("kAFAssistantErrorDomain 1101"), "failure log keeps the error code")
 
 try? FileManager.default.removeItem(at: tmp)
 print("\(passes) passed, \(failures) failed")
