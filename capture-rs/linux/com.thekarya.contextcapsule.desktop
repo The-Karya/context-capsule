@@ -1,0 +1,10 @@
+# context-capsule — linux: desktop entry (the app id portals and notifications know us by).
+[Desktop Entry]
+Type=Application
+Name=Context Capsule
+Comment=Record what you work on, for your own AI
+Exec=context-capsule
+Icon=media-record
+Terminal=false
+Categories=Utility;
+X-GNOME-UsesNotifications=true

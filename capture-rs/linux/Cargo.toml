@@ -1,0 +1,33 @@
+# context-capsule — linux: the Linux recorder (tray, portal ScreenCast + PipeWire, AT-SPI, Tesseract, whisper.cpp).
+[package]
+name = "context-capsule-linux"
+description = "Context Capsule recorder for Linux"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[[bin]]
+name = "context-capsule"
+path = "src/main.rs"
+
+[features]
+default = ["voice"]
+# On-device voice notes: whisper.cpp + the microphone. Off: voice notes say they are not built in.
+voice = ["dep:whisper-rs", "dep:cpal", "dep:sha2", "dep:ureq"]
+
+[dependencies]
+context-capsule-core = { path = "../core" }
+ashpd = { version = "0.13", default-features = false, features = ["tokio", "screencast", "global_shortcuts"] }
+atspi = { version = "0.30", default-features = false, features = ["connection", "proxies", "wrappers", "tokio"] }
+ksni = { version = "0.3", default-features = false, features = ["tokio"] }
+pipewire = "0.10"
+png = "0.18"
+tokio = { version = "1", features = ["rt-multi-thread", "macros", "sync", "time", "signal"] }
+x11rb = { version = "0.14", features = ["randr"] }
+chrono = { version = "0.4", default-features = false, features = ["clock", "std"] }
+zbus = { version = "5", default-features = false, features = ["tokio"] }
+futures-util = { version = "0.3", default-features = false, features = ["std"] }
+cpal = { version = "0.18", optional = true }
+sha2 = { version = "0.11", optional = true }
+ureq = { version = "3", optional = true }
+whisper-rs = { version = "0.16", optional = true }

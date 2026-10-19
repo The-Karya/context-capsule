@@ -1,0 +1,307 @@
+// context-capsule — linux: the engine's seam to the desktop — the picked content, the front window
+// (AT-SPI, plus the real X11 window stack on X11), its text and title, OCR, the tray and messages.
+
+use crate::apps::ProcApp;
+use crate::atspi_front::{is_shell, Accessibility, ActiveWindow};
+use crate::desktop::{Overview, SessionKind};
+use crate::notify::Notifier;
+use crate::ocr::{Ocr, OcrResult, INSTALL_HINT};
+use crate::portal::{self, Capture, SourceKind};
+use crate::tray::Tray;
+use crate::{atspi_text, x11};
+use context_capsule_core::{
+    Frame, Front, Image, Indicator, ListedWindow, PickedContent, Platform, Rect, Status, WindowList,
+};
+use std::future::Future;
+use std::sync::{Arc, Mutex};
+use std::time::{Duration, SystemTime};
+use tokio::runtime::Handle;
+
+/// Longest any one desktop query may take before we treat it as unanswered.
+const QUERY: Duration = Duration::from_millis(1500);
+
+pub struct LinuxPlatform {
+    pub rt: Handle,
+    pub session: SessionKind,
+    pub capture: Capture,
+    pub a11y: Option<Arc<Accessibility>>,
+    /// The X server: the window stack on X11; on Wayland only Xwayland's monitor list.
+    pub x11: Option<x11::Desktop>,
+    pub overview: Option<Overview>,
+    pub changed: Arc<Mutex<Option<SystemTime>>>,
+    pub notifier: Notifier,
+    pub tray: Tray,
+    pub ocr: Ocr,
+    /// The AT-SPI active window of the current sample (front() sets it, ui_text / ui_title use it).
+    current: Option<ActiveWindow>,
+    /// The window whose size matches a picked window's stream (None: none, or more than one).
+    matched: Option<u64>,
+    ocr_hint_shown: bool,
+}
+
+/// On Wayland no app knows where its window is. With a picked monitor, the front window counts as on
+/// it only when there is just one monitor; then it gets a sub-pixel frame at the monitor's centre:
+/// inside for the membership test (so accessibility text is read) but too small to crop, so OCR skips
+/// with `not_picked` instead of reading a guessed region. More (or unknown) monitors: an empty frame,
+/// so nothing is read.
+pub fn wayland_monitor_frame(pick: Rect, monitors: usize) -> Rect {
+    if monitors == 1 && !pick.is_empty() {
+        Rect::new(pick.mid_x(), pick.mid_y(), 0.5, 0.5)
+    } else {
+        Rect::ZERO
+    }
+}
+
+impl LinuxPlatform {
+    #[allow(clippy::too_many_arguments)]
+    pub fn new(
+        rt: Handle,
+        session: SessionKind,
+        capture: Capture,
+        a11y: Option<Arc<Accessibility>>,
+        x11: Option<x11::Desktop>,
+        overview: Option<Overview>,
+        changed: Arc<Mutex<Option<SystemTime>>>,
+        notifier: Notifier,
+        tray: Tray,
+        locale: &str,
+    ) -> LinuxPlatform {
+        LinuxPlatform {
+            rt,
+            session,
+            capture,
+            a11y,
+            x11,
+            overview,
+            changed,
+            notifier,
+            tray,
+            ocr: Ocr::new(locale),
+            current: None,
+            matched: None,
+            ocr_hint_shown: false,
+        }
+    }
+
+    /// Run a desktop query from the engine's thread, giving up after `QUERY`.
+    fn wait<T>(&self, f: impl Future<Output = T>) -> Option<T> {
+        self.rt.block_on(async { tokio::time::timeout(QUERY, f).await.ok() })
+    }
+
+    fn monitors(&self) -> Vec<Rect> {
+        self.x11.as_ref().map(|x| x.monitors()).unwrap_or_default()
+    }
+
+    fn overlay(&self) -> bool {
+        match &self.overview {
+            Some(o) => self.wait(o.is_open()).unwrap_or(false),
+            None => false,
+        }
+    }
+
+    /// The AT-SPI window, if it belongs to `pid`.
+    fn current_for(&self, pid: u32) -> Option<&ActiveWindow> {
+        self.current.as_ref().filter(|a| self.session != SessionKind::X11 || a.pid == pid)
+    }
+
+    fn front_wayland(&mut self, is_excluded: &dyn Fn(Option<&str>, &str) -> bool, overlay: bool) -> Option<Front> {
+        let a = self.current.clone()?;
+        let proc_app = ProcApp::of(a.pid);
+        let app_name =
+            if a.app_name.is_empty() { proc_app.exe.clone().unwrap_or_default() } else { a.app_name.clone() };
+        let app_id = proc_app.app_id(is_excluded, &app_name);
+        let mut front = Front {
+            app_name: app_name.clone(),
+            app_id: app_id.clone(),
+            pid: a.pid,
+            window: None,
+            list: vec![],
+            overlay,
+        };
+        if is_shell(&a.app_name, proc_app.exe.as_deref()) {
+            return Some(front); // the shell's own menus: no app window
+        }
+        let size = a.extents.map_or(Rect::ZERO, |r| Rect::new(0.0, 0.0, r.width, r.height));
+        let frame = match self.capture.source() {
+            Some(src) if src.kind == SourceKind::Monitor => {
+                wayland_monitor_frame(portal::monitor_rect(&src, &self.monitors()), self.monitors().len())
+            }
+            Some(src) => {
+                let candidates = match &self.a11y {
+                    Some(a11y) => self.wait(a11y.window_sizes()).unwrap_or_default(),
+                    None => vec![],
+                };
+                self.matched = portal::match_window(src.size_rect(), &candidates);
+                size
+            }
+            None => size,
+        };
+        let window = ListedWindow {
+            id: a.id(),
+            pid: a.pid,
+            owner: app_name.clone(),
+            frame,
+            name: Some(a.title.clone()).filter(|t| !t.is_empty()),
+            excluded: is_excluded(app_id.as_deref(), &app_name),
+            ..Default::default()
+        };
+        front.list = vec![window.clone()];
+        front.window = Some(window);
+        Some(front)
+    }
+
+    fn front_x11(&mut self, is_excluded: &dyn Fn(Option<&str>, &str) -> bool, overlay: bool) -> Option<Front> {
+        let x = self.x11.as_ref()?;
+        let active = x.active_window();
+        let windows = x.windows();
+        let list = x11::listed(&windows, is_excluded);
+        let entry = active.and_then(|a| list.iter().find(|w| w.id == a as u64)).cloned();
+        let pid = entry.as_ref().map(|w| w.pid).filter(|p| *p != 0).or(self.current.as_ref().map(|a| a.pid))?;
+        let proc_app = ProcApp::of(pid);
+        let class = entry.as_ref().map(|w| w.owner.clone()).unwrap_or_default();
+        let app_name = match self.current_for(pid) {
+            Some(a) if !a.app_name.is_empty() => a.app_name.clone(),
+            _ if !class.is_empty() => class,
+            _ => proc_app.exe.clone().unwrap_or_default(),
+        };
+        let app_id = proc_app.app_id(is_excluded, &app_name);
+        let shell = is_shell(&app_name, proc_app.exe.as_deref());
+        let window = match entry {
+            _ if shell => None,
+            Some(w) if WindowList::is_normal(&w) => Some(w),
+            _ => WindowList::front(pid, &list).cloned(),
+        };
+        if let Some(src) = self.capture.source().filter(|s| s.kind == SourceKind::Window) {
+            let candidates: Vec<(u64, Rect)> =
+                list.iter().filter(|w| WindowList::is_normal(w)).map(|w| (w.id, w.frame)).collect();
+            self.matched = portal::match_window(src.size_rect(), &candidates);
+        }
+        Some(Front { app_name, app_id, pid, window, list, overlay })
+    }
+}
+
+impl Platform for LinuxPlatform {
+    fn present_picker(&mut self) {
+        self.capture.present();
+    }
+
+    fn stop_capture(&mut self) {
+        self.capture.stop();
+        self.matched = None;
+    }
+
+    fn picked(&self) -> Option<PickedContent> {
+        let src = self.capture.source()?;
+        Some(portal::picked_content(&src, &self.monitors(), self.matched))
+    }
+
+    fn latest_frame(&self) -> Option<Frame> {
+        self.capture.frames.latest()
+    }
+
+    fn front(&mut self, is_excluded: &dyn Fn(Option<&str>, &str) -> bool) -> Option<Front> {
+        let overlay = self.overlay();
+        self.current = match &self.a11y {
+            Some(a11y) => self.wait(a11y.active_window()).flatten(),
+            None => None,
+        };
+        match self.session {
+            SessionKind::X11 => self.front_x11(is_excluded, overlay),
+            _ => self.front_wayland(is_excluded, overlay),
+        }
+    }
+
+    fn ui_text(&mut self, front: &Front) -> Option<String> {
+        let a11y = self.a11y.clone()?;
+        let obj = self.current_for(front.pid)?.obj.clone();
+        self.wait(atspi_text::read(a11y.connection(), &obj)).flatten()
+    }
+
+    fn ui_title(&mut self, front: &Front) -> Option<String> {
+        self.current_for(front.pid).map(|a| a.title.clone()).filter(|t| !t.is_empty())
+    }
+
+    fn ocr(&mut self, image: &Image) -> String {
+        match self.ocr.read(image) {
+            OcrResult::Text(t) => t,
+            OcrResult::Missing => {
+                if !self.ocr_hint_shown {
+                    self.ocr_hint_shown = true;
+                    eprintln!("Context Capsule: tesseract is not installed; OCR is off");
+                    self.notifier.toast(INSTALL_HINT);
+                }
+                String::new()
+            }
+        }
+    }
+
+    fn changed_at(&self) -> Option<SystemTime> {
+        *self.changed.lock().unwrap()
+    }
+
+    fn set_indicator(&mut self, indicator: Indicator) {
+        self.tray.set_indicator(indicator);
+    }
+
+    fn toast(&mut self, text: &str) {
+        self.notifier.toast(text);
+    }
+
+    fn alert(&mut self, title: &str, body: &str) {
+        self.notifier.alert(title, body);
+    }
+
+    fn host_name(&self) -> String {
+        host_name()
+    }
+
+    fn status_changed(&mut self, status: &Status) {
+        self.tray.set_status(status);
+    }
+}
+
+pub fn host_name() -> String {
+    ["/proc/sys/kernel/hostname", "/etc/hostname"]
+        .iter()
+        .filter_map(|p| std::fs::read_to_string(p).ok())
+        .map(|s| s.trim().to_string())
+        .find(|s| !s.is_empty())
+        .or_else(|| std::env::var("HOSTNAME").ok())
+        .unwrap_or_default()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use context_capsule_core::{Membership, OcrDecision, Skip};
+
+    #[test]
+    fn wayland_single_monitor_reads_text_but_never_guesses_ocr() {
+        let monitor = Rect::new(0.0, 0.0, 1920.0, 1080.0);
+        let pick = PickedContent::display(monitor);
+        let mut front = ListedWindow::new(1, 1, wayland_monitor_frame(monitor, 1));
+        front.layer = 0;
+        assert!(Membership::contains(&pick, &front), "accessibility text is read");
+        assert_eq!(
+            Membership::ocr_decision(&pick, &front, std::slice::from_ref(&front)),
+            OcrDecision::Skip(Skip::NotPicked),
+            "OCR fails closed"
+        );
+    }
+
+    #[test]
+    fn wayland_several_monitors_read_nothing() {
+        let monitor = Rect::new(1920.0, 0.0, 1920.0, 1080.0);
+        let pick = PickedContent::display(monitor);
+        for n in [0, 2, 3] {
+            let front = ListedWindow::new(1, 1, wayland_monitor_frame(monitor, n));
+            assert!(!Membership::contains(&pick, &front), "{n} monitors: cannot tell where the window is");
+        }
+        assert!(wayland_monitor_frame(Rect::ZERO, 1).is_empty());
+    }
+
+    #[test]
+    fn host() {
+        assert!(!host_name().contains('\n'));
+    }
+}

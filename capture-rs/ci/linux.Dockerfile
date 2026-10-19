@@ -7,4 +7,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
       tesseract-ocr tesseract-ocr-eng \
       xvfb at-spi2-core dbus-x11 \
     && rm -rf /var/lib/apt/lists/*
+RUN rustup component add clippy rustfmt
+# whisper.cpp: a portable build (CPU detection inside VMs picks flags the compiler then rejects).
+ENV GGML_NATIVE=OFF
 WORKDIR /src
