@@ -1,13 +1,13 @@
-// karya-capsule — mcp: test helpers (temp data dir, fixture sessions)
+// context-capsule — mcp: test helpers (temp data dir, fixture sessions)
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import type { CaptureEvent } from "../src/sessions.ts";
 
-/** Fresh temp KARYA_CAPSULE_HOME for one test. */
+/** Fresh temp CONTEXT_CAPSULE_HOME for one test. */
 export function tempHome(): string {
-  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "karya-capsule-test-"));
-  process.env.KARYA_CAPSULE_HOME = dir;
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "context-capsule-test-"));
+  process.env.CONTEXT_CAPSULE_HOME = dir;
   return dir;
 }
 

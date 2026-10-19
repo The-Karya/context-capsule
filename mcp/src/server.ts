@@ -1,4 +1,4 @@
-// karya-capsule — mcp: the MCP server (tools, the make_capsule prompt, capsule:// resources)
+// context-capsule — mcp: the MCP server (tools, the make_capsule prompt, capsule:// resources)
 import fs from "node:fs";
 import { McpServer, ResourceTemplate } from "@modelcontextprotocol/sdk/server/mcp.js";
 import type { CallToolResult } from "@modelcontextprotocol/sdk/types.js";
@@ -61,10 +61,10 @@ export function createServer(opts: ServerOptions = {}): McpServer {
   const startMs = opts.confirmTimeoutMs ?? 6000;
   const stopMs = opts.confirmTimeoutMs ?? 4000;
   const server = new McpServer(
-    { name: "karya-capsule", version: VERSION },
+    { name: "context-capsule", version: VERSION },
     {
       instructions:
-        "Karya Capsule records what the user does on screen (text only, on their Mac) and lets you turn a work session " +
+        "Context Capsule records what the user does on screen (text only, on their Mac) and lets you turn a work session " +
         "into a capsule: one shareable Markdown file with what they worked on, the decisions and why. " +
         "Typical flow: start_recording → user works → stop_recording → get_session_activity → write the capsule " +
         "(see the make_capsule prompt) → save_capsule → export_capsule to share. Received capsules: import_capsule, then get_capsule.",
@@ -78,7 +78,7 @@ export function createServer(opts: ServerOptions = {}): McpServer {
     {
       title: "Start recording",
       description:
-        "Ask the Capsule menu-bar app to start recording. The app opens the macOS picker; the user chooses the window " +
+        "Ask the Context Capsule menu-bar app to start recording. The app opens the macOS picker; the user chooses the window " +
         "or screen to record, and recording starts after that (screen text every 3 s, nothing leaves the Mac). " +
         "Returns the session id once recording, or says the picker is waiting for the user.",
       inputSchema: {},
@@ -101,7 +101,7 @@ export function createServer(opts: ServerOptions = {}): McpServer {
           return fail(describeStartError(out.error));
         case "timeout":
           return text(
-            "Sent the start command, but the Capsule app hasn't answered yet. Look for the macOS picker or the " +
+            "Sent the start command, but the Context Capsule app hasn't answered yet. Look for the macOS picker or the " +
               "menu-bar icon (a filled circle means recording), or call recording_status in a moment.",
           );
       }
@@ -112,16 +112,16 @@ export function createServer(opts: ServerOptions = {}): McpServer {
     "stop_recording",
     {
       title: "Stop recording",
-      description: "Ask the Capsule app to stop the current recording. Returns the session id to pass to get_session_activity.",
+      description: "Ask the Context Capsule app to stop the current recording. Returns the session id to pass to get_session_activity.",
       inputSchema: {},
     },
     safe(async () => {
       const state = readState();
       if (!appRunning(state)) {
         return fail(
-          "The Capsule app is not running, so nothing is being recorded." +
+          "The Context Capsule app is not running, so nothing is being recorded." +
             latestHint() +
-            "\nTo record again, open the app (`open -a Capsule`) and call start_recording.",
+            "\nTo record again, open the app (`open -a \"Context Capsule\"`) and call start_recording.",
         );
       }
       if (!state!.recording) return text(`Not recording right now.${latestHint()}`);
@@ -141,14 +141,14 @@ export function createServer(opts: ServerOptions = {}): McpServer {
     "recording_status",
     {
       title: "Recording status",
-      description: "Is the Capsule app running, is the picker open, is it recording, and why the last start failed. Reads state.json.",
+      description: "Is the Context Capsule app running, is the picker open, is it recording, and why the last start failed. Reads state.json.",
       inputSchema: {},
       annotations: { readOnlyHint: true },
     },
     safe(() => {
       const state = readState();
       if (!state)
-        return text(`The Capsule app has not run yet on this Mac (no ${capsuleHome()}/state.json).\n${APP_NOT_RUNNING}`);
+        return text(`The Context Capsule app has not run yet on this Mac (no ${capsuleHome()}/state.json).\n${APP_NOT_RUNNING}`);
       const running = appRunning(state);
       const lines = [
         `App running: ${running ? "yes" : "no"}`,

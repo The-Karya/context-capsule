@@ -1,4 +1,4 @@
-// karya-capsule — mcp: end-to-end test, spawns the built server with node over stdio
+// context-capsule — mcp: end-to-end test, spawns the built server with node over stdio
 import { afterAll, beforeAll, describe, expect, test } from "bun:test";
 import { spawnSync } from "node:child_process";
 import fs from "node:fs";
@@ -24,7 +24,7 @@ beforeAll(async () => {
     new StdioClientTransport({
       command: "node",
       args: [entry],
-      env: { PATH: process.env.PATH ?? "", HOME: process.env.HOME ?? "", KARYA_CAPSULE_HOME: home },
+      env: { PATH: process.env.PATH ?? "", HOME: process.env.HOME ?? "", CONTEXT_CAPSULE_HOME: home },
       stderr: "ignore",
     }),
   );

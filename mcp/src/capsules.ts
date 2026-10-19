@@ -1,4 +1,4 @@
-// karya-capsule — mcp: capsule files (front matter, save, list, get, import, export)
+// context-capsule — mcp: capsule files (front matter, save, list, get, import, export)
 import { execFileSync } from "node:child_process";
 import fs from "node:fs";
 import os from "node:os";

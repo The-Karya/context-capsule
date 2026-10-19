@@ -1,4 +1,4 @@
-// karya-capsule — capture: entry point. Runs the menu-bar app, or `--selftest` (OCR + redaction
+// context-capsule — capture: entry point. Runs the menu-bar app, or `--selftest` (OCR + redaction
 // on a generated image; needs no screen permission) and exits.
 
 import AppKit

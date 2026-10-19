@@ -3,7 +3,7 @@
   "configVersion": 1,
   "workspaces": {
     "": {
-      "name": "karya-capsule-mcp",
+      "name": "context-capsule-mcp",
       "dependencies": {
         "@modelcontextprotocol/sdk": "^1.32.1",
         "zod": "^4.0.0",

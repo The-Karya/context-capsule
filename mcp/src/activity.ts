@@ -1,4 +1,4 @@
-// karya-capsule — mcp: condense raw screen events into a short timeline an AI can read
+// context-capsule — mcp: condense raw screen events into a short timeline an AI can read
 import {
   type CaptureEvent,
   type SessionMeta,

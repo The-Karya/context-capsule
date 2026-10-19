@@ -1,9 +1,12 @@
-# Karya Capsule
+# Context Capsule
+
+by Karya
 
 **Turn what you worked on into context your AI already knows, and share it.**
 
 Press a hotkey, pick the window or screen to record in the macOS picker, work as
-usual, press it again. Capsule reads the text of what you picked while you work. Your own Claude turns that into a **capsule**: one Markdown file with what you
+usual, press it again. Context Capsule reads the text of what you picked while you
+work. Your own Claude turns that into a **capsule**: one Markdown file with what you
 worked on, the decisions you made and why, open questions and next steps.
 
 Load the capsule into Claude and it knows your project. Email it to a teammate and
@@ -11,11 +14,11 @@ their Claude knows it too.
 
 - **Local.** Screen text stays on your Mac. No account, no cloud, no telemetry.
 - **You choose what it sees.** Each recording starts with the macOS window/screen
-  picker. Capsule reads only what you picked, and needs no Screen Recording permission.
+  picker. Context Capsule reads only what you picked, and needs no Screen Recording permission.
 - **No screenshots kept.** Only the text on screen is saved; images are thrown away.
 - **Private apps skipped.** Password managers, WhatsApp, Signal and any app you list
   are never recorded. Anything that looks like a key or password is redacted.
-- **Your AI does the writing.** Capsule has no AI key of its own; it hands a short
+- **Your AI does the writing.** Context Capsule has no AI key of its own; it hands a short
   activity timeline to your Claude through MCP.
 - **Open format.** A capsule is plain Markdown with a little front matter. Any person
   or AI can read it.
@@ -25,10 +28,10 @@ their Claude knows it too.
 ## How it works
 
 ```
- ⌥⇧C  ──►  Capsule.app (menu bar)  ──►  ~/.karya-capsule/sessions/<id>/events.jsonl
+ ⌥⇧C  ──►  Context Capsule.app  ──►  ~/.context-capsule/sessions/<id>/events.jsonl
                                               │  (app, window, on-screen text, times)
                                               ▼
- Claude  ◄──►  karya-capsule-mcp  ──►  ~/.karya-capsule/capsules/<name>.capsule.md
+ Claude  ◄──►  context-capsule-mcp  ──►  ~/.context-capsule/capsules/<name>.capsule.md
                                               │
                                               ▼
                                    export to Desktop → email → import
@@ -39,11 +42,11 @@ their Claude knows it too.
 You need macOS 14+, Node 18+ and [bun](https://bun.sh) (or npm).
 
 ```sh
-git clone <this repo> karya-capsule && cd karya-capsule
+git clone <this repo> context-capsule && cd context-capsule
 
 # 1. the recorder
-capture/build.sh              # builds capture/build/Capsule.app
-open capture/build/Capsule.app
+capture/build.sh              # builds "capture/build/Context Capsule.app"
+open "capture/build/Context Capsule.app"
 
 # 2. the MCP server
 cd mcp && bun install && bun run build
@@ -51,8 +54,8 @@ cd mcp && bun install && bun run build
 
 Each time you start a recording, macOS shows its window/screen picker; pick a window
 or a display and recording begins. There is no Screen Recording permission to grant.
-Optional: menu → **Read text directly (Accessibility)…** lets Capsule read text
-straight from apps (cleaner than OCR, and gives window titles). Without it, Capsule
+Optional: menu → **Read text directly (Accessibility)…** lets Context Capsule read
+text straight from apps (cleaner than OCR, and gives window titles). Without it, it
 uses OCR on the picked content.
 
 ### Connect to Claude
@@ -60,7 +63,7 @@ uses OCR on the picked content.
 **Claude Code**
 
 ```sh
-claude mcp add karya-capsule -- node /absolute/path/to/karya-capsule/mcp/dist/index.js
+claude mcp add context-capsule -- node /absolute/path/to/context-capsule/mcp/dist/index.js
 ```
 
 **Claude Desktop**: add to `~/Library/Application Support/Claude/claude_desktop_config.json`:
@@ -68,9 +71,9 @@ claude mcp add karya-capsule -- node /absolute/path/to/karya-capsule/mcp/dist/in
 ```json
 {
   "mcpServers": {
-    "karya-capsule": {
+    "context-capsule": {
       "command": "node",
-      "args": ["/absolute/path/to/karya-capsule/mcp/dist/index.js"]
+      "args": ["/absolute/path/to/context-capsule/mcp/dist/index.js"]
     }
   }
 }
@@ -120,8 +123,8 @@ a `capsule://<name>` resource. Details in [mcp/README.md](mcp/README.md).
 
 ## Privacy
 
-Everything is in `~/.karya-capsule/`. Delete a session folder and it is gone.
-Add apps to never record in `~/.karya-capsule/config.json`:
+Everything is in `~/.context-capsule/`. Delete a session folder and it is gone.
+Add apps to never record in `~/.context-capsule/config.json`:
 
 ```json
 { "author": "Your Name", "exclude_apps": ["com.example.secretapp"] }

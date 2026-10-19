@@ -1,4 +1,4 @@
-// karya-capsule — mcp: talk to the Capsule menu-bar app (control file out, state.json in)
+// context-capsule — mcp: talk to the Context Capsule menu-bar app (control file out, state.json in)
 import fs from "node:fs";
 import { controlFile, stateFile } from "./paths.js";
 import { readJson, writeFileAtomic } from "./fsutil.js";
@@ -17,9 +17,9 @@ export interface RecorderState {
 export type Command = "start" | "stop";
 
 export const APP_NOT_RUNNING =
-  "The Capsule app is not running, so recording can't start yet.\n" +
-  "Open it first: run `open -a Capsule` in Terminal, or double-click Capsule.app " +
-  "(after building it with `capture/build.sh` it is in `capture/build/Capsule.app`; " +
+  "The Context Capsule app is not running, so recording can't start yet.\n" +
+  "Open it first: run `open -a \"Context Capsule\"` in Terminal, or double-click Context Capsule.app " +
+  "(after building it with `capture/build.sh` it is in `capture/build/Context Capsule.app`; " +
   "you can drag it to /Applications). A circle icon appears in the menu bar when it's ready. " +
   "Then ask me again, or press ⌥⇧C (Option-Shift-C) to start recording yourself.";
 
@@ -30,7 +30,7 @@ export const PICKER_OPEN =
 export function describeStartError(err: string): string {
   if (err === "cancelled")
     return "Recording did not start: the picker was closed without choosing a window or screen. Ask me again when you're ready.";
-  return `Recording did not start: ${err}. Try again, or start it from the Capsule menu-bar icon (⌥⇧C).`;
+  return `Recording did not start: ${err}. Try again, or start it from the Context Capsule menu-bar icon (⌥⇧C).`;
 }
 
 /** Read state.json; null if the app never wrote one. */

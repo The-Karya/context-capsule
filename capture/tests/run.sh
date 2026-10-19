@@ -1,5 +1,5 @@
 #!/bin/sh
-# karya-capsule — capture: compile and run the unit tests (pure logic only, no screen access).
+# context-capsule — capture: compile and run the unit tests (pure logic only, no screen access).
 set -eu
 cd "$(dirname "$0")/.."
 mkdir -p build

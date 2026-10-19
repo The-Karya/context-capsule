@@ -1,4 +1,4 @@
-// karya-capsule — capture: pure logic (paths, JSON, times, redaction, exclusion, dedupe, event log,
+// context-capsule — capture: pure logic (paths, JSON, times, redaction, exclusion, dedupe, event log,
 // picked-content membership, Accessibility text assembly, AX-vs-OCR choice).
 // No UI or screen access here, so the tests can compile this file on its own.
 
@@ -15,7 +15,7 @@ struct Paths {
     var state: URL { root.appendingPathComponent("state.json") }
 
     static let standard = Paths(root: FileManager.default.homeDirectoryForCurrentUser
-        .appendingPathComponent(".karya-capsule", isDirectory: true))
+        .appendingPathComponent(".context-capsule", isDirectory: true))
 }
 
 // MARK: - JSON (hand-written so key order matches SPEC.md)

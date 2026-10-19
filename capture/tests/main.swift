@@ -1,4 +1,4 @@
-// karya-capsule — capture: tiny test runner for Core.swift (redaction, exclusion, dedupe, file formats,
+// context-capsule — capture: tiny test runner for Core.swift (redaction, exclusion, dedupe, file formats,
 // picked-content membership, AX text assembly, AX-vs-OCR choice).
 
 import Foundation
@@ -39,7 +39,7 @@ check(skKept == "use key [redacted] here", "only the token is replaced", skKept)
 
 let safe = [
     "Pricing page redesign — Linear",
-    "/Users/Saachi/Projects2024/karya-capsule/capture/Sources",
+    "/Users/Saachi/Projects2024/context-capsule/capture/Sources",
     "internationalization-and-localization-settings-panel",
     "https://github.com/anthropics/claude-code/pull/1234",
     "Meeting at 10:30 with the design team about the new onboarding flow",

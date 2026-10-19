@@ -1,4 +1,4 @@
-// karya-capsule — mcp: tests for app control (control file, state.json, start/stop tools)
+// context-capsule — mcp: tests for app control (control file, state.json, start/stop tools)
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import fs from "node:fs";
 import path from "node:path";
@@ -64,7 +64,7 @@ describe("tools", () => {
   test("start_recording explains how to open the app when it isn't running", async () => {
     const r = await call("start_recording");
     expect(r.isError).toBe(true);
-    expect(r.text).toContain("open -a Capsule");
+    expect(r.text).toContain("open -a \"Context Capsule\"");
     expect(fs.existsSync(path.join(home, "control"))).toBe(false);
   });
 

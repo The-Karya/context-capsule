@@ -1,4 +1,4 @@
-// karya-capsule — mcp: read recorded sessions (session.json + events.jsonl)
+// context-capsule — mcp: read recorded sessions (session.json + events.jsonl)
 import fs from "node:fs";
 import path from "node:path";
 import { isSafeName, sessionsDir } from "./paths.js";
@@ -68,7 +68,7 @@ export function resolveSessionId(id: string | undefined): string {
 }
 
 export function noSessionsMessage(): string {
-  return "No recorded sessions yet. Start one with the start_recording tool or press ⌥⇧C (Option-Shift-C) with the Capsule app running.";
+  return "No recorded sessions yet. Start one with the start_recording tool or press ⌥⇧C (Option-Shift-C) with the Context Capsule app running.";
 }
 
 export function readSessionMeta(id: string): SessionMeta {

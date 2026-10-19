@@ -1,4 +1,4 @@
-# Capsule — the capture app
+# Context Capsule — the capture app
 
 A small macOS menu-bar app (macOS 14+). Press **⌥⇧C** (Option-Shift-C): the macOS
 window/screen picker opens. Pick a window or a display and recording starts; close
@@ -9,7 +9,7 @@ window is part of what you picked**, its title and text. Text comes from the
 Accessibility API when you allow it (exact, and secure fields are never read);
 otherwise, or when an app shows too little text that way (Figma, video, canvas apps),
 from Apple Vision OCR of the picked content. Each event says which: `"src":"ax"` or
-`"src":"ocr"`. Only text is saved, on this Mac, in `~/.karya-capsule/sessions/`.
+`"src":"ocr"`. Only text is saved, on this Mac, in `~/.context-capsule/sessions/`.
 Frames stay in memory and are never written to disk. The file format is in
 [`../SPEC.md`](../SPEC.md).
 
@@ -23,19 +23,19 @@ icon in the menu bar; stopping there stops the recording.
 Needs the Xcode command line tools (`xcode-select --install`). No Xcode project.
 
 ```sh
-./build.sh                 # universal (arm64 + x86_64) → build/Capsule.app
+./build.sh                 # universal (arm64 + x86_64) → "build/Context Capsule.app"
 ARCHS=arm64 ./build.sh     # faster, one arch
-open build/Capsule.app
+open "build/Context Capsule.app"
 ```
 
 The app is **ad-hoc signed** (`codesign -s -`). macOS remembers permissions by
 signature, and every rebuild gets a new one, so after a rebuild the Accessibility
-check mark may be gone (turn Capsule off and on again in System Settings → Privacy &
+check mark may be gone (turn Context Capsule off and on again in System Settings → Privacy &
 Security → Accessibility).
 
 ## Permissions
 
-- **Screen Recording** — not needed. Capsule never asks for it and never captures
+- **Screen Recording** — not needed. Context Capsule never asks for it and never captures
   anything except what you pick in the system picker.
 - **Accessibility** — optional. Menu → *Read text directly (Accessibility)…* shows the
   macOS prompt; the item has a check mark once allowed. With it, text and window
@@ -48,7 +48,7 @@ Security → Accessibility).
   containing `1password`, `bitwarden`, `keychain`, `lastpass`, `dashlane`, `signal`,
   `whatsapp` (plus Apple Passwords and the lock screen). Those samples are skipped
   entirely: nothing is read.
-- Add your own in `~/.karya-capsule/config.json` (exact bundle id or app name):
+- Add your own in `~/.context-capsule/config.json` (exact bundle id or app name):
   ```json
   {"exclude_apps": ["com.example.app"]}
   ```
@@ -59,15 +59,15 @@ Security → Accessibility).
 ## Control from outside
 
 The MCP server (`../mcp`) starts and stops recording by writing
-`~/.karya-capsule/control`:
+`~/.context-capsule/control`:
 
 ```json
 {"command": "start", "at": 1792404063000}
 ```
 
-Capsule checks it twice a second and acts once per new `at`. A command written
-before Capsule launched is ignored. A start opens the picker (brought to the front);
-the user still has to pick. Capsule keeps `~/.karya-capsule/state.json` current:
+Context Capsule checks it twice a second and acts once per new `at`. A command written
+before the app launched is ignored. A start opens the picker (brought to the front);
+the user still has to pick. The app keeps `~/.context-capsule/state.json` current:
 
 ```json
 {"recording": true, "session_id": "20261019-100103", "started_at": "2026-10-19T10:01:03Z", "pid": 4242,
@@ -82,7 +82,7 @@ false and `last_error` is `"cancelled"`.
 ```sh
 ./tests/run.sh      # redaction, exclusion, dedupe, file formats, picked-content membership,
                     # OCR crop, AX text assembly + secure-field skipping, AX-vs-OCR choice
-./build/Capsule.app/Contents/MacOS/Capsule --selftest   # OCR (whole + cropped) on a generated image
+"./build/Context Capsule.app/Contents/MacOS/ContextCapsule" --selftest   # OCR (whole + cropped) on a generated image
 ```
 
 ## Files
