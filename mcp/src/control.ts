@@ -21,6 +21,9 @@ export interface RecorderState {
   listening: boolean;
   /** `at` of the last typed note the app wrote (confirms add_note). */
   note_at: number | null;
+  /** The current project, and "auto" (matched a clue) or "you" (picked). */
+  project: string | null;
+  project_by: "auto" | "you" | null;
 }
 
 const SKIP_REASONS: Record<string, string> = {
@@ -38,7 +41,7 @@ export function describeSkip(skip: string): string {
   return SKIP_REASONS[skip] ?? skip;
 }
 
-export type Command = "start" | "stop" | "note";
+export type Command = "start" | "stop" | "note" | "project";
 
 export function appNotRunning(): string {
   const w = words();
@@ -77,6 +80,8 @@ export function readState(): RecorderState | null {
     skip: typeof s.skip === "string" && s.skip ? s.skip : null,
     listening: s.listening === true,
     note_at: typeof s.note_at === "number" ? s.note_at : null,
+    project: typeof s.project === "string" && s.project ? s.project : null,
+    project_by: s.project_by === "auto" || s.project_by === "you" ? s.project_by : null,
   };
 }
 
@@ -95,10 +100,14 @@ export function appRunning(state: RecorderState | null = readState()): boolean {
   return !!state && pidAlive(state.pid);
 }
 
-/** `text` is only for "note": a typed note for the current session. */
-export function writeControl(command: Command, at = Date.now(), text?: string): string {
+/** `text` is only for "note" (a typed note); `project` only for "project" (an id or "auto"). */
+export function writeControl(command: Command, at = Date.now(), text?: string, project?: string): string {
   const file = controlFile();
-  writeFileAtomic(file, JSON.stringify(text === undefined ? { command, at } : { command, text, at }) + "\n");
+  const body: Record<string, unknown> = { command };
+  if (text !== undefined) body.text = text;
+  if (project !== undefined) body.project = project;
+  body.at = at;
+  writeFileAtomic(file, JSON.stringify(body) + "\n");
   return file;
 }
 

@@ -42,6 +42,11 @@ describe("built server over stdio (node)", () => {
     expect(tools.map((t) => t.name).sort()).toEqual(
       [
         "add_note",
+        "assign_project",
+        "create_project",
+        "get_day_activity",
+        "list_projects",
+        "set_project",
         "export_capsule",
         "get_capsule",
         "get_session_activity",

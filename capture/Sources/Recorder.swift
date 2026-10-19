@@ -16,6 +16,16 @@ final class Recorder {
     var listening = false { didSet { if listening != oldValue { writeState() } } }
     /// `at` of the last typed note from the MCP that was written.
     private var noteAt: Int64?
+    /// Projects from projects.json (reloaded when the file changes), and auto-detect vs. pinned.
+    private(set) var projects: [Project] = []
+    private var projectsModified: Date?
+    private(set) var projectChoice = ProjectChoice()
+    /// The project of the latest sample, and how it was chosen.
+    private(set) var currentProject: (id: String, by: String)?
+    /// The current project changed (main thread): show it.
+    var onProjectChange: ((Project?) -> Void)?
+    /// The front window as of the latest sample: what "New project from this window" uses.
+    private(set) var lastWindow: (title: String, location: String, app: String)?
 
     private(set) var sessionID: String?
     private(set) var startedAt: Date?
@@ -112,6 +122,8 @@ final class Recorder {
         lastSkip = nil
         skipCounts = [:]
         changedAt = Date()
+        reloadProjects(force: true)
+        currentProject = projectChoice.pinned.map { ($0, "you") }
         sessionID = id
         startedAt = now
         sessionDir = dir
@@ -158,8 +170,56 @@ final class Recorder {
         try? writeAtomically(stateJSON(recording: isRecording, sessionID: sessionID, startedAt: startedAt,
                                        pid: ProcessInfo.processInfo.processIdentifier,
                                        picking: isPicking && !isRecording, lastError: lastError,
-                                       events: eventCount, skip: lastSkip, listening: listening, noteAt: noteAt),
+                                       events: eventCount, skip: lastSkip, listening: listening, noteAt: noteAt,
+                                       project: currentProject?.id, projectBy: currentProject?.by),
                              to: paths.state)
+    }
+
+    // MARK: projects (main thread)
+
+    func reloadProjects(force: Bool = false) {
+        let modified = (try? FileManager.default.attributesOfItem(atPath: paths.projects.path))?[.modificationDate] as? Date
+        guard force || modified != projectsModified else { return }
+        projectsModified = modified
+        projects = Projects.load(from: paths.projects)
+    }
+
+    /// Pin to a project (menu, or the MCP's `set_project`), or nil to auto-detect again.
+    func pinProject(_ id: String?) {
+        reloadProjects()
+        projectChoice.pinned = id.flatMap { id in projects.contains { $0.id == id } ? id : nil }
+        AppLog.shared.write(projectChoice.pinned.map { "project pinned: \($0)" } ?? "project: auto-detect")
+        if let pinned = projectChoice.pinned { setCurrent((pinned, "you")) } else if currentProject?.by == "you" { setCurrent(nil) }
+    }
+
+    /// Make a project from the front window: the name the user typed, the window's best clue as `match`.
+    @discardableResult
+    func createProject(name: String, clue: String?) -> Project? {
+        reloadProjects(force: true)
+        let id = Projects.slug(name)
+        guard !id.isEmpty else { return nil }
+        if let i = projects.firstIndex(where: { $0.id == id }) {
+            if let clue, !projects[i].match.contains(where: { $0.caseInsensitiveCompare(clue) == .orderedSame }) {
+                projects[i].match.append(clue)
+            }
+        } else {
+            projects.append(Project(id: id, name: name, match: clue.map { [$0] } ?? []))
+        }
+        do { try Projects.save(projects, to: paths.projects) } catch {
+            AppLog.shared.write("cannot save projects.json: \(error.localizedDescription)")
+            return nil
+        }
+        reloadProjects(force: true)
+        return projects.first { $0.id == id }
+    }
+
+    private func setCurrent(_ next: (id: String, by: String)?) {
+        let changed = next?.id != currentProject?.id
+        currentProject = next
+        guard changed else { return }
+        writeState()
+        onChange?()
+        if isRecording { onProjectChange?(next.flatMap { n in projects.first { $0.id == n.id } }) }
     }
 
     // MARK: notes (main thread)
@@ -184,15 +244,21 @@ final class Recorder {
             bundle = front.bundle ?? ""
             title = AXReader.title(pid: front.pid) ?? front.window?.name ?? ""
         }
-        return VoiceTarget(app: app, bundle: bundle, title: title) { [weak self] event in self?.write(event, to: log) }
+        let project = currentProject
+        return VoiceTarget(app: app, bundle: bundle, title: title) { [weak self] event in
+            var event = event
+            if let project { event.project = project.id; event.projectBy = project.by }
+            self?.write(event, to: log)
+        }
     }
 
     /// A note typed in Claude (the MCP's `add_note`). Ignored when not recording.
     func addTypedNote(_ text: String, at: Int64) {
         guard isRecording, let log else { return }
         let now = Date()
-        let event = Voice.event(text: text, kind: Event.note, src: "typed", start: now, end: now,
+        var event = Voice.event(text: text, kind: Event.note, src: "typed", start: now, end: now,
                                 app: "", bundle: "", title: "")
+        if let project = currentProject { event.project = project.id; event.projectBy = project.by }
         noteAt = at
         write(event, to: log)
         AppLog.shared.write("typed note saved: \(event.text.count) chars")
@@ -238,8 +304,11 @@ final class Recorder {
         guard Membership.contains(pick, window.info) else { return skip(.notPicked, log) }
 
         sampling = true
+        reloadProjects()
         let capture = self.capture
         let changedAt = self.changedAt
+        let projects = self.projects
+        let choice = self.projectChoice
         work.async { [weak self] in
             var outcome: Skip?
             defer {
@@ -261,11 +330,28 @@ final class Recorder {
                 }
             }
             let title = AXReader.title(pid: front.pid) ?? capture.pickedWindowTitle(id: window.id) ?? window.name ?? ""
+            let location = Location.clean(AXReader.location(pid: front.pid))
             let stamp = Clock.iso(now)
-            let event = Event(t: stamp, end: stamp, app: front.appName, bundle: front.bundle ?? "",
+            var event = Event(t: stamp, end: stamp, app: front.appName, bundle: front.bundle ?? "",
                               title: Redactor.clean(title), src: source.rawValue, text: Redactor.clean(text))
+            event.location = location
+            if let project = choice.resolve(projects, title: event.title, location: location, app: front.appName) {
+                event.project = project.id
+                event.projectBy = project.by
+            }
+            let found = event.project.isEmpty ? nil : (event.project, event.projectBy)
+            let window = (event.title, location, front.appName)
+            DispatchQueue.main.async { self?.sampledProject(found, window: window) }
             do { try log.record(event) } catch { NSLog("Context Capsule: cannot write event: \(error)") }
         }
+    }
+
+    /// Main thread: the project the latest written sample got. Auto mode keeps the last project across
+    /// windows with no clue (Slack, Mail…) for display only; the events themselves stay unassigned.
+    private func sampledProject(_ found: (id: String, by: String)?, window: (String, String, String)) {
+        guard isRecording else { return }
+        lastWindow = (window.0, window.1, window.2)
+        if let found { setCurrent(found) }
     }
 
     private func skip(_ why: Skip, _ log: EventLog) {

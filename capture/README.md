@@ -26,6 +26,16 @@ Menu: Start / Stop recording, Read text directly (Accessibility)…, Open sessio
 folder, Quit. While macOS shares the picked content you also see its own sharing
 icon in the menu bar; stopping there stops the recording.
 
+## Projects
+
+Menu → **Project: …** shows the project of the window in front, detected from the clues in
+`~/.context-capsule/projects.json` (matched in the window title, its page address or file
+path, and the app name). Pick a project to stick to it until you pick **Auto-detect**
+again; **New project from this window…** makes one and remembers the window's clue. A short
+message says when the project changes. Each event gets `"project"` and `"project_by"`
+(`auto` / `you`), and `"where"` (the page address or file path, without `?query` or
+`#fragment`) when Accessibility gives it.
+
 ## Voice notes
 
 While recording, press **⌥V** (or menu → *Add voice note*), talk, press ⌥V again.

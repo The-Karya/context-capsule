@@ -8,11 +8,15 @@ import {
   formatDuration,
   formatLocalDateTime,
   isNote,
+  projectTimes,
 } from "./sessions.js";
+import { loadProjects } from "./projects.js";
 
 export interface Segment {
   app: string;
   title: string;
+  /** Project id, "" if not sorted yet. */
+  project: string;
   start: string;
   end: string;
   ms: number;
@@ -62,17 +66,18 @@ export function groupSegments(events: CaptureEvent[]): RawSegment[] {
       return;
     }
     const title = collapse(e.title ?? "");
+    const project = e.project ?? "";
     const last = broken ? undefined : segs[segs.length - 1];
     broken = false;
     const lines = (e.text ?? "").split(/\r?\n/).map(collapse).filter(Boolean);
     const end = e.end ?? e.t;
-    if (last && last.app === e.app && last.title === title) {
+    if (last && last.app === e.app && last.title === title && last.project === project) {
       if (Date.parse(end) > Date.parse(last.end)) last.end = end;
       last.ms += eventMs(e);
       last.events += 1;
       last.raw.push(lines);
     } else {
-      segs.push({ app: e.app, title, start: e.t, end, ms: eventMs(e), events: 1, lines: [], raw: [lines], idx });
+      segs.push({ app: e.app, title, project, start: e.t, end, ms: eventMs(e), events: 1, lines: [], raw: [lines], idx });
     }
   });
   return segs;
@@ -153,14 +158,30 @@ export function trimTo(text: string, limit: number): string {
   return body.trimEnd() + ELLIPSIS;
 }
 
-function segmentHeader(s: Segment): string {
+/** Project ids → names from projects.json (an id with no project shows as itself). */
+export function projectNames(): Map<string, string> {
+  return new Map(loadProjects().map((p) => [p.id, p.name]));
+}
+
+function segmentHeader(s: Segment, names: Map<string, string>): string {
   const span = `${formatClock(s.start)}–${formatClock(s.end)}`;
   const where = s.title ? `${s.app} — ${s.title}` : s.app;
-  return `## ${span} · ${where}`;
+  const project = s.project ? `[${names.get(s.project) ?? s.project}] ` : "";
+  return `## ${span} · ${project}${where}`;
+}
+
+/** "Time per project: Client report 2h 00m, Website 1h 05m, not sorted yet 20m" ("" if none). */
+export function projectLine(events: CaptureEvent[], names: Map<string, string>): string {
+  const times = projectTimes(events);
+  if (!times.length || (times.length === 1 && !times[0]!.project)) return "";
+  const parts = times.map((t) => `${t.project ? (names.get(t.project) ?? t.project) : "not sorted yet"} ${formatDuration(t.ms)}`);
+  return `Time per project: ${parts.join(", ")}`;
 }
 
 export interface ActivityOptions {
   maxChars?: number;
+  /** Replaces the "# Session <id>" first line (used by the day view). */
+  heading?: string;
 }
 
 /** The full condensed timeline for one session, never longer than maxChars. Voice and typed
@@ -200,10 +221,13 @@ export function condenseActivity(meta: SessionMeta, events: CaptureEvent[], opts
         .filter(Boolean)
         .join(" and ")} (lines starting with ">>"): the user's own words about what they did and why.`
     : "";
+  const names = projectNames();
+  const perProject = projectLine(events, names);
   const head = [
-    `# Session ${meta.id}${meta.ended_at ? "" : " (still recording or not closed)"}`,
+    opts.heading ?? `# Session ${meta.id}${meta.ended_at ? "" : " (still recording or not closed)"}`,
     `Time: ${span}, local time`,
     `Apps: ${apps || "none"}`,
+    ...(perProject ? [perProject] : []),
     `${segs.length} segments from ${screen.length} screen samples. ${source}: repeated lines, menus and numbers-only lines are removed; each line appears once, where it was first seen.${noteHead}`,
   ].join("\n");
 
@@ -216,7 +240,7 @@ export function condenseActivity(meta: SessionMeta, events: CaptureEvent[], opts
     ...notes.map(({ e, idx }) => ({ kind: "note" as const, line: noteLine(e), idx })),
   ].sort((a, b) => a.idx - b.idx);
 
-  const headers = segs.map(segmentHeader);
+  const headers = segs.map((s) => segmentHeader(s, names));
   const noteChars = notes.length ? items.reduce((n, it) => n + (it.kind === "note" ? 2 + it.line.length : 0), 0) : 0;
   // fixed cost: head + notes in full + per segment "\n\n" + header + "\n" before a body
   const fixed = head.length + noteChars + headers.reduce((n, h) => n + 2 + h.length + 1, 0);
@@ -263,4 +287,61 @@ export function condenseActivity(meta: SessionMeta, events: CaptureEvent[], opts
     }
   }
   return out;
+}
+
+// ---------- a whole day, split by project ----------
+
+/** The local calendar day (YYYY-MM-DD) of an ISO time. */
+export function localDay(iso: string): string {
+  const d = new Date(iso);
+  const pad = (n: number) => String(n).padStart(2, "0");
+  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
+}
+
+export interface DayOptions {
+  /** Only this project ("" = only work not sorted yet). */
+  project?: string;
+  maxChars?: number;
+}
+
+/** Every session's events on one local day, split by project: a time summary, then one condensed
+ * timeline per project (notes included), work not sorted yet last. Never longer than maxChars. */
+export function condenseDay(day: string, events: CaptureEvent[], sessionIds: string[], opts: DayOptions = {}): string {
+  const maxChars = Math.max(500, Math.floor(opts.maxChars ?? DEFAULT_MAX_CHARS));
+  const names = projectNames();
+  const onDay = events.filter((e) => localDay(e.t) === day).sort((a, b) => Date.parse(a.t) - Date.parse(b.t));
+  const times = projectTimes(onDay);
+  const total = times.reduce((n, t) => n + t.ms, 0);
+  const label = (id: string) => (id ? (names.get(id) ?? id) : "Not sorted yet");
+
+  const head = [
+    `# ${day}: ${formatDuration(total)} recorded in ${sessionIds.length} ${sessionIds.length === 1 ? "session" : "sessions"} (${sessionIds.join(", ") || "none"})`,
+    "Time per project:",
+    ...(times.length ? times.map((t) => `- ${label(t.project)}: ${formatDuration(t.ms)}`) : ["- nothing recorded"]),
+    times.some((t) => !t.project)
+      ? 'Work "not sorted yet" matched no project: suggest which project it belongs to (or a new one, with clues from its windows) and ask the user.'
+      : "",
+  ]
+    .filter(Boolean)
+    .join("\n");
+  if (!onDay.length) return trimTo(`${head}\n\n(No activity was recorded on ${day}.)`, maxChars);
+
+  // Projects in order of time spent; "not sorted yet" last. Notes follow their own project.
+  const order = times.map((t) => t.project).sort((a, b) => (a === "" ? 1 : b === "" ? -1 : 0));
+  for (const e of onDay) if (isNote(e) && !order.includes(e.project ?? "")) order.push(e.project ?? "");
+  const wanted = opts.project === undefined ? order : order.filter((p) => p === opts.project);
+  if (!wanted.length) return trimTo(`${head}\n\n(No activity for project "${opts.project}" on ${day}.)`, maxChars);
+
+  const sections = wanted.map((id) => {
+    const g = onDay.filter((e) => (e.project ?? "") === id);
+    const ms = projectTimes(g).reduce((n, t) => n + t.ms, 0);
+    const meta = { id: day, started_at: g[0]!.t, ended_at: g[g.length - 1]!.end ?? g[g.length - 1]!.t };
+    const heading = `# Project: ${label(id)} (${formatDuration(ms)})${id ? ` · id ${id}` : ""}`;
+    return (limit: number) => condenseActivity(meta, g, { maxChars: limit, heading });
+  });
+  // Measure each project's full timeline, then split the space fairly (short ones keep everything).
+  const full = sections.map((render) => render(1_000_000).length);
+  const shares = fairShares(full, maxChars - head.length - 2 * sections.length);
+  const parts = [head, ...sections.map((render, i) => render(Math.max(300, shares[i]!)))];
+  return trimTo(parts.join("\n\n"), maxChars);
 }

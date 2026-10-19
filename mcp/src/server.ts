@@ -3,7 +3,8 @@ import fs from "node:fs";
 import { McpServer, ResourceTemplate } from "@modelcontextprotocol/sdk/server/mcp.js";
 import type { CallToolResult } from "@modelcontextprotocol/sdk/types.js";
 import { z } from "zod";
-import { DEFAULT_MAX_CHARS, condenseActivity } from "./activity.js";
+import { DEFAULT_MAX_CHARS, condenseActivity, condenseDay, localDay } from "./activity.js";
+import { addAssignment, createProject, loadProjects } from "./projects.js";
 import {
   CAPSULE_EXT,
   REQUIRED_SECTIONS,
@@ -28,9 +29,11 @@ import {
 import { words } from "./platform.js";
 import { capsuleHome } from "./paths.js";
 import {
+  formatClock,
   formatDuration,
   formatLocalDateTime,
   listSessionIds,
+  projectTimes,
   noSessionsMessage,
   readEvents,
   readSessionMeta,
@@ -177,6 +180,9 @@ export function createServer(opts: ServerOptions = {}): McpServer {
         if (state.events != null) lines.push(`Events so far: ${state.events}`);
         if (state.skip) lines.push(`Right now: not recording a sample — ${describeSkip(state.skip)}`);
         if (state.listening) lines.push(`Voice note: listening (press ${words().voiceKeyShort} again to finish)`);
+        if (state.project)
+          lines.push(`Project: ${state.project} (${state.project_by === "you" ? "picked" : "detected from clues"})`);
+        else lines.push("Project: not detected (no clue matched yet)");
       }
       if (!running) lines.push("", appNotRunning());
       return text(lines.join("\n"));
@@ -206,6 +212,149 @@ export function createServer(opts: ServerOptions = {}): McpServer {
       if (!confirmed || after?.note_at !== at)
         return text(`Sent the note to the app for session ${state!.session_id ?? "(unknown)"}, but it hasn't confirmed yet. Check recording_status.`);
       return text(`Added the note to session ${state!.session_id ?? "(unknown)"}.`);
+    }),
+  );
+
+  // ---------- projects ----------
+
+  server.registerTool(
+    "list_projects",
+    {
+      title: "List projects",
+      description: "Projects (from projects.json) with their clues, time recorded today and their capsules.",
+      inputSchema: {},
+      annotations: { readOnlyHint: true },
+    },
+    safe(() => {
+      const projects = loadProjects();
+      const today = localDay(new Date().toISOString());
+      const todayEvents = listSessionIds()
+        .filter((id) => id.startsWith(today.replace(/-/g, "")) || id.startsWith(prevDayId(today)))
+        .flatMap((id) => readEvents(id))
+        .filter((e) => localDay(e.t) === today);
+      const times = new Map(projectTimes(todayEvents).map((t) => [t.project, t.ms]));
+      const capsules = listCapsules();
+      if (!projects.length)
+        return text(
+          "No projects yet. Create one with create_project (name + clues like a folder, website or file name), " +
+            "or let me sort a day's work with the make_day_capsules prompt.",
+        );
+      const rows = projects.map((p) => {
+        const caps = capsules.filter((c) => c.project === p.id);
+        const whole = caps.find((c) => c.kind === "project");
+        const days = caps.filter((c) => c.kind !== "project").length;
+        return (
+          `- ${p.name} (id ${p.id}) · today ${formatDuration(times.get(p.id) ?? 0)} · clues: ${p.match.join(", ") || "none"}` +
+          ` · capsules: ${whole ? `project capsule "${whole.slug}"` : "no project capsule yet"}, ${days} daily`
+        );
+      });
+      const loose = times.get("") ?? 0;
+      return text(`Projects:\n${rows.join("\n")}${loose ? `\nNot sorted yet today: ${formatDuration(loose)}` : ""}`);
+    }),
+  );
+
+  server.registerTool(
+    "create_project",
+    {
+      title: "Create project",
+      description:
+        "Add a project. Clues (`match`) are words found in window titles, page addresses / file paths or app names " +
+        "(e.g. a repo folder, a website, a document name); work matching them is sorted into this project automatically, " +
+        "including past recordings. Calling it again with the same name adds clues.",
+      inputSchema: {
+        name: z.string().min(1).describe("Project name, e.g. 'Client report'"),
+        match: z.array(z.string()).optional().describe("Clues, e.g. ['acme-site', 'figma.com/file/AbC']"),
+      },
+    },
+    safe(({ name, match }: { name: string; match?: string[] }) => {
+      const { project, created } = createProject(name, match ?? []);
+      return text(
+        `${created ? "Created" : "Updated"} project "${project.name}" (id ${project.id}). Clues: ${project.match.join(", ") || "none"}.`,
+      );
+    }),
+  );
+
+  server.registerTool(
+    "set_project",
+    {
+      title: "Set current project",
+      description:
+        'Tell the recorder which project the user is working on now (every sample goes to it until changed), or "auto" to detect it again from clues.',
+      inputSchema: { project: z.string().min(1).describe('Project id or name, or "auto"') },
+    },
+    safe(async ({ project }: { project: string }) => {
+      const wanted = project.trim();
+      let id = "auto";
+      if (wanted.toLowerCase() !== "auto") {
+        const p = loadProjects().find((x) => x.id === wanted || x.name.toLowerCase() === wanted.toLowerCase());
+        if (!p) return fail(`No project "${wanted}". Create it first with create_project.`);
+        id = p.id;
+      }
+      const state = readState();
+      if (!appRunning(state)) return fail(`The recorder isn't running.\n${appNotRunning()}`);
+      const at = Date.now();
+      writeControl("project", at, undefined, id);
+      const { confirmed } = await waitForState((s) => (id === "auto" ? s.project_by !== "you" : s.project === id), noteMs);
+      if (id === "auto") return text("The recorder detects the project from clues again.");
+      return text(confirmed ? `Now recording into project ${id}.` : `Sent: switch to project ${id}. The app hasn't confirmed yet.`);
+    }),
+  );
+
+  server.registerTool(
+    "assign_project",
+    {
+      title: "Assign work to a project",
+      description:
+        "Correct which project a stretch of a session belongs to (or the whole session). Times are ISO or local HH:MM on the session's day. " +
+        'Use project "" to un-assign. Stored in the session\'s assign.json; the recording itself is not changed.',
+      inputSchema: {
+        session_id: z.string().describe('Session id, or "latest"'),
+        project: z.string().describe("Project id (\"\" = none)"),
+        from: z.string().optional().describe("Start (ISO, or HH:MM local); default: session start"),
+        to: z.string().optional().describe("End, exclusive (ISO, or HH:MM local); default: session end"),
+      },
+    },
+    safe(({ session_id, project, from, to }: { session_id: string; project: string; from?: string; to?: string }) => {
+      const id = resolveSessionId(session_id);
+      const p = project.trim();
+      if (p && !loadProjects().some((x) => x.id === p)) return fail(`No project "${p}". Create it first with create_project.`);
+      const day = readSessionMeta(id).started_at ?? new Date().toISOString();
+      const f = from ? toIso(from, day) : undefined;
+      const t = to ? toIso(to, day) : undefined;
+      addAssignment(id, { project: p, ...(f ? { from: f } : {}), ...(t ? { to: t } : {}) });
+      const span = f || t ? `${f ? formatClock(f) : "start"}–${t ? formatClock(t) : "end"}` : "the whole session";
+      return text(`Session ${id}, ${span}: ${p ? `project ${p}` : "no project"}.`);
+    }),
+  );
+
+  server.registerTool(
+    "get_day_activity",
+    {
+      title: "Get a day's activity by project",
+      description:
+        "Every session on one local day, split by project: time per project, then a condensed timeline per project " +
+        '(voice/typed notes included). Work matching no project is listed as "Not sorted yet". Use it to write daily project capsules.',
+      inputSchema: {
+        date: z.string().optional().describe("YYYY-MM-DD, local (default today)"),
+        project: z.string().optional().describe('Only this project id ("" = only unsorted work)'),
+        max_chars: z.number().int().min(500).max(1_000_000).optional().describe(`Maximum length (default ${DEFAULT_MAX_CHARS})`),
+      },
+      annotations: { readOnlyHint: true },
+    },
+    safe(({ date, project, max_chars }: { date?: string; project?: string; max_chars?: number }) => {
+      const day = date?.trim() || localDay(new Date().toISOString());
+      if (!/^\d{4}-\d{2}-\d{2}$/.test(day)) return fail(`"${day}" is not a date like 2026-10-19.`);
+      // Sessions are named by their local start time; one from the day before may run past midnight.
+      const ids = listSessionIds()
+        .filter((id) => id.startsWith(day.replace(/-/g, "")) || id.startsWith(prevDayId(day)))
+        .reverse();
+      const used: string[] = [];
+      const events = ids.flatMap((id) => {
+        const ev = readEvents(id).filter((e) => localDay(e.t) === day);
+        if (ev.length) used.push(id);
+        return ev;
+      });
+      return text(condenseDay(day, events, used, { project, maxChars: max_chars }));
     }),
   );
 
@@ -269,14 +418,18 @@ export function createServer(opts: ServerOptions = {}): McpServer {
       title: "Save capsule",
       description:
         `Save a capsule you wrote. Pass the Markdown body (sections: ${REQUIRED_SECTIONS.map((s) => `## ${s}`).join(", ")}); ` +
-        "front matter (author, date, sessions, apps) is added for you. Never overwrites: a second capsule with the same title gets -2.",
+        "front matter (author, date, sessions, apps) is added for you. Never overwrites: a second capsule with the same title gets -2. " +
+        'For projects: kind "daily" (needs project + date) saves <project>-<date>; kind "project" replaces the project\'s one growing capsule (the old version is kept in .history).',
       inputSchema: {
         title: z.string().min(1).describe("Short title, e.g. 'Pricing page redesign'"),
         markdown: z.string().min(1).describe("The capsule body in Markdown, without front matter"),
         session_ids: z.array(z.string()).optional().describe("Sessions this capsule was written from"),
+        project: z.string().optional().describe("Project id (see list_projects)"),
+        kind: z.enum(["daily", "project"]).optional().describe('"daily": one day of a project; "project": the growing capsule'),
+        date: z.string().optional().describe("Local day YYYY-MM-DD (daily capsules)"),
       },
     },
-    safe((args: { title: string; markdown: string; session_ids?: string[] }) => {
+    safe((args: { title: string; markdown: string; session_ids?: string[]; project?: string; kind?: "daily" | "project"; date?: string }) => {
       const r = saveCapsule(args);
       const warn = r.warnings.length ? `\nNotes:\n${r.warnings.map((w) => `- ${w}`).join("\n")}` : "";
       return text(
@@ -299,7 +452,11 @@ export function createServer(opts: ServerOptions = {}): McpServer {
       if (!all.length) return text("No capsules yet. Record a session, then write one with the make_capsule prompt and save_capsule.");
       return text(
         all
-          .map((c) => `- ${c.title} · by ${c.author || "?"} · ${c.created || "?"} · name: ${c.slug} · ${c.path}`)
+          .map(
+            (c) =>
+              `- ${c.title}${c.project ? ` · project ${c.project}${c.kind === "project" ? " (whole project)" : c.date ? ` (${c.date})` : ""}` : ""}` +
+              ` · by ${c.author || "?"} · ${c.created || "?"} · name: ${c.slug} · ${c.path}`,
+          )
           .join("\n"),
       );
     }),
@@ -357,6 +514,18 @@ export function createServer(opts: ServerOptions = {}): McpServer {
     },
     ({ session_id }) => ({
       messages: [{ role: "user", content: { type: "text", text: makeCapsulePrompt(session_id) } }],
+    }),
+  );
+
+  server.registerPrompt(
+    "make_day_capsules",
+    {
+      title: "Make the day's project capsules",
+      description: "Split a day's work by project and write a daily capsule per project, then update each project's capsule.",
+      argsSchema: { date: z.string().optional().describe("YYYY-MM-DD, local (default today)") },
+    },
+    ({ date }) => ({
+      messages: [{ role: "user", content: { type: "text", text: makeDayCapsulesPrompt(date) } }],
     }),
   );
 
@@ -436,4 +605,46 @@ Rules:
 - Don't add front matter; it is added for you.
 
 3. Show me the capsule and ask if I want changes. When I'm happy, call save_capsule with a short title, the Markdown, and session_ids ["${id}"]. Then offer export_capsule so I can send it.`;
+}
+
+/** "20261018" for day "2026-10-19": the session-id prefix of the day before. */
+function prevDayId(day: string): string {
+  const [y, m, d] = day.split("-").map(Number);
+  const prev = new Date(y!, m! - 1, d! - 1);
+  const pad = (n: number) => String(n).padStart(2, "0");
+  return `${prev.getFullYear()}${pad(prev.getMonth() + 1)}${pad(prev.getDate())}`;
+}
+
+/** ISO as is, or local "HH:MM" on the local day of `dayIso`. */
+function toIso(v: string, dayIso: string): string {
+  const s = v.trim();
+  const hm = /^(\d{1,2}):(\d{2})$/.exec(s);
+  if (hm) {
+    const d = new Date(dayIso);
+    d.setHours(Number(hm[1]), Number(hm[2]), 0, 0);
+    return d.toISOString().replace(/\.\d{3}Z$/, "Z");
+  }
+  if (Number.isNaN(Date.parse(s))) throw new Error(`"${v}" is not a time (use HH:MM or ISO).`);
+  return new Date(s).toISOString().replace(/\.\d{3}Z$/, "Z");
+}
+
+export function makeDayCapsulesPrompt(date?: string): string {
+  const day = date?.trim() || "today";
+  return `Turn my work on ${day} into project capsules.
+
+1. Call list_projects, then get_day_activity${date?.trim() ? ` with date "${date.trim()}"` : ""}. It splits the day by project, with the time spent on each. Lines starting with ">> You said" / ">> You typed" are my own words.
+2. If some work is "Not sorted yet": look at its apps, window titles and addresses and suggest which project each part belongs to (an existing one, or a new one). Show me the plan as a short list (time, what it was, proposed project) and ask me to confirm. Then:
+   - create_project for new ones, with clues (folder, site, file or document names from those windows) so it's found automatically next time;
+   - add clues to existing projects the same way (create_project with the same name);
+   - assign_project for stretches that clues can't catch (session id, from/to as HH:MM).
+   Call get_day_activity again to see the sorted day.
+3. For each project worked on that day, write a daily capsule from that project's part only, with the usual sections (## Summary, ## What I worked on, ## Decisions, ## Open questions, ## Next steps, ## Sources). Save it with save_capsule: title "<Project> — <day>", project, kind "daily", date, and the session ids used.
+4. Then update each project's growing capsule: get_capsule with the project id (if it exists), merge in what's new from today (keep decisions and their reasons, update open questions and next steps, drop what is done), and save_capsule with project, kind "project", title "<Project>". If there's none yet, make it from today's capsule.
+5. Finish with a short table: project, time, capsule names.
+
+Rules:
+- Voice and typed notes are my own words: the primary source for decisions, reasons and intent; screen text is supporting evidence. Quote or closely paraphrase them and cite the time.
+- Keep each project's capsule about that project only. Shared apps (chat, email) go where their content belongs, else leave them out.
+- Only use what the timeline shows; mark guesses as *(guess)*. Never include secrets or private personal data.
+- Ask me before creating projects or reassigning work; don't guess silently.`;
 }

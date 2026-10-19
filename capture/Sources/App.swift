@@ -10,6 +10,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     private let infoItem = NSMenuItem(title: "", action: nil, keyEquivalent: "")
     private let skipItem = NSMenuItem(title: "", action: nil, keyEquivalent: "")
     private let toggleItem = NSMenuItem(title: "", action: #selector(toggle), keyEquivalent: "c")
+    private let projectItem = NSMenuItem(title: "Project: Auto-detect", action: nil, keyEquivalent: "")
     private let voiceItem = NSMenuItem(title: "Add voice note", action: #selector(toggleVoice), keyEquivalent: "v")
     private let axItem = NSMenuItem(title: "Read text directly (Accessibility)…", action: #selector(askAccessibility),
                                     keyEquivalent: "")
@@ -39,6 +40,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         menu.addItem(.separator())
         menu.addItem(toggleItem)
         menu.addItem(voiceItem)
+        projectItem.submenu = NSMenu()
+        menu.addItem(projectItem)
         menu.addItem(axItem)
         menu.addItem(NSMenuItem(title: "Open sessions folder", action: #selector(openSessions), keyEquivalent: ""))
         menu.addItem(.separator())
@@ -52,6 +55,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         recorder.onChange = { [weak self] in self?.refresh() }
         recorder.onEmptySession = { [weak self] in self?.warnEmpty($0) }
         recorder.willStop = { [weak self] in self?.voice.recordingWillStop() }
+        recorder.onProjectChange = { [weak self] project in
+            guard let self else { return }
+            self.toast.show("Project: \(project?.name ?? "not sure yet")", under: self.statusItem.button, seconds: 3)
+        }
+        recorder.reloadProjects(force: true)
         voice.onIndicator = { [weak self] on in
             self?.recorder.listening = on
             self?.refresh()
@@ -77,6 +85,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
                 if self?.recorder.isRecording == true { AppLog.shared.write("stop: control file (Claude / MCP)") }
                 self?.recorder.stop()
             case .note: if let text = cmd.text { self?.recorder.addTypedNote(text, at: cmd.at) }
+            case .project: self?.recorder.pinProject(cmd.project == "auto" ? nil : cmd.project)
             }
         }
 
@@ -111,6 +120,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         statusItem.button?.toolTip = listening ? "Listening — press ⌥V to finish the voice note"
             : recording ? "Context Capsule is recording (⌥C to stop, ⌥V for a voice note)" : "Context Capsule (⌥C to record)"
         voiceItem.title = listening ? "Finish voice note" : "Add voice note"
+        buildProjectMenu()
 
         if let id = recorder.sessionID, let started = recorder.startedAt {
             let time = DateFormatter.localizedString(from: started, dateStyle: .none, timeStyle: .short)
@@ -125,6 +135,62 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         skipItem.title = "Skipping: \(recorder.lastSkip?.message ?? "")"
         toggleItem.title = recording ? "Stop recording" : recorder.isPicking ? "Cancel picking" : "Start recording…"
         axItem.state = AXReader.trusted ? .on : .off
+    }
+
+    /// "Project: <name>" with Auto-detect, every project, and "New project from this window…".
+    private func buildProjectMenu() {
+        recorder.reloadProjects()
+        let pinned = recorder.projectChoice.pinned
+        let current = recorder.currentProject.flatMap { c in recorder.projects.first { $0.id == c.id } }
+        projectItem.title = pinned != nil ? "Project: \(current?.name ?? pinned!)"
+            : "Project: Auto-detect" + (current.map { " (\($0.name))" } ?? "")
+        guard let sub = projectItem.submenu else { return }
+        sub.removeAllItems()
+        let auto = NSMenuItem(title: "Auto-detect", action: #selector(pickProject(_:)), keyEquivalent: "")
+        auto.target = self
+        auto.state = pinned == nil ? .on : .off
+        sub.addItem(auto)
+        if !recorder.projects.isEmpty { sub.addItem(.separator()) }
+        for project in recorder.projects {
+            let item = NSMenuItem(title: project.name, action: #selector(pickProject(_:)), keyEquivalent: "")
+            item.target = self
+            item.representedObject = project.id
+            item.state = pinned == project.id ? .on : .off
+            sub.addItem(item)
+        }
+        sub.addItem(.separator())
+        let new = NSMenuItem(title: "New project from this window…", action: #selector(newProject), keyEquivalent: "")
+        new.target = self
+        sub.addItem(new)
+    }
+
+    @objc private func pickProject(_ sender: NSMenuItem) {
+        recorder.pinProject(sender.representedObject as? String)
+        refresh()
+    }
+
+    /// Ask for a name (prefilled from the window), remember the window's best clue, and switch to it.
+    @objc private func newProject() {
+        let window = recorder.lastWindow
+        let clue = window.flatMap { Projects.clue(title: $0.title, location: $0.location) }
+        let alert = NSAlert()
+        alert.messageText = "New project"
+        alert.informativeText = clue.map { "Windows with “\($0)” will count as this project from now on." }
+            ?? "Name the project. Pick it from this menu while you work on it."
+        let field = NSTextField(frame: NSRect(x: 0, y: 0, width: 260, height: 24))
+        field.stringValue = clue ?? ""
+        field.placeholderString = "Project name"
+        alert.accessoryView = field
+        alert.addButton(withTitle: "Create")
+        alert.addButton(withTitle: "Cancel")
+        NSApp.activate(ignoringOtherApps: true)
+        alert.window.initialFirstResponder = field
+        guard alert.runModal() == .alertFirstButtonReturn else { return }
+        let name = field.stringValue.trimmingCharacters(in: .whitespaces)
+        guard !name.isEmpty, let project = recorder.createProject(name: name, clue: clue) else { return }
+        // With a clue, auto-detect finds it from now on; without one, stick to it until changed.
+        if clue == nil || recorder.projectChoice.pinned != nil { recorder.pinProject(project.id) }
+        refresh()
     }
 
     /// A clear message whenever recording or listening starts or stops.

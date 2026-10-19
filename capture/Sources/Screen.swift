@@ -138,6 +138,34 @@ enum AXReader {
         return (window as! AXUIElement) // swiftlint:disable:this force_cast
     }
 
+    /// The window's page address or file path: its AXDocument, else the first web area's AXURL
+    /// (browsers). nil when not trusted or not known.
+    static func location(pid: pid_t) -> String? {
+        guard trusted, let window = focusedWindow(pid: pid) else { return nil }
+        if let doc = string(window, kAXDocumentAttribute), !doc.isEmpty { return doc }
+        // A short breadth-first look for the web area; pages sit a few levels down.
+        var queue: [(AXUIElement, Int)] = [(window, 0)]
+        var seen = 0
+        while !queue.isEmpty, seen < 300 {
+            let (element, depth) = queue.removeFirst()
+            seen += 1
+            if string(element, kAXRoleAttribute) == "AXWebArea" {
+                var value: CFTypeRef?
+                if AXUIElementCopyAttributeValue(element, kAXURLAttribute as CFString, &value) == .success, let value {
+                    if let url = value as? URL { return url.absoluteString }
+                    if let text = value as? String { return text }
+                }
+            }
+            guard depth < 10 else { continue }
+            var children: CFTypeRef?
+            if AXUIElementCopyAttributeValue(element, kAXChildrenAttribute as CFString, &children) == .success,
+               let list = children as? [AXUIElement] {
+                queue += list.map { ($0, depth + 1) }
+            }
+        }
+        return nil
+    }
+
     static func title(pid: pid_t) -> String? {
         guard trusted, let window = focusedWindow(pid: pid) else { return nil }
         return string(window, kAXTitleAttribute)

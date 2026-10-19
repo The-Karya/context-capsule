@@ -144,6 +144,23 @@ macOS asks once for Microphone and Speech Recognition. If you said no, turn them
 System Settings → Privacy & Security. On macOS, **Dictation must be on** (System Settings →
 Keyboard → Dictation): Apple allows speech recognition only then, even on-device.
 
+## Projects
+
+A day often has several projects (1 h on one, 2 h on another…). Context Capsule keeps
+them apart:
+
+- **It detects the project** from clues in the window: a folder, file, website or document
+  name. The menu shows the current project (**Project: …**); pick one there to stick to
+  it, or **New project from this window…** to make one (it remembers the window's clue).
+- **Claude sorts the rest.** Ask: *"make my capsules for today"* (the `make_day_capsules`
+  prompt). Claude shows the time per project, proposes where unsorted work belongs, asks
+  you, then writes:
+  - a **daily capsule** per project (`website-2026-10-19.capsule.md`), and
+  - one **growing capsule** per project (`website.capsule.md`), updated every day you work
+    on it. Old versions are kept in `capsules/.history/`.
+- Projects live in `~/.context-capsule/projects.json` (name + clues); edit it by hand
+  if you like.
+
 ## The capsule format
 
 ```markdown

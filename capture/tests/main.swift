@@ -133,14 +133,14 @@ check(sj == #"{"id":"20261019-100103","started_at":"2026-10-19T10:01:03Z","ended
 let sj2 = sessionJSON(id: "x", startedAt: date, endedAt: date.addingTimeInterval(60), host: "Mac")
 check(sj2.contains(#""ended_at":"2026-10-19T10:02:03Z""#), "session.json ended_at", sj2)
 check(stateJSON(recording: false, sessionID: nil, startedAt: nil, pid: 42) ==
-      #"{"recording":false,"session_id":null,"started_at":null,"pid":42,"picking":false,"last_error":null,"events":0,"skip":null,"listening":false,"note_at":null}"#, "state.json idle")
+      #"{"recording":false,"session_id":null,"started_at":null,"pid":42,"picking":false,"last_error":null,"events":0,"skip":null,"listening":false,"note_at":null,"project":null,"project_by":null}"#, "state.json idle")
 check(stateJSON(recording: true, sessionID: "20261019-100103", startedAt: date, pid: 7) ==
-      #"{"recording":true,"session_id":"20261019-100103","started_at":"2026-10-19T10:01:03Z","pid":7,"picking":false,"last_error":null,"events":0,"skip":null,"listening":false,"note_at":null}"#,
+      #"{"recording":true,"session_id":"20261019-100103","started_at":"2026-10-19T10:01:03Z","pid":7,"picking":false,"last_error":null,"events":0,"skip":null,"listening":false,"note_at":null,"project":null,"project_by":null}"#,
       "state.json recording")
 check(stateJSON(recording: false, sessionID: nil, startedAt: nil, pid: 1, picking: true) ==
-      #"{"recording":false,"session_id":null,"started_at":null,"pid":1,"picking":true,"last_error":null,"events":0,"skip":null,"listening":false,"note_at":null}"#, "state.json picking")
+      #"{"recording":false,"session_id":null,"started_at":null,"pid":1,"picking":true,"last_error":null,"events":0,"skip":null,"listening":false,"note_at":null,"project":null,"project_by":null}"#, "state.json picking")
 check(stateJSON(recording: false, sessionID: nil, startedAt: nil, pid: 1, lastError: "cancelled") ==
-      #"{"recording":false,"session_id":null,"started_at":null,"pid":1,"picking":false,"last_error":"cancelled","events":0,"skip":null,"listening":false,"note_at":null}"#,
+      #"{"recording":false,"session_id":null,"started_at":null,"pid":1,"picking":false,"last_error":"cancelled","events":0,"skip":null,"listening":false,"note_at":null,"project":null,"project_by":null}"#,
       "state.json cancelled")
 
 check(ControlCommand.parse(Data(#"{"command":"start","at":1792404063000}"#.utf8)) ==
@@ -189,7 +189,7 @@ check(near(Membership.ocrRegion(PickedContent(style: .display, rect: second), wi
            CGRect(x: 0, y: 0, width: 0.5, height: 1)), "second display offset")
 
 check(stateJSON(recording: true, sessionID: "s", startedAt: nil, pid: 1, events: 3, skip: .notPicked)
-      .hasSuffix(#""events":3,"skip":"not_picked","listening":false,"note_at":null}"#), "state.json events + skip")
+      .hasSuffix(#""events":3,"skip":"not_picked","listening":false,"note_at":null,"project":null,"project_by":null}"#), "state.json events + skip")
 
 // MARK: front window choice
 
@@ -361,7 +361,7 @@ check(Config.load(from: cfgURL).voiceLocale == "en-GB", "voice_locale from confi
 try! #"{"voice_locale": ""}"#.write(to: cfgURL, atomically: true, encoding: .utf8)
 check(Config.load(from: cfgURL).voiceLocale == nil, "empty voice_locale means default")
 check(stateJSON(recording: true, sessionID: "s", startedAt: nil, pid: 1, listening: true, noteAt: 5)
-      .hasSuffix(#""listening":true,"note_at":5}"#), "state.json listening + note_at")
+      .hasSuffix(#""listening":true,"note_at":5,"project":null,"project_by":null}"#), "state.json listening + note_at")
 
 // MARK: voice notes — the indicator always resets
 
@@ -503,6 +503,62 @@ let size = ((try? FileManager.default.attributesOfItem(atPath: appLogURL.path))?
 check(size <= AppLog.maxBytes + 2000, "app.log stays small", "\(size)")
 check(VoiceOutcome.failed("speech recognition stopped (kAFAssistantErrorDomain 1101)").logSummary
       .contains("kAFAssistantErrorDomain 1101"), "failure log keeps the error code")
+
+// MARK: projects
+
+check(Projects.slug("Client Report (Q3)!") == "client-report-q3", "project slug", Projects.slug("Client Report (Q3)!"))
+check(Projects.slug("Café déjà vu") == "cafe-deja-vu", "slug folds accents", Projects.slug("Café déjà vu"))
+let pj = [
+    Project(id: "capsule", name: "Context Capsule", match: ["karya-capsule", "context capsule"]),
+    Project(id: "report", name: "Client report", match: ["acme", "docs.google.com/document/d/1abc"]),
+    Project(id: "design", name: "Design", match: ["Figma"]),
+]
+check(Projects.detect(pj, title: "main.swift — karya-capsule", location: "", app: "Xcode")?.id == "capsule", "clue in title")
+check(Projects.detect(pj, title: "Q3 numbers", location: "https://docs.google.com/document/d/1AbC/edit", app: "Chrome")?.id == "report",
+      "clue in location, case-insensitive")
+check(Projects.detect(pj, title: "Untitled", location: "", app: "Figma")?.id == "design", "clue is the app")
+check(Projects.detect(pj, title: "Inbox", location: "", app: "Mail") == nil, "no clue: no project")
+check(Projects.detect(pj, title: "acme in Figma", location: "", app: "Figma")?.id == "design", "longest clue wins a tie")
+check(Projects.detect([Project(id: "x", name: "X", match: ["a"])], title: "a", location: "", app: "") == nil, "1-letter clues ignored")
+check(ProjectChoice(pinned: "report").resolve(pj, title: "karya-capsule", location: "", app: "")! == ("report", "you"), "pinned wins")
+check(ProjectChoice(pinned: nil).resolve(pj, title: "karya-capsule", location: "", app: "")! == ("capsule", "auto"), "auto")
+check(ProjectChoice(pinned: nil).resolve(pj, title: "Inbox", location: "", app: "Mail") == nil, "auto, nothing found")
+
+check(Projects.clue(title: "x", location: "file:///Users/s/karya-capsule/SPEC.md") == "SPEC", "clue from a file name")
+check(Projects.clue(title: "x", location: "https://linear.app/karya/issue/KAR-12") == "linear.app/karya/issue", "clue from a page")
+check(Projects.clue(title: "main.swift — karya-capsule", location: "") == "karya-capsule" || Projects.clue(title: "main.swift — karya-capsule", location: "") == "main.swift",
+      "clue from the title")
+
+let pjURL = tmp.appendingPathComponent("projects.json")
+try! Projects.save(pj, to: pjURL)
+check(Projects.load(from: pjURL) == pj, "projects.json round trip")
+try! #"{"projects":[{"name":"No Id Given","match":[" a b ",""]},{"id":"x"}]}"#.write(to: pjURL, atomically: true, encoding: .utf8)
+check(Projects.load(from: pjURL) == [Project(id: "no-id-given", name: "No Id Given", match: ["a b"])], "load fills ids, drops bad entries")
+check(Projects.load(from: tmp.appendingPathComponent("none.json")).isEmpty, "no projects.json: no projects")
+
+check(Location.clean("https://x.com/a/b?token=sk-abc123&u=1#frag") == "https://x.com/a/b", "location drops query and fragment")
+check(Location.clean("  ") == "" && Location.clean(nil) == "", "empty location")
+
+var pe = Event(t: "a", end: "a", app: "Chrome", bundle: "c", title: "T", src: "ax", text: "hi")
+pe.location = "https://x.com/a"
+pe.project = "report"
+pe.projectBy = "auto"
+check(pe.line == #"{"t":"a","end":"a","app":"Chrome","bundle":"c","title":"T","where":"https://x.com/a","project":"report","project_by":"auto","src":"ax","text":"hi"}"#,
+      "event line with where + project", pe.line)
+var pv = Voice.event(text: "why", kind: Event.voice, src: "voice", start: date, end: date, app: "Figma", bundle: "f", title: "T")
+pv.project = "design"
+pv.projectBy = "you"
+check(pv.line.contains(#""kind":"voice","src":"voice","app":"Figma","bundle":"f","title":"T","project":"design","project_by":"you","text":"why"}"#),
+      "voice line with project", pv.line)
+var pe2 = pe
+pe2.project = "capsule"
+check(!pe.sameContent(as: pe2), "another project is a new event")
+
+check(ControlCommand.parse(Data(#"{"command":"project","project":"report","at":3}"#.utf8)) ==
+      ControlCommand(kind: .project, at: 3, project: "report"), "control project")
+check(ControlCommand.parse(Data(#"{"command":"project","at":3}"#.utf8)) == nil, "project without id ignored")
+check(stateJSON(recording: true, sessionID: "s", startedAt: nil, pid: 1, project: "report", projectBy: "auto")
+      .hasSuffix(#""project":"report","project_by":"auto"}"#), "state.json project")
 
 try? FileManager.default.removeItem(at: tmp)
 print("\(passes) passed, \(failures) failed")

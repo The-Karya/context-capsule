@@ -134,7 +134,7 @@ events are byte-identical) and one tray app per OS. Hotkeys **Ctrl+Alt+Shift+C**
     session.json                  {"id","started_at","ended_at"|null,"host","version":1}
     events.jsonl                  one JSON object per line, see below
   capsules/<slug>.capsule.md      saved capsules
-  config.json, control, state.json
+  projects.json, config.json, control, state.json
 ```
 
 `events.jsonl` line:
@@ -158,6 +158,51 @@ private app or a typed note). Notes are never merged with other events. Readers 
 ignore unknown fields; older files have no `src`. `text` is capped at 4000 chars per event
 (keep the start). Times are ISO-8601 UTC.
 
+### Projects (dividing a day's work)
+
+A day often spans several projects (1 h on one, 2 h on another…). Each gets its own
+capsules: a **daily** capsule per project, and one **growing** capsule per project that
+is updated each day it is worked on, plus a time summary.
+
+**`projects.json`** (in the data folder; written by the app and the MCP, editable by hand):
+
+```json
+{"projects": [
+  {"id": "context-capsule", "name": "Context Capsule", "match": ["karya-capsule", "context capsule"]},
+  {"id": "client-report", "name": "Client report", "match": ["acme q3", "docs.google.com/document/d/1AbC"]}
+]}
+```
+
+`id` is the slug of `name`. `match` are clues, matched case-insensitively as substrings
+of the front window's **title**, its **`where`** (page address or file path) and the
+**app name**. Never matched against screen text (other projects' names show up there).
+
+**Detection (recorder, every sample):**
+- **Pinned** (the user picked a project in the menu, or the MCP `set_project`): every
+  event gets that project, `"project_by":"you"`, until the user picks another or *Auto*.
+- **Auto** (default): the project whose clue is found wins (longest clue on a tie, then
+  list order) → `"project_by":"auto"`. No match → no project (Claude sorts it later).
+- When the current project changes, a short message says so ("Project: Client report").
+- Voice and typed notes get the current project too.
+
+**New event fields** (optional; omitted when empty, so older lines are unchanged):
+`"where"` — the window's page address or file path when Accessibility gives it (query
+and fragment dropped, then redacted); `"project"` (id) and `"project_by"` (`auto`/`you`).
+Key order: `t, end, [kind, src,] app, bundle, title, [where], [project, project_by], [src,] text`.
+
+**After the fact:** `sessions/<id>/assign.json` holds corrections, without rewriting
+events: `{"assign": [{"from": iso, "to": iso, "project": id}]}` (later entries win).
+Readers apply it on top of each event's own `project`.
+
+**Menu:** "Project: <name or Auto>" with *Auto-detect*, each project, and *New project
+from this window…* (name prefilled from the window, the clue added to `match`).
+`control`: `{"command":"project","project":"<id>"|"auto","at":<ms>}`. `state.json` adds
+`"project": id|null, "project_by": "auto"|"you"|null`.
+
+**Capsules:** daily `capsules/<project>-<YYYY-MM-DD>.capsule.md` (`kind: daily`, `date`),
+growing `capsules/<project>.capsule.md` (`kind: project`, `days: [...]`; updating it keeps
+the previous version in `capsules/.history/`). Capsules without `project` keep working.
+
 ### 2. mcp/ (TypeScript)
 
 `@modelcontextprotocol/sdk`, stdio transport. `bun` for dev; the built output runs
@@ -179,12 +224,26 @@ Tools:
 | `get_capsule` `{name}` | full text |
 | `import_capsule` `{path}` | copies a received `.capsule.md` into `capsules/` (validates format) |
 | `export_capsule` `{name, to_path?}` | copies to Desktop (default) or a path; returns the path, ready to email |
+| `list_projects` | projects with their clues, time spent today, and their capsules |
+| `create_project` `{name, match?}` | adds a project to `projects.json` |
+| `set_project` `{project}` | pins the recorder to a project (`"auto"` to detect again); waits for `state.json` |
+| `assign_project` `{session_id, project, from?, to?}` | records a correction in that session's `assign.json` |
+| `get_day_activity` `{date?, project?, max_chars?}` | all sessions of a local day, split by project with time per project; unassigned work listed for Claude to sort |
 
 Prompt `make_capsule` `{session_id}`: tells the AI how to write a capsule from
 `get_session_activity` — sections below, decisions must cite the moment/app they came
 from, mark guesses as guesses, never include secrets, keep it under ~1500 words. Voice
 notes are the user's own words: the primary source for decisions, reasons and intent;
 screen text is supporting evidence; quote or closely paraphrase them and cite the time.
+
+Prompt `make_day_capsules` `{date?}`: read `get_day_activity`; propose a project for
+unassigned work (and clues so it's found automatically next time), ask the user, then
+`create_project` / `assign_project`; write one daily capsule per project
+(`save_capsule` with `project`, `kind: "daily"`, `date`), then update each project's
+growing capsule (`get_capsule` → merge → `save_capsule` `kind: "project"`); end with
+the time per project.
+
+`save_capsule` gains `{project?, kind?: "daily"|"project", date?}`.
 
 Resource: each capsule as `capsule://<slug>` so Claude can read them directly.
 
@@ -198,6 +257,9 @@ author: Saachi            # from config.json "author", else OS user full name
 created: 2026-10-19T11:30:00Z
 sessions: [20261019-100103]
 apps: [Figma, Google Chrome, Linear]
+project: website            # optional
+kind: daily                 # optional: daily | project
+date: 2026-10-19            # daily capsules
 ---
 
 ## Summary

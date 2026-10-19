@@ -72,6 +72,11 @@ claude mcp add context-capsule -- node /Users/you/context-capsule/mcp/dist/index
 | `stop_recording` | asks the app to stop; returns the session id and event count, or says why nothing was recorded |
 | `recording_status` | is the app running, is the picker open, is it recording, events so far, why samples are skipped, a voice note in progress, why the last start failed |
 | `add_note` `{text}` | adds a typed note to the session being recorded (written by the app as `"kind":"note"`) |
+| `list_projects` | projects, their clues, time today, and their capsules |
+| `create_project` `{name, match?}` | adds a project (or clues to one); clues also sort past recordings |
+| `set_project` `{project}` | the recorder sticks to this project (`"auto"`: detect again) |
+| `assign_project` `{session_id, project, from?, to?}` | corrects which project a stretch of work belongs to |
+| `get_day_activity` `{date?, project?, max_chars?}` | a whole day split by project, with time per project |
 | `list_sessions` | sessions, newest first: start, end, duration, text source (Accessibility / OCR), notes, top apps |
 | `get_session_activity` `{session_id, max_chars?}` | a short timeline of a session for Claude to read (`"latest"` works) |
 | `save_capsule` `{title, markdown, session_ids?}` | saves `capsules/<slug>.capsule.md` with front matter; never overwrites |
@@ -83,6 +88,8 @@ claude mcp add context-capsule -- node /Users/you/context-capsule/mcp/dist/index
 Also:
 
 - Prompt **`make_capsule`** `{session_id}`: how to write a good capsule.
+- Prompt **`make_day_capsules`** `{date?}`: split a day by project, sort unsorted work with
+  you, write a daily capsule per project and update each project's growing capsule.
 - Resources **`capsule://<slug>`**: every capsule, so Claude can read them directly.
 
 ### The timeline

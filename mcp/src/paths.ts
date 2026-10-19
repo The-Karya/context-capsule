@@ -22,6 +22,7 @@ export const capsulesDir = () => path.join(capsuleHome(), "capsules");
 export const controlFile = () => path.join(capsuleHome(), "control");
 export const stateFile = () => path.join(capsuleHome(), "state.json");
 export const configFile = () => path.join(capsuleHome(), "config.json");
+export const projectsFile = () => path.join(capsuleHome(), "projects.json");
 
 /** Turn a leading "~" into the home dir. */
 export function expandHome(p: string): string {

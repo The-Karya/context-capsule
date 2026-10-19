@@ -57,6 +57,8 @@ describe("files", () => {
       skip: null,
       listening: false,
       note_at: null,
+      project: null,
+      project_by: null,
     });
     writeState({ recording: true, pid: process.pid, events: 4, skip: "not_picked" });
     expect(readState()).toMatchObject({ events: 4, skip: "not_picked" });

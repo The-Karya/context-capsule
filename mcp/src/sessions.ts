@@ -3,6 +3,7 @@ import fs from "node:fs";
 import path from "node:path";
 import { isSafeName, sessionsDir } from "./paths.js";
 import { readJson } from "./fsutil.js";
+import { assignedAt, detectProject, loadProjects, readAssignments } from "./projects.js";
 import { words } from "./platform.js";
 
 export interface SessionMeta {
@@ -24,6 +25,12 @@ export interface CaptureEvent {
   src?: "ax" | "ocr" | "voice" | "typed";
   /** "voice" / "note": the user's own words (spoken or typed). Missing = a screen sample. */
   kind?: "screen" | "voice" | "note";
+  /** The window's page address or file path. */
+  where?: string;
+  /** Project id, and how: "you" (picked or corrected), "auto" (recorder matched a clue),
+   * "later" (matched a clue added after recording). Missing = not sorted yet. */
+  project?: string;
+  project_by?: "you" | "auto" | "later";
 }
 
 /** Spoken or typed by the user, not read off the screen. */
@@ -43,6 +50,8 @@ export interface SessionSummary {
   sources: { ax: number; ocr: number };
   /** Voice notes and typed notes. */
   notes: number;
+  /** Time per project (id, or "" for not sorted yet), most first. */
+  projects: { project: string; ms: number }[];
 }
 
 /** Minimum time we credit to one sample (the app samples every 3 s). */
@@ -119,12 +128,49 @@ export function readEvents(id: string): CaptureEvent[] {
         text: typeof e.text === "string" ? e.text : "",
         src: e.src === "ax" || e.src === "ocr" || e.src === "voice" || e.src === "typed" ? e.src : undefined,
         ...(kind ? { kind } : {}),
+        ...(typeof e.where === "string" && e.where ? { where: e.where } : {}),
+        ...(typeof e.project === "string" && e.project ? { project: e.project } : {}),
+        ...(e.project_by === "you" || e.project_by === "auto" ? { project_by: e.project_by } : {}),
       });
     } catch {
       // skip partial or broken lines
     }
   }
-  return out.sort((a, b) => Date.parse(a.t) - Date.parse(b.t));
+  out.sort((a, b) => Date.parse(a.t) - Date.parse(b.t));
+  return resolveProjects(id, out);
+}
+
+/** Each event's project: a correction (assign.json) first, then what the recorder chose, then the
+ * current clues in projects.json (so a project made later also sorts older recordings). */
+export function resolveProjects(sessionId: string, events: CaptureEvent[]): CaptureEvent[] {
+  const fixes = readAssignments(sessionId);
+  const projects = loadProjects();
+  for (const e of events) {
+    const fixed = assignedAt(fixes, e.t);
+    if (fixed !== undefined) {
+      if (fixed) {
+        e.project = fixed;
+        e.project_by = "you";
+      } else {
+        delete e.project;
+        delete e.project_by;
+      }
+    } else if (!e.project && !(e.kind && !e.app)) {
+      const p = detectProject(projects, e.title ?? "", e.where ?? "", e.app);
+      if (p) {
+        e.project = p.id;
+        e.project_by = "later";
+      }
+    }
+  }
+  return events;
+}
+
+/** Time per project ("" = not sorted yet), most first. Notes don't count as time. */
+export function projectTimes(events: CaptureEvent[]): { project: string; ms: number }[] {
+  const by = new Map<string, number>();
+  for (const e of events) if (!isNote(e)) by.set(e.project ?? "", (by.get(e.project ?? "") ?? 0) + eventMs(e));
+  return [...by.entries()].map(([project, ms]) => ({ project, ms })).sort((a, b) => b.ms - a.ms);
 }
 
 /** How long one event covers: t..end, at least one sample. */
@@ -160,6 +206,7 @@ export function summarizeSession(id: string): SessionSummary {
       ocr: events.filter((e) => e.src === "ocr").length,
     },
     notes: events.filter(isNote).length,
+    projects: projectTimes(events),
   };
 }
 

@@ -4,7 +4,8 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { capsulesDir, configFile, expandHome, homeDir } from "./paths.js";
-import { readJson, writeUnique } from "./fsutil.js";
+import { readJson, writeFileAtomic, writeUnique } from "./fsutil.js";
+import { loadProjects } from "./projects.js";
 import { appTimes, readEvents, resolveSessionId } from "./sessions.js";
 
 export const CAPSULE_EXT = ".capsule.md";
@@ -19,7 +20,13 @@ export interface CapsuleInfo {
   author: string;
   created: string;
   path: string;
+  /** Project id, and "daily" / "project" (a growing project capsule), when set. */
+  project?: string;
+  kind?: string;
+  date?: string;
 }
+
+export type CapsuleKind = "daily" | "project";
 
 // ---------- slugs ----------
 
@@ -213,10 +220,25 @@ export interface SaveResult {
   warnings: string[];
 }
 
-export function saveCapsule(input: { title: string; markdown: string; session_ids?: string[] }): SaveResult {
+export function saveCapsule(input: {
+  title: string;
+  markdown: string;
+  session_ids?: string[];
+  project?: string;
+  kind?: CapsuleKind;
+  date?: string;
+}): SaveResult {
   const title = input.title.replace(/\s+/g, " ").trim();
   if (!title) throw new Error("Give the capsule a title.");
   const warnings: string[] = [];
+  const project = input.project?.trim() || undefined;
+  if (input.kind && !project) throw new Error(`A "${input.kind}" capsule needs a project.`);
+  if (project && !loadProjects().some((p) => p.id === project))
+    warnings.push(`"${project}" is not in projects.json yet (create_project adds it).`);
+  const kind = project ? (input.kind ?? "daily") : undefined;
+  const date = input.date?.trim() || undefined;
+  if (date && !/^\d{4}-\d{2}-\d{2}$/.test(date)) throw new Error(`"${date}" is not a date like 2026-10-19.`);
+  if (kind === "daily" && !date) throw new Error("A daily capsule needs its date (YYYY-MM-DD).");
 
   // the AI may have added its own front matter; ours wins
   let body = parseCapsule(input.markdown).body.trim();
@@ -250,9 +272,27 @@ export function saveCapsule(input: { title: string; markdown: string; session_id
     created: new Date().toISOString().replace(/\.\d{3}Z$/, "Z"),
     sessions,
     apps: [...apps].sort((a, b) => a.localeCompare(b)),
+    ...(project ? { project, kind: kind! } : {}),
+    ...(date ? { date } : {}),
   };
-  const slug = slugify(title);
-  const file = writeUnique(capsulesDir(), slug, CAPSULE_EXT, `${stringifyFrontMatter(front)}\n${body}\n`);
+  const text = `${stringifyFrontMatter(front)}\n${body}\n`;
+
+  if (kind === "project") {
+    // One growing capsule per project: replace it, keeping the previous version in .history/.
+    const file = path.join(capsulesDir(), `${project}${CAPSULE_EXT}`);
+    if (fs.existsSync(file)) {
+      const stamp = new Date().toISOString().replace(/[:.]/g, "-").replace(/-\d{3}Z$/, "Z");
+      const old = path.join(capsulesDir(), ".history", `${project}-${stamp}${CAPSULE_EXT}`);
+      fs.mkdirSync(path.dirname(old), { recursive: true });
+      fs.copyFileSync(file, old);
+      warnings.push(`Updated the project capsule; the previous version is in ${old}.`);
+    }
+    writeFileAtomic(file, text);
+    return { path: file, slug: slugOf(file), front, warnings };
+  }
+
+  const slug = kind === "daily" ? `${project}-${date}` : slugify(title);
+  const file = writeUnique(capsulesDir(), slug, CAPSULE_EXT, text);
   if (path.basename(file) !== `${slug}${CAPSULE_EXT}`)
     warnings.push(`A capsule named "${slug}" already existed, so this one was saved as ${path.basename(file)}.`);
   return { path: file, slug: slugOf(file), front, warnings };
@@ -282,6 +322,9 @@ export function listCapsules(): CapsuleInfo[] {
       author: typeof front?.author === "string" ? front.author : "",
       created: typeof front?.created === "string" ? front.created : "",
       path: file,
+      ...(typeof front?.project === "string" ? { project: front.project } : {}),
+      ...(typeof front?.kind === "string" ? { kind: front.kind } : {}),
+      ...(typeof front?.date === "string" ? { date: front.date } : {}),
     });
   }
   return out.sort((a, b) => b.created.localeCompare(a.created) || a.slug.localeCompare(b.slug));

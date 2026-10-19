@@ -15,6 +15,7 @@ struct Paths {
     var state: URL { root.appendingPathComponent("state.json") }
     /// Diagnostics: counts, durations, error codes and reasons only — never screen text or words.
     var log: URL { root.appendingPathComponent("app.log") }
+    var projects: URL { root.appendingPathComponent("projects.json") }
 
     static let standard = Paths(root: FileManager.default.homeDirectoryForCurrentUser
         .appendingPathComponent(".context-capsule", isDirectory: true))
@@ -195,6 +196,11 @@ struct Event: Equatable {
     var text: String
     /// "voice" or "note" for what the user said or typed; empty for screen samples (written without it).
     var kind: String = ""
+    /// The window's page address or file path, when known (see `Location.clean`).
+    var location: String = ""
+    /// Project id, and how it was chosen: "auto" (matched a clue) or "you" (picked by the user).
+    var project: String = ""
+    var projectBy: String = ""
 
     static let voice = "voice"
     static let note = "note"
@@ -205,18 +211,18 @@ struct Event: Equatable {
     func sameContent(as o: Event) -> Bool {
         !isNote && !o.isNote && kind == o.kind && src == o.src
             && app == o.app && bundle == o.bundle && title == o.title && text == o.text
+            && location == o.location && project == o.project && projectBy == o.projectBy
     }
 
     /// One events.jsonl line (no newline), keys in SPEC order.
+    /// Key order: t, end, [kind, src,] app, bundle, title, [where], [project, project_by], [src,] text.
     var line: String {
-        if !kind.isEmpty {
-            return jsonObject([("t", .string(t)), ("end", .string(end)), ("kind", .string(kind)), ("src", .string(src)),
-                               ("app", .string(app)), ("bundle", .string(bundle)), ("title", .string(title)),
-                               ("text", .string(text))])
-        }
-        var pairs: [(String, JSONValue)] = [("t", .string(t)), ("end", .string(end)), ("app", .string(app)),
-                                            ("bundle", .string(bundle)), ("title", .string(title))]
-        if !src.isEmpty { pairs.append(("src", .string(src))) }
+        var pairs: [(String, JSONValue)] = [("t", .string(t)), ("end", .string(end))]
+        if !kind.isEmpty { pairs += [("kind", .string(kind)), ("src", .string(src))] }
+        pairs += [("app", .string(app)), ("bundle", .string(bundle)), ("title", .string(title))]
+        if !location.isEmpty { pairs.append(("where", .string(location))) }
+        if !project.isEmpty { pairs += [("project", .string(project)), ("project_by", .string(projectBy))] }
+        if kind.isEmpty && !src.isEmpty { pairs.append(("src", .string(src))) }
         pairs.append(("text", .string(text)))
         return jsonObject(pairs)
     }
@@ -292,7 +298,7 @@ func sessionJSON(id: String, startedAt: Date, endedAt: Date?, host: String) -> S
 /// wrote something). After a stop they describe the session that just ended.
 func stateJSON(recording: Bool, sessionID: String?, startedAt: Date?, pid: Int32,
                picking: Bool = false, lastError: String? = nil, events: Int = 0, skip: Skip? = nil,
-               listening: Bool = false, noteAt: Int64? = nil) -> String {
+               listening: Bool = false, noteAt: Int64? = nil, project: String? = nil, projectBy: String? = nil) -> String {
     jsonObject([("recording", .bool(recording)),
                 ("session_id", sessionID.map { .string($0) } ?? .null),
                 ("started_at", startedAt.map { .string(Clock.iso($0)) } ?? .null),
@@ -302,15 +308,19 @@ func stateJSON(recording: Bool, sessionID: String?, startedAt: Date?, pid: Int32
                 ("events", .int(events)),
                 ("skip", skip.map { .string($0.rawValue) } ?? .null),
                 ("listening", .bool(listening)),
-                ("note_at", noteAt.map { .int(Int($0)) } ?? .null)])
+                ("note_at", noteAt.map { .int(Int($0)) } ?? .null),
+                ("project", project.map { .string($0) } ?? .null),
+                ("project_by", projectBy.map { .string($0) } ?? .null)])
 }
 
 struct ControlCommand: Equatable {
-    enum Kind: String { case start, stop, note }
+    enum Kind: String { case start, stop, note, project }
     var kind: Kind
     var at: Int64
     /// The typed note, for `note`.
     var text: String? = nil
+    /// A project id, or "auto", for `project`.
+    var project: String? = nil
 
     /// `{"command":"start"|"stop","at":<ms>}` or `{"command":"note","text":"…","at":<ms>}`;
     /// anything else (a note without text too) is ignored.
@@ -324,7 +334,12 @@ struct ControlCommand: Equatable {
             else { return nil }
             text = t
         }
-        return ControlCommand(kind: kind, at: at, text: text)
+        var project: String?
+        if kind == .project {
+            guard let p = (obj["project"] as? String)?.trimmingCharacters(in: .whitespaces), !p.isEmpty else { return nil }
+            project = p
+        }
+        return ControlCommand(kind: kind, at: at, text: text, project: project)
     }
 }
 
@@ -869,5 +884,111 @@ final class AppLog {
         defer { try? h.close() }
         _ = try? h.seekToEnd()
         try? h.write(contentsOf: Data(line.utf8))
+    }
+}
+
+// MARK: - Projects
+
+/// A project the user works on. `match` are clues found in the window title, its page address / file
+/// path, or the app name (never in screen text: other projects' names show up there).
+struct Project: Equatable {
+    var id: String
+    var name: String
+    var match: [String] = []
+}
+
+enum Projects {
+    /// "Client Report (Q3)!" → "client-report-q3"
+    static func slug(_ name: String) -> String {
+        let folded = name.folding(options: [.diacriticInsensitive, .caseInsensitive], locale: Locale(identifier: "en_US_POSIX"))
+        var out = ""
+        var dash = false
+        for c in folded.unicodeScalars {
+            if CharacterSet.alphanumerics.contains(c) && c.isASCII {
+                out.unicodeScalars.append(c)
+                dash = false
+            } else if !dash && !out.isEmpty {
+                out += "-"
+                dash = true
+            }
+        }
+        while out.hasSuffix("-") { out.removeLast() }
+        return String(out.prefix(60))
+    }
+
+    /// `{"projects":[{"id","name","match":[…]}]}`; a missing or broken file means no projects.
+    static func load(from url: URL) -> [Project] {
+        guard let data = try? Data(contentsOf: url),
+              let obj = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+              let list = obj["projects"] as? [[String: Any]] else { return [] }
+        return list.compactMap { p in
+            guard let name = (p["name"] as? String)?.trimmingCharacters(in: .whitespaces), !name.isEmpty else { return nil }
+            let id = (p["id"] as? String).flatMap { $0.isEmpty ? nil : $0 } ?? slug(name)
+            let match = (p["match"] as? [String] ?? []).map { $0.trimmingCharacters(in: .whitespaces) }.filter { !$0.isEmpty }
+            return Project(id: id, name: name, match: match)
+        }
+    }
+
+    static func save(_ projects: [Project], to url: URL) throws {
+        let list: [[String: Any]] = projects.map { ["id": $0.id, "name": $0.name, "match": $0.match] }
+        let data = try JSONSerialization.data(withJSONObject: ["projects": list], options: [.prettyPrinted, .sortedKeys])
+        try writeAtomically(String(decoding: data, as: UTF8.self) + "\n", to: url)
+    }
+
+    /// The project whose clue appears in the title, location or app name (case-insensitive). On a tie the
+    /// longest clue wins, then list order. nil: no clue found.
+    static func detect(_ projects: [Project], title: String, location: String, app: String) -> Project? {
+        let hay = [title, location, app].map { $0.lowercased() }
+        var best: (project: Project, length: Int)?
+        for p in projects {
+            for clue in p.match {
+                let c = clue.lowercased()
+                guard c.count >= 2, hay.contains(where: { $0.contains(c) }) else { continue }
+                if best == nil || c.count > best!.length { best = (p, c.count) }
+            }
+        }
+        return best?.project
+    }
+
+    /// A clue to remember a window by, when the user makes a project from it: the file or folder name
+    /// from its location, else the page's host, else the most specific part of the title.
+    static func clue(title: String, location: String) -> String? {
+        if let url = URL(string: location), let scheme = url.scheme {
+            if scheme == "file" {
+                let name = url.deletingPathExtension().lastPathComponent
+                if name.count >= 3 { return name }
+            } else if let host = url.host, !host.isEmpty {
+                let path = url.path.split(separator: "/").prefix(2).joined(separator: "/")
+                return path.isEmpty ? host : "\(host)/\(path)"
+            }
+        }
+        // "main.swift — karya-capsule" / "Pricing - Linear": the longest part that isn't the app's own name.
+        let parts = title.components(separatedBy: CharacterSet(charactersIn: "—–|·")).map {
+            $0.trimmingCharacters(in: .whitespaces)
+        }.filter { $0.count >= 3 }
+        return parts.max { $0.count < $1.count }
+    }
+}
+
+/// What the recorder is doing about projects: detect automatically, or stick to the one the user picked.
+struct ProjectChoice: Equatable {
+    /// nil: auto-detect.
+    var pinned: String?
+
+    /// The project id and how it was chosen, for one sample.
+    func resolve(_ projects: [Project], title: String, location: String, app: String) -> (id: String, by: String)? {
+        if let pinned { return (pinned, "you") }
+        return Projects.detect(projects, title: title, location: location, app: app).map { ($0.id, "auto") }
+    }
+}
+
+/// A window's page address or file path, safe to store: query and fragment dropped (they often carry
+/// tokens or private ids), then redacted like any text.
+enum Location {
+    static func clean(_ raw: String?) -> String {
+        guard let raw = raw?.trimmingCharacters(in: .whitespacesAndNewlines), !raw.isEmpty else { return "" }
+        var s = raw
+        if let cut = s.firstIndex(where: { $0 == "?" || $0 == "#" }) { s = String(s[..<cut]) }
+        return Redactor.clean(s, cap: 500)
     }
 }
