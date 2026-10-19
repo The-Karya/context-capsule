@@ -64,6 +64,16 @@ files. Build script `capture/build.sh` → `capture/build/Context Capsule.app`
     else the `CGWindowList` name when macOS gives it out (never prompted for), else empty;
   - if the app, title and text are the same as the previous sample, skip it
     (only extend the previous event's `end`).
+- **Voice notes** — `⌥⇧V` (menu *Add voice note*) starts talking, press again to stop;
+  only while recording (else a message: "Start recording first (⌥⇧C)"). The mic opens
+  only between the presses; the menu-bar icon shows a mic while listening and resets on
+  every way out (saved, empty, denied, error, 2-min limit, recording stopped).
+  `AVAudioEngine` input tap → `SFSpeechRecognizer` with `requiresOnDeviceRecognition`;
+  no on-device model for the locale → tell the user, never use Apple's servers. Locale:
+  the user's, or `"voice_locale"` in config.json. No audio on disk. Silent clips (peak
+  < 0.01, or < 0.35 s, or no words) are skipped: "Didn't catch that". Logs: counts and
+  durations only. Info.plist has `NSMicrophoneUsageDescription` and
+  `NSSpeechRecognitionUsageDescription`.
 - **Never record** (skip the sample entirely, write nothing): password managers and
   private apps — bundle ids containing `1password`, `bitwarden`, `keychain`,
   `lastpass`, `dashlane`, `signal`, `whatsapp`, plus a user list in
@@ -75,16 +85,18 @@ files. Build script `capture/build.sh` → `capture/build/Context Capsule.app`
 - Control from outside (the MCP server uses this): the app watches
   `~/.context-capsule/control` — a JSON file `{"command":"start"|"stop","at":<ms>}`.
   A start opens the picker; the user still has to pick.
+  `{"command":"note","text":"…","at":<ms>}` adds a typed note to the current session.
   It also writes `~/.context-capsule/state.json`:
   `{"recording": bool, "session_id": string|null, "started_at": iso|null, "pid": int,
-  "picking": bool, "last_error": string|null, "events": int, "skip": string|null}` —
+  "picking": bool, "last_error": string|null, "events": int, "skip": string|null, "listening": bool, "note_at": int|null}` —
   `picking` is true while the picker waits for the user; `last_error` says why the last
   start did not happen (`"cancelled"`, `"picker: …"`, `"capture: …"`) and is cleared by
   the next start. `events` = events written this session; `skip` = why the latest sample
   wrote nothing (`private_app`, `no_window`, `not_picked`, `overlay`, `private_window`,
   `waiting_frame`, `unknown_display`) or null. After a stop both describe the ended
   session. The menu shows the event count and the skip reason; a session that ends with
-  0 events shows an alert saying why.
+  0 events shows an alert saying why. `listening` is true while a voice note is open;
+  `note_at` is the `at` of the last typed note written (the MCP waits for it).
 - Permissions: none required (the picker is the consent). Accessibility is optional:
   the menu item calls `AXIsProcessTrustedWithOptions` with the prompt and shows a check
   mark once allowed. Recording never waits for it.
@@ -107,8 +119,18 @@ files. Build script `capture/build.sh` → `capture/build/Context Capsule.app`
  "bundle":"com.google.Chrome","title":"Pricing — Linear","src":"ax","text":"…screen text…"}
 ```
 
-`src` is where `text` came from: `"ax"` (Accessibility) or `"ocr"`. Readers must ignore
-unknown fields; older files have no `src`. `text` is capped at 4000 chars per event
+`src` is where `text` came from: `"ax"` (Accessibility), `"ocr"`, `"voice"` (a voice
+note) or `"typed"` (a typed note). Optional `kind`: `"screen"` (default when missing),
+`"voice"` or `"note"` — the user's own words:
+
+```json
+{"t":"2026-10-19T10:14:02Z","end":"2026-10-19T10:14:19Z","kind":"voice","src":"voice",
+ "app":"Figma","bundle":"com.figma.Desktop","title":"Pricing v2","text":"We keep annual…"}
+```
+
+`app`/`bundle`/`title` of a note are the front window when it started (empty for a
+private app or a typed note). Notes are never merged with other events. Readers must
+ignore unknown fields; older files have no `src`. `text` is capped at 4000 chars per event
 (keep the start). Times are ISO-8601 UTC.
 
 ### 2. mcp/ (TypeScript)
@@ -123,9 +145,10 @@ Tools:
 |---|---|
 | `start_recording` | writes `control` start, waits up to ~6 s for `picking` (picker open), `recording` (session id) or `last_error` (e.g. cancelled); errors clearly if the app isn't running, with how to open it |
 | `stop_recording` | writes `control` stop; returns the session id |
-| `recording_status` | reads `state.json`: running, picking, recording, events, skip, last_error |
-| `list_sessions` | id, start, end, duration, text source mix (ax / ocr), top apps |
-| `get_session_activity` `{session_id, max_chars?=60000}` | a condensed timeline for the AI: grouped by app/window, time spans, de-duplicated text (drop lines seen before, collapse whitespace), trimmed to `max_chars` keeping a fair share per segment |
+| `recording_status` | reads `state.json`: running, picking, recording, events, skip, listening, last_error |
+| `add_note` `{text}` | writes `control` note; waits for `note_at`; errors if not recording |
+| `list_sessions` | id, start, end, duration, text source mix (ax / ocr), note count, top apps |
+| `get_session_activity` `{session_id, max_chars?=60000}` | a condensed timeline for the AI: grouped by app/window, time spans, de-duplicated text (drop lines seen before, collapse whitespace), notes inline as `>> You said (HH:MM): "…"` / `>> You typed (HH:MM): "…"`, trimmed to `max_chars` — notes budgeted first and never cut before screen text, then a fair share per segment |
 | `save_capsule` `{title, markdown, session_ids?}` | validates + writes `capsules/<slug>.capsule.md` with front matter; returns path |
 | `list_capsules` | title, author, created, path |
 | `get_capsule` `{name}` | full text |
@@ -134,7 +157,9 @@ Tools:
 
 Prompt `make_capsule` `{session_id}`: tells the AI how to write a capsule from
 `get_session_activity` — sections below, decisions must cite the moment/app they came
-from, mark guesses as guesses, never include secrets, keep it under ~1500 words.
+from, mark guesses as guesses, never include secrets, keep it under ~1500 words. Voice
+notes are the user's own words: the primary source for decisions, reasons and intent;
+screen text is supporting evidence; quote or closely paraphrase them and cite the time.
 
 Resource: each capsule as `capsule://<slug>` so Claude can read them directly.
 

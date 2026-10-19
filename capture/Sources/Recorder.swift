@@ -10,6 +10,12 @@ final class Recorder {
     var onChange: (() -> Void)?
     /// A session ended with nothing written; the reason is the most common skip (main thread).
     var onEmptySession: ((Skip?) -> Void)?
+    /// Recording is about to end (any way: hotkey, MCP, macOS sharing icon): finish a voice note first.
+    var willStop: (() -> Void)?
+    /// A voice note is listening (shown in state.json).
+    var listening = false { didSet { if listening != oldValue { writeState() } } }
+    /// `at` of the last typed note from the MCP that was written.
+    private var noteAt: Int64?
 
     private(set) var sessionID: String?
     private(set) var startedAt: Date?
@@ -121,6 +127,7 @@ final class Recorder {
     }
 
     private func endSession(wait: Bool) {
+        if isRecording { willStop?() }
         capture.stop()
         guard let id = sessionID, let started = startedAt, let dir = sessionDir else { return }
         timer?.invalidate()
@@ -146,7 +153,57 @@ final class Recorder {
         try? writeAtomically(stateJSON(recording: isRecording, sessionID: sessionID, startedAt: startedAt,
                                        pid: ProcessInfo.processInfo.processIdentifier,
                                        picking: isPicking && !isRecording, lastError: lastError,
-                                       events: eventCount, skip: lastSkip), to: paths.state)
+                                       events: eventCount, skip: lastSkip, listening: listening, noteAt: noteAt),
+                             to: paths.state)
+    }
+
+    // MARK: notes (main thread)
+
+    /// The voice locale from config.json, else the user's.
+    var voiceLocale: Locale {
+        Config.load(from: paths.config).voiceLocale.map { Locale(identifier: $0) } ?? Locale.current
+    }
+
+    /// Where a voice note goes: the current session, about the front window (nothing about a private
+    /// app). nil when not recording.
+    func noteTarget() -> VoiceTarget? {
+        guard isRecording, let log else { return nil }
+        let own = Bundle.main.bundleIdentifier ?? "com.thekarya.contextcapsule"
+        let userList = config.excludeApps
+        let isExcluded: (String?, String?) -> Bool = { bundle, name in
+            bundle == own || Exclusion.isExcluded(bundle: bundle, appName: name, userList: userList)
+        }
+        var app = "", bundle = "", title = ""
+        if let front = Screen.frontWindow(isExcluded: isExcluded), !isExcluded(front.bundle, front.appName) {
+            app = front.appName
+            bundle = front.bundle ?? ""
+            title = AXReader.title(pid: front.pid) ?? front.window?.name ?? ""
+        }
+        return VoiceTarget(app: app, bundle: bundle, title: title) { [weak self] event in self?.write(event, to: log) }
+    }
+
+    /// A note typed in Claude (the MCP's `add_note`). Ignored when not recording.
+    func addTypedNote(_ text: String, at: Int64) {
+        guard isRecording, let log else { return }
+        let now = Date()
+        let event = Voice.event(text: text, kind: Event.note, src: "typed", start: now, end: now,
+                                app: "", bundle: "", title: "")
+        noteAt = at
+        write(event, to: log)
+        NSLog("Context Capsule: typed note saved: \(event.text.count) chars")
+    }
+
+    private func write(_ event: Event, to log: EventLog) {
+        work.async { [weak self] in
+            do { try log.record(event) } catch { NSLog("Context Capsule: cannot write note: \(error)") }
+            let count = log.appended
+            DispatchQueue.main.async {
+                guard let self, self.log === log else { return }
+                self.eventCount = count
+                self.writeState()
+                self.onChange?()
+            }
+        }
     }
 
     // MARK: sampling

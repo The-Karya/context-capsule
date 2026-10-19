@@ -129,3 +129,81 @@ describe("condenseActivity on a fixture session", () => {
     expect(out).toContain("No activity was captured");
   });
 });
+
+describe("voice and typed notes", () => {
+  const meta = { id: "20261019-100000", started_at: at(0), ended_at: at(12) };
+  const voice = (min: number, text: string): CaptureEvent => ({
+    t: at(min),
+    end: at(min, 20),
+    kind: "voice",
+    src: "voice",
+    app: "Figma",
+    bundle: "com.figma.Desktop",
+    title: "Pricing v2",
+    text,
+  });
+  const typed = (min: number, text: string): CaptureEvent => ({ t: at(min), end: at(min), kind: "note", src: "typed", app: "", title: "", text });
+
+  test("notes show inline, in time order, in the user's words", () => {
+    const events = [
+      ...fixtureEvents().slice(0, 3),
+      voice(4, "We drop the Starter tier\nbecause nobody   buys it"),
+      ...fixtureEvents().slice(3),
+      typed(11, "Ship the new page on Monday"),
+    ].sort((a, b) => Date.parse(a.t) - Date.parse(b.t));
+    const out = condenseActivity(meta, events);
+    const said = `>> You said (${formatClock(at(4))}): "We drop the Starter tier because nobody buys it"`;
+    const wrote = `>> You typed (${formatClock(at(11))}): "Ship the new page on Monday"`;
+    expect(out).toContain(said);
+    expect(out).toContain(wrote);
+    expect(out).toContain("1 voice note and 1 typed note");
+    // after the Figma segment at 10:03, before the Notion segment at 10:06
+    expect(out.indexOf(said)).toBeGreaterThan(out.indexOf("Hero: Simple pricing for teams"));
+    expect(out.indexOf(said)).toBeLessThan(out.indexOf("Notion Plus is $10 per seat"));
+    expect(out.indexOf(wrote)).toBeGreaterThan(out.indexOf("Yearly saves 20%"));
+  });
+
+  test("notes are not screen samples: no segment, no app time, no dedupe against screen text", () => {
+    const events = [ev(0, "Figma", "A", "Drop the Starter tier"), voice(1, "Drop the Starter tier")];
+    const segs = buildSegments(events);
+    expect(segs).toHaveLength(1);
+    const out = condenseActivity(meta, events);
+    expect(out).toContain(`>> You said (${formatClock(at(1))}): "Drop the Starter tier"`);
+    expect(out).toContain("1 segments from 1 screen samples");
+  });
+
+  test("a note splits a segment of the same window", () => {
+    const events = [ev(0, "Figma", "A", "first line here"), voice(1, "a reason"), ev(2, "Figma", "A", "second line here")];
+    expect(buildSegments(events)).toHaveLength(2);
+  });
+
+  test("notes get the budget first: screen text is cut, the words are not", () => {
+    const long = Array.from({ length: 400 }, (_, i) => `screen line number ${i} with words`).join("\n");
+    const said = "We keep annual pricing by default because seventy percent of trials pick it";
+    const events = [ev(0, "Chrome", "Docs", long), voice(5, said), ev(6, "Chrome", "Docs 2", long + " again")];
+    const out = condenseActivity(meta, events, { maxChars: 1500 });
+    expect(out.length).toBeLessThanOrEqual(1500);
+    expect(out).toContain(said);
+    expect(out).toContain("…");
+  });
+
+  test("when even the headers don't fit, segments go before notes", () => {
+    const many = Array.from({ length: 60 }, (_, i) => ev(i, `App${i}`, `Window ${i}`, `text for window ${i}`));
+    const said = "The one thing that matters is the reason for this decision";
+    const out = condenseActivity(meta, [...many, voice(61, said)], { maxChars: 700 });
+    expect(out.length).toBeLessThanOrEqual(700);
+    expect(out).toContain(said);
+    expect(out).toContain("notes kept");
+  });
+
+  test("readEvents keeps kind and the note's empty app", () => {
+    const home = tempHome();
+    writeFixtureSession(home);
+    const dir = `${home}/sessions/20261019-100000/events.jsonl`;
+    require("node:fs").appendFileSync(dir, JSON.stringify(typed(20, "typed thing")) + "\n" + JSON.stringify(voice(21, "said thing")) + "\n");
+    const evs = readEvents("20261019-100000");
+    const notes = evs.filter((e) => e.kind);
+    expect(notes.map((e) => `${e.kind}|${e.src}|${e.app}`)).toEqual(["note|typed|", "voice|voice|Figma"]);
+    expect(evs.filter((e) => !e.kind).every((e) => e.app)).toBe(true);
+  });
+});

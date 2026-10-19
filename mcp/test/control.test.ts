@@ -54,6 +54,8 @@ describe("files", () => {
       last_error: null,
       events: null,
       skip: null,
+      listening: false,
+      note_at: null,
     });
     writeState({ recording: true, pid: process.pid, events: 4, skip: "not_picked" });
     expect(readState()).toMatchObject({ events: 4, skip: "not_picked" });
@@ -160,6 +162,47 @@ describe("tools", () => {
     expect(a.text).toContain("Accessibility (3 samples) and OCR (1 sample,");
   });
 
+  test("add_note sends the note to the app and waits for it", async () => {
+    writeState({ recording: true, session_id: "20261019-120000", started_at: "2026-10-19T12:00:00Z", pid: process.pid });
+    const timer = setTimeout(() => {
+      const c = readControl() as { command: string; text: string; at: number };
+      expect(c.command).toBe("note");
+      expect(c.text).toBe("We chose Postgres because the team knows it");
+      writeState({ recording: true, session_id: "20261019-120000", pid: process.pid, note_at: c.at });
+    }, 300);
+    const r = await call("add_note", { text: "  We chose Postgres because the team knows it  " });
+    clearTimeout(timer);
+    expect(r.isError).toBe(false);
+    expect(r.text).toContain("Added the note to session 20261019-120000");
+  });
+
+  test("add_note needs a recording", async () => {
+    const off = await call("add_note", { text: "hello" });
+    expect(off.isError).toBe(true);
+    expect(off.text).toContain("isn't running");
+    writeState({ recording: false, pid: process.pid });
+    const idle = await call("add_note", { text: "hello" });
+    expect(idle.isError).toBe(true);
+    expect(idle.text).toContain("Not recording right now");
+    expect(fs.existsSync(path.join(home, "control"))).toBe(false);
+  });
+
+  test("recording_status shows a voice note in progress", async () => {
+    writeState({ recording: true, session_id: "s", started_at: new Date().toISOString(), pid: process.pid, listening: true });
+    expect((await call("recording_status")).text).toContain("Voice note: listening");
+  });
+
+  test("list_sessions counts notes, and they are not screen samples", async () => {
+    writeSession(home, "20261019-090000", [
+      { ...ev(0, "Figma", "A", "alpha line here"), src: "ax" },
+      { ...ev(1, "Figma", "A", "We keep three tiers"), kind: "voice", src: "voice" },
+      { ...ev(2, "", "", "typed context"), kind: "note", src: "typed" },
+    ]);
+    const line = (await call("list_sessions")).text.split("\n").find((l) => l.includes("20261019-090000"))!;
+    expect(line).toContain("1 samples");
+    expect(line).toContain("2 notes");
+  });
+
   test("unknown session gives a friendly error", async () => {
     writeFixtureSession(home, "20261019-100000");
     const r = await call("get_session_activity", { session_id: "20200101-000000" });
@@ -175,6 +218,7 @@ describe("tools", () => {
     expect(msg.text).toContain("get_session_activity");
     expect(msg.text).toContain("## Decisions");
     expect(msg.text).toContain("1500 words");
+    expect(msg.text).toContain("Voice notes are the user's own words: the primary source for decisions, reasons and intent");
 
     await call("save_capsule", { title: "Res test", markdown: "## Summary\nhi" });
     const list = await client.listResources();

@@ -16,6 +16,10 @@ export interface RecorderState {
   events: number | null;
   /** Why the latest sample wrote nothing (e.g. "not_picked"); null if it wrote. */
   skip: string | null;
+  /** A voice note is being spoken right now. */
+  listening: boolean;
+  /** `at` of the last typed note the app wrote (confirms add_note). */
+  note_at: number | null;
 }
 
 const SKIP_REASONS: Record<string, string> = {
@@ -33,7 +37,7 @@ export function describeSkip(skip: string): string {
   return SKIP_REASONS[skip] ?? skip;
 }
 
-export type Command = "start" | "stop";
+export type Command = "start" | "stop" | "note";
 
 export const APP_NOT_RUNNING =
   "The Context Capsule app is not running, so recording can't start yet.\n" +
@@ -65,6 +69,8 @@ export function readState(): RecorderState | null {
     last_error: typeof s.last_error === "string" && s.last_error ? s.last_error : null,
     events: typeof s.events === "number" && Number.isInteger(s.events) ? s.events : null,
     skip: typeof s.skip === "string" && s.skip ? s.skip : null,
+    listening: s.listening === true,
+    note_at: typeof s.note_at === "number" ? s.note_at : null,
   };
 }
 
@@ -83,9 +89,10 @@ export function appRunning(state: RecorderState | null = readState()): boolean {
   return !!state && pidAlive(state.pid);
 }
 
-export function writeControl(command: Command, at = Date.now()): string {
+/** `text` is only for "note": a typed note for the current session. */
+export function writeControl(command: Command, at = Date.now(), text?: string): string {
   const file = controlFile();
-  writeFileAtomic(file, JSON.stringify({ command, at }) + "\n");
+  writeFileAtomic(file, JSON.stringify(text === undefined ? { command, at } : { command, text, at }) + "\n");
   return file;
 }
 

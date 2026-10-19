@@ -41,6 +41,7 @@ describe("built server over stdio (node)", () => {
     const { tools } = await client.listTools();
     expect(tools.map((t) => t.name).sort()).toEqual(
       [
+        "add_note",
         "export_capsule",
         "get_capsule",
         "get_session_activity",

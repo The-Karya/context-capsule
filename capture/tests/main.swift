@@ -133,14 +133,14 @@ check(sj == #"{"id":"20261019-100103","started_at":"2026-10-19T10:01:03Z","ended
 let sj2 = sessionJSON(id: "x", startedAt: date, endedAt: date.addingTimeInterval(60), host: "Mac")
 check(sj2.contains(#""ended_at":"2026-10-19T10:02:03Z""#), "session.json ended_at", sj2)
 check(stateJSON(recording: false, sessionID: nil, startedAt: nil, pid: 42) ==
-      #"{"recording":false,"session_id":null,"started_at":null,"pid":42,"picking":false,"last_error":null,"events":0,"skip":null}"#, "state.json idle")
+      #"{"recording":false,"session_id":null,"started_at":null,"pid":42,"picking":false,"last_error":null,"events":0,"skip":null,"listening":false,"note_at":null}"#, "state.json idle")
 check(stateJSON(recording: true, sessionID: "20261019-100103", startedAt: date, pid: 7) ==
-      #"{"recording":true,"session_id":"20261019-100103","started_at":"2026-10-19T10:01:03Z","pid":7,"picking":false,"last_error":null,"events":0,"skip":null}"#,
+      #"{"recording":true,"session_id":"20261019-100103","started_at":"2026-10-19T10:01:03Z","pid":7,"picking":false,"last_error":null,"events":0,"skip":null,"listening":false,"note_at":null}"#,
       "state.json recording")
 check(stateJSON(recording: false, sessionID: nil, startedAt: nil, pid: 1, picking: true) ==
-      #"{"recording":false,"session_id":null,"started_at":null,"pid":1,"picking":true,"last_error":null,"events":0,"skip":null}"#, "state.json picking")
+      #"{"recording":false,"session_id":null,"started_at":null,"pid":1,"picking":true,"last_error":null,"events":0,"skip":null,"listening":false,"note_at":null}"#, "state.json picking")
 check(stateJSON(recording: false, sessionID: nil, startedAt: nil, pid: 1, lastError: "cancelled") ==
-      #"{"recording":false,"session_id":null,"started_at":null,"pid":1,"picking":false,"last_error":"cancelled","events":0,"skip":null}"#,
+      #"{"recording":false,"session_id":null,"started_at":null,"pid":1,"picking":false,"last_error":"cancelled","events":0,"skip":null,"listening":false,"note_at":null}"#,
       "state.json cancelled")
 
 check(ControlCommand.parse(Data(#"{"command":"start","at":1792404063000}"#.utf8)) ==
@@ -189,7 +189,7 @@ check(near(Membership.ocrRegion(PickedContent(style: .display, rect: second), wi
            CGRect(x: 0, y: 0, width: 0.5, height: 1)), "second display offset")
 
 check(stateJSON(recording: true, sessionID: "s", startedAt: nil, pid: 1, events: 3, skip: .notPicked)
-      .hasSuffix(#""events":3,"skip":"not_picked"}"#), "state.json events + skip")
+      .hasSuffix(#""events":3,"skip":"not_picked","listening":false,"note_at":null}"#), "state.json events + skip")
 
 // MARK: front window choice
 
@@ -315,6 +315,177 @@ check(AXText.choose(trusted: true, axText: "File Edit View") == .ocr, "too littl
 check(AXText.choose(trusted: true, axText: String(repeating: "- ", count: 200)) == .ocr, "punctuation does not count")
 check(AXText.choose(trusted: true, axText: String(repeating: "a", count: 80)) == .ax, "80 letters is enough")
 check(AXText.choose(trusted: true, axText: String(repeating: "a", count: 79)) == .ocr, "79 is not")
+
+// MARK: voice notes — silence
+
+check(Voice.peak([0, -0.5, 0.25]) == 0.5, "peak is the loudest absolute sample")
+check(Voice.peak([]) == 0, "empty clip peak 0")
+let words = VoiceClip(text: "We keep three tiers", peak: 0.2, seconds: 3)
+check(!Voice.isEmpty(words), "real speech is kept")
+check(Voice.isEmpty(VoiceClip(text: "", peak: 0.2, seconds: 3)), "no words: empty")
+check(Voice.isEmpty(VoiceClip(text: "  \n", peak: 0.2, seconds: 3)), "blank words: empty")
+check(Voice.isEmpty(VoiceClip(text: "hi", peak: 0.0003, seconds: 3)), "dead mic noise floor: silent")
+check(Voice.isEmpty(VoiceClip(text: "hi", peak: 0, seconds: 3)), "digital zeros: silent")
+check(!Voice.isEmpty(VoiceClip(text: "hi", peak: 0.03, seconds: 3)), "quiet speech is not silent")
+check(Voice.isEmpty(VoiceClip(text: "hi", peak: 0.5, seconds: 0.2)), "double press is too short")
+
+// MARK: voice notes — event line
+
+let vStart = Date(timeIntervalSince1970: 1_792_404_063)
+let vEvent = Voice.event(text: "  Use annual pricing\npassword: hunter2  ", kind: Event.voice, src: "voice", start: vStart,
+                         end: vStart.addingTimeInterval(9), app: "Figma", bundle: "com.figma.Desktop", title: "Pricing v2")
+check(vEvent.line == #"{"t":"2026-10-19T10:01:03Z","end":"2026-10-19T10:01:12Z","kind":"voice","src":"voice","app":"Figma","bundle":"com.figma.Desktop","title":"Pricing v2","text":"Use annual pricing\n[redacted]"}"#,
+      "voice event line: kind + src, trimmed, redacted", vEvent.line)
+let longVoice = Voice.event(text: String(repeating: "word ", count: 2000), kind: Event.voice, src: "voice",
+                            start: vStart, end: vStart, app: "", bundle: "", title: "")
+check(longVoice.text.count == 4000, "voice text capped at 4000")
+let noteLine = Voice.event(text: "typed context", kind: Event.note, src: "typed", start: vStart, end: vStart,
+                           app: "", bundle: "", title: "").line
+check(noteLine.contains(#""kind":"note","src":"typed""#), "typed note line", noteLine)
+
+let vLogURL = tmp.appendingPathComponent("v/events.jsonl")
+let vLog = try! EventLog(url: vLogURL)
+let screen = ev("2026-10-19T10:01:03Z", "same screen")
+check(try! vLog.record(screen) == .appended, "screen sample")
+check(try! vLog.record(vEvent) == .appended, "voice note never extends a screen event")
+check(try! vLog.record(vEvent) == .appended, "two identical voice notes stay two")
+check(try! vLog.record(ev("2026-10-19T10:01:20Z", "same screen")) == .appended, "screen after a note starts a new event")
+check(vLog.appended == 4, "four lines written")
+
+check(ControlCommand.parse(Data(#"{"command":"note","text":" decided X ","at":9}"#.utf8)) ==
+      ControlCommand(kind: .note, at: 9, text: "decided X"), "control note")
+check(ControlCommand.parse(Data(#"{"command":"note","text":"  ","at":9}"#.utf8)) == nil, "empty note ignored")
+check(ControlCommand.parse(Data(#"{"command":"note","at":9}"#.utf8)) == nil, "note without text ignored")
+try! #"{"voice_locale": " en-GB "}"#.write(to: cfgURL, atomically: true, encoding: .utf8)
+check(Config.load(from: cfgURL).voiceLocale == "en-GB", "voice_locale from config")
+try! #"{"voice_locale": ""}"#.write(to: cfgURL, atomically: true, encoding: .utf8)
+check(Config.load(from: cfgURL).voiceLocale == nil, "empty voice_locale means default")
+check(stateJSON(recording: true, sessionID: "s", startedAt: nil, pid: 1, listening: true, noteAt: 5)
+      .hasSuffix(#""listening":true,"note_at":5}"#), "state.json listening + note_at")
+
+// MARK: voice notes — the indicator always resets
+
+final class FakeEngine: VoiceEngine {
+    enum Ready { case ok, problem(VoiceOutcome) }
+    var ready: Ready = .ok
+    var startError: Error?
+    var result: Result<VoiceClip, Error>? = .success(VoiceClip(text: "We keep three tiers", peak: 0.2, seconds: 4))
+    var holdFinish = false
+    var pendingFinish: ((Result<VoiceClip, Error>) -> Void)?
+    var micOpen = false
+    var cancels = 0
+    var deviceName: String? = "MacBook Air Microphone"
+    func prepare(locale: Locale, _ done: @escaping (VoiceOutcome?) -> Void) {
+        if case .problem(let p) = ready { done(p) } else { done(nil) }
+    }
+    func start() throws {
+        if let startError { throw startError }
+        micOpen = true
+    }
+    func finish(_ done: @escaping (Result<VoiceClip, Error>) -> Void) {
+        micOpen = false
+        if holdFinish { pendingFinish = done } else if let result { done(result) }
+    }
+    func cancel() { micOpen = false; cancels += 1 }
+}
+struct Boom: LocalizedError { var errorDescription: String? { "mic unplugged" } }
+
+final class VoiceRig {
+    let engine = FakeEngine()
+    let notes: VoiceNotes
+    var indicator: [Bool] = []
+    var outcomes: [VoiceOutcome] = []
+    var written: [Event] = []
+    var timers: [() -> Void] = []
+    init() {
+        notes = VoiceNotes(engine: engine)
+        notes.hop = { $0() }
+        notes.onIndicator = { [unowned self] in self.indicator.append($0) }
+        notes.onOutcome = { [unowned self] in self.outcomes.append($0) }
+        notes.schedule = { [unowned self] _, block in self.timers.append(block); return {} }
+    }
+    var target: VoiceTarget {
+        VoiceTarget(app: "Figma", bundle: "com.figma.Desktop", title: "Pricing") { [unowned self] in self.written.append($0) }
+    }
+    func press(recording: Bool = true) { notes.toggle(locale: Locale(identifier: "en-US"), target: recording ? target : nil) }
+    /// Ended idle, with the mic shut and the last indicator call "off".
+    var resetOK: Bool { notes.phase == .idle && !engine.micOpen && indicator.last == false }
+}
+
+do {
+    let r = VoiceRig()
+    r.press()
+    check(r.notes.phase == .listening && r.indicator == [true] && r.engine.micOpen, "first press opens the mic, mic shown")
+    r.press()
+    check(r.resetOK && r.outcomes == [.saved(chars: 19, seconds: 4)], "second press saves", "\(r.outcomes)")
+    check(r.written.count == 1 && r.written[0].kind == "voice" && r.written[0].app == "Figma", "note written with context")
+}
+do {
+    let r = VoiceRig()
+    r.engine.result = .success(VoiceClip(text: "", peak: 0.001, seconds: 3))
+    r.press(); r.press()
+    check(r.resetOK && r.outcomes == [.silent(device: "MacBook Air Microphone")] && r.written.isEmpty, "silent clip: reset, nothing written")
+    check(r.outcomes[0].message.contains("Didn't catch that") && r.outcomes[0].message.contains("MacBook Air Microphone"),
+          "silent message names the mic")
+}
+do {
+    let r = VoiceRig()
+    r.engine.ready = .problem(.denied(.microphone))
+    r.press()
+    check(r.resetOK && r.outcomes == [.denied(.microphone)] && !r.indicator.contains(true), "mic denied: never shown, reset")
+    check(r.outcomes[0].message.contains("System Settings"), "denied says where to fix it")
+}
+do {
+    let r = VoiceRig()
+    r.engine.ready = .problem(.unavailable(locale: "ta-IN"))
+    r.press()
+    check(r.resetOK && r.outcomes == [.unavailable(locale: "ta-IN")], "no on-device model: reset")
+    check(r.outcomes[0].message.contains("nothing is sent to Apple"), "unavailable says nothing is sent")
+}
+do {
+    let r = VoiceRig()
+    r.engine.startError = Boom()
+    r.press()
+    check(r.resetOK && r.outcomes == [.failed("mic unplugged")] && r.engine.cancels == 1, "mic start error: reset")
+}
+do {
+    let r = VoiceRig()
+    r.engine.result = .failure(Boom())
+    r.press(); r.press()
+    check(r.resetOK && r.outcomes == [.failed("mic unplugged")], "recognizer error: reset")
+}
+do {
+    let r = VoiceRig()
+    r.press()
+    check(r.timers.count == 1, "2-minute timeout armed")
+    r.timers[0]()
+    check(r.resetOK && r.outcomes.count == 1 && r.written.count == 1, "timeout closes the mic and saves")
+    r.timers[0]()
+    check(r.outcomes.count == 1, "a stale timeout does nothing")
+}
+do {
+    let r = VoiceRig()
+    r.press(recording: false)
+    check(r.resetOK || r.indicator.isEmpty, "not recording: mic never opens")
+    check(r.outcomes == [.notRecording] && r.outcomes[0].message == "Start recording first (⌥⇧C)", "not recording message")
+    check(r.notes.phase == .idle && !r.engine.micOpen, "not recording: idle")
+}
+do {
+    let r = VoiceRig()
+    r.press()
+    r.notes.recordingWillStop()
+    check(r.resetOK && r.written.count == 1, "recording stops mid-note: the note is finished and saved")
+}
+do {
+    let r = VoiceRig()
+    r.engine.holdFinish = true
+    r.press(); r.press()
+    check(r.notes.phase == .finishing && r.indicator.last == false && !r.engine.micOpen, "finishing: mic already off")
+    r.press()
+    check(r.notes.phase == .finishing, "press while finishing is ignored")
+    r.engine.pendingFinish?(.success(VoiceClip(text: "late words", peak: 0.3, seconds: 2)))
+    check(r.resetOK && r.written.count == 1, "late transcript still saved, then reset")
+}
 
 try? FileManager.default.removeItem(at: tmp)
 print("\(passes) passed, \(failures) failed")

@@ -1,4 +1,4 @@
-// context-capsule — capture: the menu-bar app — status icon, menu, ⌥⇧C hotkey, optional Accessibility.
+// context-capsule — capture: the menu-bar app — status icon, menu, ⌥⇧C / ⌥⇧V hotkeys, voice notes, optional Accessibility.
 
 import AppKit
 import Carbon.HIToolbox
@@ -10,9 +10,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     private let infoItem = NSMenuItem(title: "", action: nil, keyEquivalent: "")
     private let skipItem = NSMenuItem(title: "", action: nil, keyEquivalent: "")
     private let toggleItem = NSMenuItem(title: "", action: #selector(toggle), keyEquivalent: "c")
+    private let voiceItem = NSMenuItem(title: "Add voice note", action: #selector(toggleVoice), keyEquivalent: "v")
     private let axItem = NSMenuItem(title: "Read text directly (Accessibility)…", action: #selector(askAccessibility),
                                     keyEquivalent: "")
     private var hotKey: HotKey?
+    private var voiceKey: HotKey?
+    private lazy var voice = VoiceNotes(engine: SpeechEngine())
+    private let toast = Toast()
     private var control: ControlWatcher?
     private var askedAccessibility = false
     private var trustPoll: Timer?
@@ -25,10 +29,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         infoItem.isEnabled = false
         skipItem.isEnabled = false
         toggleItem.keyEquivalentModifierMask = [.option, .shift]
+        voiceItem.keyEquivalentModifierMask = [.option, .shift]
         menu.addItem(infoItem)
         menu.addItem(skipItem)
         menu.addItem(.separator())
         menu.addItem(toggleItem)
+        menu.addItem(voiceItem)
         menu.addItem(axItem)
         menu.addItem(NSMenuItem(title: "Open sessions folder", action: #selector(openSessions), keyEquivalent: ""))
         menu.addItem(.separator())
@@ -41,14 +47,30 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
 
         recorder.onChange = { [weak self] in self?.refresh() }
         recorder.onEmptySession = { [weak self] in self?.warnEmpty($0) }
+        recorder.willStop = { [weak self] in self?.voice.recordingWillStop() }
+        voice.onIndicator = { [weak self] on in
+            self?.recorder.listening = on
+            self?.refresh()
+        }
+        voice.onOutcome = { [weak self] outcome in
+            guard let self else { return }
+            self.refresh()
+            self.toast.show(outcome.message, under: self.statusItem.button, seconds: {
+                if case .saved = outcome { return 2 }
+                return 6
+            }())
+        }
 
-        hotKey = HotKey(keyCode: kVK_ANSI_C, modifiers: optionKey | shiftKey) { [weak self] in self?.toggle() }
+        hotKey = HotKey(keyCode: kVK_ANSI_C, modifiers: optionKey | shiftKey, id: 1) { [weak self] in self?.toggle() }
         if hotKey == nil { NSLog("Context Capsule: ⌥⇧C is taken by another app; use the menu instead") }
+        voiceKey = HotKey(keyCode: kVK_ANSI_V, modifiers: optionKey | shiftKey, id: 2) { [weak self] in self?.toggleVoice() }
+        if voiceKey == nil { NSLog("Context Capsule: ⌥⇧V is taken by another app; use the menu instead") }
 
         control = ControlWatcher(url: paths.control) { [weak self] cmd in
             switch cmd.kind {
             case .start: self?.recorder.start()
             case .stop: self?.recorder.stop()
+            case .note: if let text = cmd.text { self?.recorder.addTypedNote(text, at: cmd.at) }
             }
         }
 
@@ -65,11 +87,15 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
 
     private func refresh() {
         let recording = recorder.isRecording
-        let symbol = recording ? "circle.fill" : "circle"
-        let image = NSImage(systemSymbolName: symbol, accessibilityDescription: recording ? "Context Capsule: recording" : "Context Capsule")
+        let listening = recorder.listening
+        let symbol = listening ? "mic.fill" : recording ? "circle.fill" : "circle"
+        let label = listening ? "Context Capsule: listening" : recording ? "Context Capsule: recording" : "Context Capsule"
+        let image = NSImage(systemSymbolName: symbol, accessibilityDescription: label)
         image?.isTemplate = true
         statusItem.button?.image = image
-        statusItem.button?.toolTip = recording ? "Context Capsule is recording (⌥⇧C to stop)" : "Context Capsule (⌥⇧C to record)"
+        statusItem.button?.toolTip = listening ? "Listening — press ⌥⇧V to finish the voice note"
+            : recording ? "Context Capsule is recording (⌥⇧C to stop, ⌥⇧V for a voice note)" : "Context Capsule (⌥⇧C to record)"
+        voiceItem.title = listening ? "Finish voice note" : "Add voice note"
 
         if let id = recorder.sessionID, let started = recorder.startedAt {
             let time = DateFormatter.localizedString(from: started, dateStyle: .none, timeStyle: .short)
@@ -87,6 +113,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     }
 
     @objc private func toggle() { recorder.toggle() }
+
+    /// ⌥⇧V: start talking, press again to stop. Only while recording.
+    @objc private func toggleVoice() { voice.toggle(locale: recorder.voiceLocale, target: recorder.noteTarget()) }
 
     @objc private func openSessions() {
         try? FileManager.default.createDirectory(at: paths.sessions, withIntermediateDirectories: true)
@@ -142,25 +171,88 @@ final class HotKey {
     private var handlerRef: EventHandlerRef?
     private let action: () -> Void
 
-    init?(keyCode: Int, modifiers: Int, action: @escaping () -> Void) {
+    private let id: UInt32
+
+    init?(keyCode: Int, modifiers: Int, id: UInt32, action: @escaping () -> Void) {
         self.action = action
+        self.id = id
         var spec = EventTypeSpec(eventClass: OSType(kEventClassKeyboard), eventKind: UInt32(kEventHotKeyPressed))
         let me = Unmanaged.passUnretained(self).toOpaque()
-        let installed = InstallEventHandler(GetApplicationEventTarget(), { _, _, userData in
-            guard let userData else { return OSStatus(eventNotHandledErr) }
+        let installed = InstallEventHandler(GetApplicationEventTarget(), { _, event, userData in
+            guard let userData, let event else { return OSStatus(eventNotHandledErr) }
             let hotKey = Unmanaged<HotKey>.fromOpaque(userData).takeUnretainedValue()
+            var pressed = EventHotKeyID()
+            let got = GetEventParameter(event, EventParamName(kEventParamDirectObject), EventParamType(typeEventHotKeyID),
+                                        nil, MemoryLayout<EventHotKeyID>.size, nil, &pressed)
+            // Every hotkey's handler sees every press: act only on our own.
+            guard got == noErr, pressed.id == hotKey.id else { return OSStatus(eventNotHandledErr) }
             DispatchQueue.main.async { hotKey.action() }
             return noErr
         }, 1, &spec, me, &handlerRef)
         guard installed == noErr else { return nil }
 
-        let id = EventHotKeyID(signature: OSType(0x4B43_4150), id: 1) // 'KCAP'
-        guard RegisterEventHotKey(UInt32(keyCode), UInt32(modifiers), id, GetApplicationEventTarget(), 0, &hotKeyRef) == noErr
+        let hotKeyID = EventHotKeyID(signature: OSType(0x4B43_4150), id: id) // 'KCAP'
+        guard RegisterEventHotKey(UInt32(keyCode), UInt32(modifiers), hotKeyID, GetApplicationEventTarget(), 0, &hotKeyRef) == noErr
         else { return nil }
     }
 
     deinit {
         if let hotKeyRef { UnregisterEventHotKey(hotKeyRef) }
         if let handlerRef { RemoveEventHandler(handlerRef) }
+    }
+}
+
+/// A small message under the menu-bar icon that fades by itself ("Voice note saved",
+/// "Start recording first (⌥⇧C)"). Needs no notification permission.
+final class Toast {
+    private var panel: NSPanel?
+    private var hide: DispatchWorkItem?
+
+    func show(_ text: String, under button: NSStatusBarButton?, seconds: TimeInterval) {
+        hide?.cancel()
+        panel?.orderOut(nil)
+
+        let label = NSTextField(wrappingLabelWithString: text)
+        label.font = .systemFont(ofSize: 13)
+        label.textColor = .labelColor
+        label.preferredMaxLayoutWidth = 300
+        let size = label.fittingSize
+        let pad: CGFloat = 12
+        let frame = NSRect(x: 0, y: 0, width: size.width + pad * 2, height: size.height + pad * 2)
+
+        let panel = NSPanel(contentRect: frame, styleMask: [.borderless, .nonactivatingPanel], backing: .buffered, defer: false)
+        panel.level = .statusBar
+        panel.isOpaque = false
+        panel.backgroundColor = .clear
+        panel.hasShadow = true
+        panel.ignoresMouseEvents = true
+        panel.collectionBehavior = [.canJoinAllSpaces, .transient]
+        let box = NSVisualEffectView(frame: frame)
+        box.material = .hudWindow
+        box.state = .active
+        box.wantsLayer = true
+        box.layer?.cornerRadius = 10
+        label.frame = NSRect(x: pad, y: pad, width: size.width, height: size.height)
+        box.addSubview(label)
+        panel.contentView = box
+
+        // Under the status item, kept on screen.
+        var origin = NSPoint(x: 100, y: 100)
+        if let button, let window = button.window, let screen = window.screen {
+            let icon = window.convertToScreen(button.convert(button.bounds, to: nil))
+            origin = NSPoint(x: min(max(icon.midX - frame.width / 2, screen.visibleFrame.minX + 8),
+                                    screen.visibleFrame.maxX - frame.width - 8),
+                             y: icon.minY - frame.height - 6)
+        }
+        panel.setFrameOrigin(origin)
+        panel.orderFrontRegardless()
+        self.panel = panel
+
+        let item = DispatchWorkItem { [weak self, weak panel] in
+            panel?.orderOut(nil)
+            if self?.panel === panel { self?.panel = nil }
+        }
+        hide = item
+        DispatchQueue.main.asyncAfter(deadline: .now() + seconds, execute: item)
     }
 }

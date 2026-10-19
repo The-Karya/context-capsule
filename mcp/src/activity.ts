@@ -7,6 +7,7 @@ import {
   formatClock,
   formatDuration,
   formatLocalDateTime,
+  isNote,
 } from "./sessions.js";
 
 export interface Segment {
@@ -48,12 +49,21 @@ export function isNoiseLine(line: string): boolean {
   return false;
 }
 
-/** Group consecutive events with the same app + window title. */
-export function groupSegments(events: CaptureEvent[]): (Segment & { raw: string[][] })[] {
-  const segs: (Segment & { raw: string[][] })[] = [];
-  for (const e of events) {
+type RawSegment = Segment & { raw: string[][]; idx: number };
+
+/** Group consecutive screen events with the same app + window title. A voice or typed note
+ * ends the run (it sits between segments in the timeline) and is not part of any segment. */
+export function groupSegments(events: CaptureEvent[]): RawSegment[] {
+  const segs: RawSegment[] = [];
+  let broken = false;
+  events.forEach((e, idx) => {
+    if (isNote(e)) {
+      broken = true;
+      return;
+    }
     const title = collapse(e.title ?? "");
-    const last = segs[segs.length - 1];
+    const last = broken ? undefined : segs[segs.length - 1];
+    broken = false;
     const lines = (e.text ?? "").split(/\r?\n/).map(collapse).filter(Boolean);
     const end = e.end ?? e.t;
     if (last && last.app === e.app && last.title === title) {
@@ -62,9 +72,9 @@ export function groupSegments(events: CaptureEvent[]): (Segment & { raw: string[
       last.events += 1;
       last.raw.push(lines);
     } else {
-      segs.push({ app: e.app, title, start: e.t, end, ms: eventMs(e), events: 1, lines: [], raw: [lines] });
+      segs.push({ app: e.app, title, start: e.t, end, ms: eventMs(e), events: 1, lines: [], raw: [lines], idx });
     }
-  }
+  });
   return segs;
 }
 
@@ -87,6 +97,10 @@ export function findChrome(segs: { raw: string[][] }[]): Set<string> {
 
 /** Group, drop noise and chrome, and keep each text line only the first time it shows up. */
 export function buildSegments(events: CaptureEvent[]): Segment[] {
+  return buildRaw(events).map(({ raw: _raw, idx: _idx, ...s }) => s);
+}
+
+function buildRaw(events: CaptureEvent[]): RawSegment[] {
   const segs = groupSegments(events);
   const chrome = findChrome(segs);
   const seen = new Set<string>();
@@ -102,7 +116,13 @@ export function buildSegments(events: CaptureEvent[]): Segment[] {
       }
     }
   }
-  return segs.map(({ raw: _raw, ...s }) => s);
+  return segs;
+}
+
+/** `>> You said (10:14): "…"` — the user's own words, on one line. */
+export function noteLine(e: CaptureEvent): string {
+  const who = e.kind === "voice" ? "You said" : "You typed";
+  return `>> ${who} (${formatClock(e.t)}): "${collapse(e.text ?? "")}"`;
 }
 
 /**
@@ -143,10 +163,13 @@ export interface ActivityOptions {
   maxChars?: number;
 }
 
-/** The full condensed timeline for one session, never longer than maxChars. */
+/** The full condensed timeline for one session, never longer than maxChars. Voice and typed
+ * notes are the user's own words: they get their budget first and are never cut before screen text. */
 export function condenseActivity(meta: SessionMeta, events: CaptureEvent[], opts: ActivityOptions = {}): string {
   const maxChars = Math.max(200, Math.floor(opts.maxChars ?? DEFAULT_MAX_CHARS));
-  const segs = buildSegments(events);
+  const segs = buildRaw(events);
+  const screen = events.filter((e) => !isNote(e));
+  const notes = events.map((e, idx) => ({ e, idx })).filter(({ e }) => isNote(e) && collapse(e.text ?? ""));
 
   const startIso = meta.started_at ?? events[0]?.t ?? null;
   const lastEvent = events[events.length - 1];
@@ -162,52 +185,82 @@ export function condenseActivity(meta: SessionMeta, events: CaptureEvent[], opts
     .map((a) => `${a.app} ${formatDuration(a.ms)}`)
     .join(", ");
 
-  const ax = events.filter((e) => e.src === "ax").length;
-  const ocr = events.filter((e) => e.src === "ocr").length;
+  const ax = screen.filter((e) => e.src === "ax").length;
+  const ocr = screen.filter((e) => e.src === "ocr").length;
   const source =
     ax && ocr
       ? `Text is from Accessibility (${ax} ${ax === 1 ? "sample" : "samples"}) and OCR (${ocr} ${ocr === 1 ? "sample" : "samples"}, may be noisy)`
       : ax
         ? "Text is from Accessibility"
         : "Text is OCR";
+  const voice = notes.filter(({ e }) => e.kind === "voice").length;
+  const typed = notes.length - voice;
+  const noteHead = notes.length
+    ? `\n${[voice && `${voice} voice ${voice === 1 ? "note" : "notes"}`, typed && `${typed} typed ${typed === 1 ? "note" : "notes"}`]
+        .filter(Boolean)
+        .join(" and ")} (lines starting with ">>"): the user's own words about what they did and why.`
+    : "";
   const head = [
     `# Session ${meta.id}${meta.ended_at ? "" : " (still recording or not closed)"}`,
     `Time: ${span}, local time`,
     `Apps: ${apps || "none"}`,
-    `${segs.length} segments from ${events.length} screen samples. ${source}: repeated lines, menus and numbers-only lines are removed; each line appears once, where it was first seen.`,
+    `${segs.length} segments from ${screen.length} screen samples. ${source}: repeated lines, menus and numbers-only lines are removed; each line appears once, where it was first seen.${noteHead}`,
   ].join("\n");
 
-  if (!segs.length) return trimTo(`${head}\n\n(No activity was captured in this session.)`, maxChars);
+  if (!segs.length && !notes.length) return trimTo(`${head}\n\n(No activity was captured in this session.)`, maxChars);
+
+  // Timeline order: segments and notes by where they sit in events.jsonl.
+  type Item = { kind: "seg"; i: number; idx: number } | { kind: "note"; line: string; idx: number };
+  const items: Item[] = [
+    ...segs.map((s, i) => ({ kind: "seg" as const, i, idx: s.idx })),
+    ...notes.map(({ e, idx }) => ({ kind: "note" as const, line: noteLine(e), idx })),
+  ].sort((a, b) => a.idx - b.idx);
 
   const headers = segs.map(segmentHeader);
-  // fixed cost: head + per segment "\n\n" + header + "\n" before a body
-  const fixed = head.length + headers.reduce((n, h) => n + 2 + h.length + 1, 0);
+  const noteChars = notes.length ? items.reduce((n, it) => n + (it.kind === "note" ? 2 + it.line.length : 0), 0) : 0;
+  // fixed cost: head + notes in full + per segment "\n\n" + header + "\n" before a body
+  const fixed = head.length + noteChars + headers.reduce((n, h) => n + 2 + h.length + 1, 0);
   const bodies = segs.map((s) => s.lines.join("\n"));
   const shares = fairShares(
     bodies.map((b) => b.length),
     maxChars - fixed,
   );
 
-  const parts = [head];
-  segs.forEach((_, i) => {
-    const body = bodies[i] ? trimTo(bodies[i]!, shares[i]!) : "";
-    parts.push(body ? `${headers[i]}\n${body}` : headers[i]!);
-  });
+  const render = (withSegments: boolean) => {
+    const parts = [head];
+    for (const it of items) {
+      if (it.kind === "note") parts.push(it.line);
+      else if (withSegments) {
+        const body = bodies[it.i] ? trimTo(bodies[it.i]!, shares[it.i]!) : "";
+        parts.push(body ? `${headers[it.i]}\n${body}` : headers[it.i]!);
+      }
+    }
+    return parts;
+  };
+  const parts = render(true);
   let out = parts.join("\n\n");
 
   if (out.length > maxChars) {
-    // even the headers don't fit: keep as many whole segments as we can
-    const note = (n: number) => `\n\n(${n} more segments cut to fit max_chars)`;
-    let kept = head;
-    for (let i = 1; i < parts.length; i++) {
-      const next = `${kept}\n\n${parts[i]}`;
-      if (next.length + note(parts.length - 1 - i).length > maxChars) {
-        kept += note(parts.length - i);
-        break;
+    if (notes.length) {
+      // the notes come first: drop screen segments before any of the user's words
+      const noteOnly = render(false);
+      const cut = `\n\n(${segs.length} screen segments left out to fit max_chars; notes kept)`;
+      const joined = noteOnly.join("\n\n");
+      out = joined.length + cut.length <= maxChars ? joined + cut : trimTo(joined, maxChars);
+    } else {
+      // even the headers don't fit: keep as many whole segments as we can
+      const note = (n: number) => `\n\n(${n} more segments cut to fit max_chars)`;
+      let kept = head;
+      for (let i = 1; i < parts.length; i++) {
+        const next = `${kept}\n\n${parts[i]}`;
+        if (next.length + note(parts.length - 1 - i).length > maxChars) {
+          kept += note(parts.length - i);
+          break;
+        }
+        kept = next;
       }
-      kept = next;
+      out = trimTo(kept, maxChars);
     }
-    out = trimTo(kept, maxChars);
   }
   return out;
 }

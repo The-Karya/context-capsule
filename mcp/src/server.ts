@@ -61,6 +61,7 @@ function safe<A>(fn: (args: A) => CallToolResult | Promise<CallToolResult>) {
 export function createServer(opts: ServerOptions = {}): McpServer {
   const startMs = opts.confirmTimeoutMs ?? 6000;
   const stopMs = opts.confirmTimeoutMs ?? 4000;
+  const noteMs = opts.confirmTimeoutMs ?? 3000;
   const server = new McpServer(
     { name: "context-capsule", version: VERSION },
     {
@@ -174,9 +175,36 @@ export function createServer(opts: ServerOptions = {}): McpServer {
           lines.push(`Started: ${formatLocalDateTime(state.started_at)} (${formatDuration(Date.now() - Date.parse(state.started_at))} ago)`);
         if (state.events != null) lines.push(`Events so far: ${state.events}`);
         if (state.skip) lines.push(`Right now: not recording a sample — ${describeSkip(state.skip)}`);
+        if (state.listening) lines.push("Voice note: listening (press ⌥⇧V again to finish)");
       }
       if (!running) lines.push("", APP_NOT_RUNNING);
       return text(lines.join("\n"));
+    }),
+  );
+
+  server.registerTool(
+    "add_note",
+    {
+      title: "Add a note",
+      description:
+        "Add a typed note to the session being recorded right now: what the user is doing, how, or a decision and why. " +
+        "Notes are the user's own words and become the main source for the capsule. Only works while recording.",
+      inputSchema: { text: z.string().min(1).max(4000).describe("The note, in the user's words") },
+    },
+    safe(async ({ text: note }: { text: string }) => {
+      const body = note.trim();
+      if (!body) return fail("The note is empty.");
+      const state = readState();
+      if (!appRunning(state)) return fail(`Notes go into a recording, and the app isn't running.\n${APP_NOT_RUNNING}`);
+      if (!state!.recording)
+        return fail("Not recording right now, so there is no session to add the note to. Start one with start_recording (or ⌥⇧C), then add the note.");
+      const at = Date.now();
+      writeControl("note", at, body);
+      const { confirmed } = await waitForState((s) => s.note_at === at || !s.recording, noteMs);
+      const after = readState();
+      if (!confirmed || after?.note_at !== at)
+        return text(`Sent the note to the app for session ${state!.session_id ?? "(unknown)"}, but it hasn't confirmed yet. Check recording_status.`);
+      return text(`Added the note to session ${state!.session_id ?? "(unknown)"}.`);
     }),
   );
 
@@ -199,7 +227,8 @@ export function createServer(opts: ServerOptions = {}): McpServer {
         const start = s.started_at ? formatLocalDateTime(s.started_at) : "?";
         const end = s.ended_at ? formatLocalDateTime(s.ended_at).slice(11) : "still open";
         const apps = s.top_apps.map((a) => `${a.app} ${formatDuration(a.ms)}`).join(", ") || "no activity";
-        return `- ${id} · ${start} → ${end} · ${formatDuration(s.duration_ms)} · ${s.events} samples${textSources(s.sources)} · ${apps}`;
+        const notes = s.notes ? ` · ${s.notes} ${s.notes === 1 ? "note" : "notes"}` : "";
+        return `- ${id} · ${start} → ${end} · ${formatDuration(s.duration_ms)} · ${s.events} samples${textSources(s.sources)}${notes} · ${apps}`;
       });
       const more = ids.length > shown.length ? `\n(${ids.length - shown.length} older sessions not shown)` : "";
       return text(`Sessions (local time):\n${rows.join("\n")}${more}`);
@@ -380,7 +409,9 @@ export function makeCapsulePrompt(sessionId: string): string {
   const id = sessionId?.trim() || "latest";
   return `Write a capsule from my recorded work session "${id}".
 
-1. Call get_session_activity with session_id "${id}". It is a timeline of what was on my screen: segments by app and window, with local HH:MM times and the screen text (read through Accessibility, or OCR when that wasn't possible, so expect some noise).
+1. Call get_session_activity with session_id "${id}". It is a timeline of what was on my screen: segments by app and window, with local HH:MM times and the screen text (read through Accessibility, or OCR when that wasn't possible, so expect some noise). Lines starting with ">> You said" or ">> You typed" are my voice and typed notes.
+
+Voice notes are the user's own words: the primary source for decisions, reasons and intent; screen text is supporting evidence; quote or closely paraphrase them and cite the time.
 2. Write the capsule in Markdown with exactly these sections, in this order:
 
 ## Summary
@@ -389,7 +420,7 @@ export function makeCapsulePrompt(sessionId: string): string {
 Bullets, in time order, naming the apps, documents and pages.
 ## Decisions
 One bullet per decision: - **Decision** — why. *(seen in <App>, HH:MM)*
-Every decision must cite the moment and app it came from in the timeline.
+Every decision must cite the moment and app it came from in the timeline. For a decision from a note, cite it as *(you said, HH:MM)* or *(you typed, HH:MM)*.
 ## Open questions
 What is still unclear or undecided.
 ## Next steps

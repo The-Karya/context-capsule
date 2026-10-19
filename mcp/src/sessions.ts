@@ -19,8 +19,15 @@ export interface CaptureEvent {
   bundle?: string;
   title?: string;
   text?: string;
-  /** Where `text` came from: Accessibility or OCR. Missing in older sessions. */
-  src?: "ax" | "ocr";
+  /** Where `text` came from: Accessibility, OCR, the mic, or typed. Missing in older sessions. */
+  src?: "ax" | "ocr" | "voice" | "typed";
+  /** "voice" / "note": the user's own words (spoken or typed). Missing = a screen sample. */
+  kind?: "screen" | "voice" | "note";
+}
+
+/** Spoken or typed by the user, not read off the screen. */
+export function isNote(e: CaptureEvent): boolean {
+  return e.kind === "voice" || e.kind === "note";
 }
 
 export interface SessionSummary {
@@ -33,6 +40,8 @@ export interface SessionSummary {
   top_apps: { app: string; ms: number }[];
   /** How many events got their text from Accessibility vs OCR. */
   sources: { ax: number; ocr: number };
+  /** Voice notes and typed notes. */
+  notes: number;
 }
 
 /** Minimum time we credit to one sample (the app samples every 3 s). */
@@ -97,14 +106,18 @@ export function readEvents(id: string): CaptureEvent[] {
     try {
       const e = JSON.parse(line) as Partial<CaptureEvent>;
       if (typeof e.t !== "string" || Number.isNaN(Date.parse(e.t))) continue;
+      const kind = e.kind === "voice" || e.kind === "note" ? e.kind : undefined;
+      const app = typeof e.app === "string" ? e.app : "";
       out.push({
         t: e.t,
         end: typeof e.end === "string" && !Number.isNaN(Date.parse(e.end)) ? e.end : undefined,
-        app: typeof e.app === "string" && e.app ? e.app : "Unknown app",
+        // a note may be about no app (typed in Claude, or a private app was in front)
+        app: app || (kind ? "" : "Unknown app"),
         bundle: typeof e.bundle === "string" ? e.bundle : undefined,
         title: typeof e.title === "string" ? e.title : "",
         text: typeof e.text === "string" ? e.text : "",
-        src: e.src === "ax" || e.src === "ocr" ? e.src : undefined,
+        src: e.src === "ax" || e.src === "ocr" || e.src === "voice" || e.src === "typed" ? e.src : undefined,
+        ...(kind ? { kind } : {}),
       });
     } catch {
       // skip partial or broken lines
@@ -122,7 +135,7 @@ export function eventMs(e: CaptureEvent): number {
 
 export function appTimes(events: CaptureEvent[]): { app: string; ms: number }[] {
   const byApp = new Map<string, number>();
-  for (const e of events) byApp.set(e.app, (byApp.get(e.app) ?? 0) + eventMs(e));
+  for (const e of events) if (!isNote(e)) byApp.set(e.app, (byApp.get(e.app) ?? 0) + eventMs(e));
   return [...byApp.entries()].map(([app, ms]) => ({ app, ms })).sort((a, b) => b.ms - a.ms);
 }
 
@@ -139,12 +152,13 @@ export function summarizeSession(id: string): SessionSummary {
     ended_at: meta.ended_at,
     in_progress: !meta.ended_at,
     duration_ms: Number.isFinite(start) && Number.isFinite(end) ? Math.max(0, end - start) : 0,
-    events: events.length,
+    events: events.filter((e) => !isNote(e)).length,
     top_apps: appTimes(events).slice(0, 5),
     sources: {
       ax: events.filter((e) => e.src === "ax").length,
       ocr: events.filter((e) => e.src === "ocr").length,
     },
+    notes: events.filter(isNote).length,
   };
 }
 

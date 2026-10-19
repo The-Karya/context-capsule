@@ -24,6 +24,26 @@ Menu: Start / Stop recording, Read text directly (Accessibility)…, Open sessio
 folder, Quit. While macOS shares the picked content you also see its own sharing
 icon in the menu bar; stopping there stops the recording.
 
+## Voice notes
+
+While recording, press **⌥⇧V** (or menu → *Add voice note*), talk, press ⌥⇧V again.
+
+- The mic opens only between the two presses; the menu-bar icon is a microphone while it
+  listens, and goes back to the filled circle on every way out (saved, nothing heard,
+  permission denied, error, the 2-minute limit, recording stopped).
+- `AVAudioEngine` feeds the mic straight into `SFSpeechRecognizer` with
+  `requiresOnDeviceRecognition = true`. If the language has no on-device model, you are
+  told and nothing happens; it never uses Apple's servers. Language: your locale, or
+  `"voice_locale"` in `~/.context-capsule/config.json`.
+- No audio is written anywhere. Silent or very short clips are dropped ("Didn't catch
+  that", naming the input device). Logs say only counts and durations, never the words.
+- A note is written as `{"t","end","kind":"voice","src":"voice","app","bundle","title","text"}`
+  (the front app when you started talking; empty for a private app), with the same
+  redaction and 4000-character cap. Stopping the recording mid-note finishes and saves it.
+- Not recording? A small message says "Start recording first (⌥⇧C)".
+- The MCP's `add_note` sends a typed note the same way (`control` command `note`);
+  it is written as `"kind":"note","src":"typed"`.
+
 ## Build
 
 Needs the Xcode command line tools (`xcode-select --install`). No Xcode project.
@@ -51,6 +71,10 @@ Security → Accessibility).
   System Settings and explains how to re-add the app after a rebuild; the check mark
   updates on its own once allowed.
 
+- **Microphone + Speech Recognition** — only for voice notes, asked the first time you
+  press ⌥⇧V. If denied, the message says where to turn them on (System Settings →
+  Privacy & Security → Microphone / Speech Recognition).
+
 ## Privacy
 
 - Never records password managers and private apps: any bundle id or app name
@@ -72,6 +96,7 @@ The MCP server (`../mcp`) starts and stops recording by writing
 
 ```json
 {"command": "start", "at": 1792404063000}
+{"command": "note", "text": "We chose Postgres because the team knows it", "at": 1792404063000}
 ```
 
 Context Capsule checks it twice a second and acts once per new `at`. A command written
@@ -80,7 +105,7 @@ the user still has to pick. The app keeps `~/.context-capsule/state.json` curren
 
 ```json
 {"recording": true, "session_id": "20261019-100103", "started_at": "2026-10-19T10:01:03Z", "pid": 4242,
- "picking": false, "last_error": null, "events": 12, "skip": null}
+ "picking": false, "last_error": null, "events": 12, "skip": null, "listening": false, "note_at": null}
 ```
 
 `picking` is true while the picker waits. If the user closes it, `recording` stays
@@ -98,10 +123,11 @@ false and `last_error` is `"cancelled"`.
 
 | file | does |
 |---|---|
-| `Sources/Core.swift` | pure logic: paths, JSON, times, redaction, exclusion, event log, picked-content membership, AX text assembly, AX-vs-OCR choice |
+| `Sources/Core.swift` | pure logic: paths, JSON, times, redaction, exclusion, event log, picked-content membership, AX text assembly, AX-vs-OCR choice, voice notes (silence, events, the press-to-talk state machine) |
 | `Sources/Picker.swift` | the system picker (`SCContentSharingPicker`) and the one `SCStream` of the picked content |
 | `Sources/Screen.swift` | front app + window, Accessibility text, Vision OCR |
-| `Sources/Recorder.swift` | sessions, 3 s sampling, state.json, control file |
-| `Sources/App.swift` | menu-bar icon and menu, ⌥⇧C hotkey, Accessibility menu item |
+| `Sources/Recorder.swift` | sessions, 3 s sampling, notes into the session, state.json, control file |
+| `Sources/Voice.swift` | mic + on-device Apple Speech for voice notes |
+| `Sources/App.swift` | menu-bar icon and menu, ⌥⇧C / ⌥⇧V hotkeys, messages, Accessibility menu item |
 | `Sources/SelfTest.swift` | `--selftest` |
 | `Sources/main.swift` | entry point |

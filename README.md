@@ -85,13 +85,35 @@ Restart Claude Desktop.
 
 1. Press **⌥⇧C** (or ask Claude: *"start recording"*). Pick a window or screen in the
    macOS picker. The menu-bar circle fills in. Close the picker to cancel.
-2. Work.
+2. Work. Any time, press **⌥⇧V** and say what you're doing and why; press ⌥⇧V again
+   to finish (see *Voice notes* below).
 3. Press **⌥⇧C** again (or *"stop recording"*).
 4. Ask Claude: *"Make a capsule from my last session."* Claude reads the timeline,
    writes the capsule and saves it. Read it; edit anything you don't want to share.
 5. *"Export the capsule"* puts it on your Desktop, ready to email.
 6. Someone sent you one? *"Import ~/Downloads/pricing-redesign.capsule.md"* and ask
    away.
+
+## Voice notes
+
+While recording, explain your work out loud: what you're doing, how, and the decisions
+you make and why. Your words become the main source for the capsule; the screen text
+backs them up.
+
+- Press **⌥⇧V** (or menu → *Add voice note*), talk, press **⌥⇧V** again. The menu-bar
+  icon shows a microphone while it listens. A note stops by itself after 2 minutes.
+- The microphone is open **only** between the two presses.
+- Speech is turned into text **on your Mac** (Apple Speech, on-device only). If your
+  language has no on-device model, Context Capsule tells you and does nothing; it never
+  falls back to Apple's servers. Set another language with `"voice_locale": "en-GB"` in
+  `~/.context-capsule/config.json`.
+- **No audio is saved.** Only the text goes into the session, redacted like screen text.
+  Silent clips are skipped ("Didn't catch that").
+- Prefer typing? Tell Claude *"add a note: we chose Postgres because the team knows it"*
+  (the `add_note` tool).
+
+macOS asks once for Microphone and Speech Recognition. If you said no, turn them on in
+System Settings → Privacy & Security.
 
 ## The capsule format
 
@@ -116,7 +138,7 @@ apps: [Figma, Google Chrome, Linear]
 
 ## MCP tools
 
-`start_recording`, `stop_recording`, `recording_status`, `list_sessions`,
+`start_recording`, `stop_recording`, `recording_status`, `add_note`, `list_sessions`,
 `get_session_activity`, `save_capsule`, `list_capsules`, `get_capsule`,
 `import_capsule`, `export_capsule`, the `make_capsule` prompt, and every capsule as
 a `capsule://<name>` resource. Details in [mcp/README.md](mcp/README.md).

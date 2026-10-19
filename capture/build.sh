@@ -39,6 +39,10 @@ cat > "$APP/Contents/Info.plist" <<PLIST
   <key>LSMinimumSystemVersion</key><string>$MIN_MACOS</string>
   <key>LSUIElement</key><true/>
   <key>NSHighResolutionCapable</key><true/>
+  <key>NSMicrophoneUsageDescription</key>
+  <string>Context Capsule listens only while you hold a voice note (⌥⇧V, then ⌥⇧V again), to turn what you say about your work into text. Audio is never saved and never leaves this Mac.</string>
+  <key>NSSpeechRecognitionUsageDescription</key>
+  <string>Context Capsule turns your voice notes into text on this Mac (on-device recognition only; nothing is sent to Apple). Only the text is kept, in your session.</string>
   <key>NSScreenCaptureUsageDescription</key>
   <string>Context Capsule reads the text of the window or screen you pick, so your AI can tell what you worked on. Frames are never saved; only text is kept, on this Mac.</string>
 </dict>

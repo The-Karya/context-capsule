@@ -1,5 +1,5 @@
 // context-capsule — capture: pure logic (paths, JSON, times, redaction, exclusion, dedupe, event log,
-// picked-content membership, Accessibility text assembly, AX-vs-OCR choice).
+// picked-content membership, Accessibility text assembly, AX-vs-OCR choice, voice-note logic).
 // No UI or screen access here, so the tests can compile this file on its own.
 
 import CoreGraphics
@@ -149,12 +149,16 @@ enum Redactor {
 
 struct Config {
     var excludeApps: [String] = []
+    /// Locale for voice notes, e.g. "en-GB". nil: the user's locale.
+    var voiceLocale: String? = nil
 
-    /// Reads `{"exclude_apps": [...]}`; a missing or broken file means no extra exclusions.
+    /// Reads `{"exclude_apps": [...], "voice_locale": "en-GB"}`; a missing or broken file means defaults.
     static func load(from url: URL) -> Config {
         guard let data = try? Data(contentsOf: url),
               let obj = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else { return Config() }
-        return Config(excludeApps: (obj["exclude_apps"] as? [String]) ?? [])
+        let locale = (obj["voice_locale"] as? String)?.trimmingCharacters(in: .whitespaces)
+        return Config(excludeApps: (obj["exclude_apps"] as? [String]) ?? [],
+                      voiceLocale: locale?.isEmpty == false ? locale : nil)
     }
 }
 
@@ -187,13 +191,27 @@ struct Event: Equatable {
     /// Where `text` came from: "ax" (Accessibility) or "ocr". Empty = not written (older files).
     var src: String = ""
     var text: String
+    /// "voice" or "note" for what the user said or typed; empty for screen samples (written without it).
+    var kind: String = ""
+
+    static let voice = "voice"
+    static let note = "note"
+
+    /// Spoken or typed by the user (not a screen sample). Never merged with another event.
+    var isNote: Bool { kind == Event.voice || kind == Event.note }
 
     func sameContent(as o: Event) -> Bool {
-        app == o.app && bundle == o.bundle && title == o.title && text == o.text
+        !isNote && !o.isNote && kind == o.kind && src == o.src
+            && app == o.app && bundle == o.bundle && title == o.title && text == o.text
     }
 
     /// One events.jsonl line (no newline), keys in SPEC order.
     var line: String {
+        if !kind.isEmpty {
+            return jsonObject([("t", .string(t)), ("end", .string(end)), ("kind", .string(kind)), ("src", .string(src)),
+                               ("app", .string(app)), ("bundle", .string(bundle)), ("title", .string(title)),
+                               ("text", .string(text))])
+        }
         var pairs: [(String, JSONValue)] = [("t", .string(t)), ("end", .string(end)), ("app", .string(app)),
                                             ("bundle", .string(bundle)), ("title", .string(title))]
         if !src.isEmpty { pairs.append(("src", .string(src))) }
@@ -271,7 +289,8 @@ func sessionJSON(id: String, startedAt: Date, endedAt: Date?, host: String) -> S
 /// While recording: `events` written so far and `skip`, why the latest sample wrote nothing (nil if it
 /// wrote something). After a stop they describe the session that just ended.
 func stateJSON(recording: Bool, sessionID: String?, startedAt: Date?, pid: Int32,
-               picking: Bool = false, lastError: String? = nil, events: Int = 0, skip: Skip? = nil) -> String {
+               picking: Bool = false, lastError: String? = nil, events: Int = 0, skip: Skip? = nil,
+               listening: Bool = false, noteAt: Int64? = nil) -> String {
     jsonObject([("recording", .bool(recording)),
                 ("session_id", sessionID.map { .string($0) } ?? .null),
                 ("started_at", startedAt.map { .string(Clock.iso($0)) } ?? .null),
@@ -279,20 +298,31 @@ func stateJSON(recording: Bool, sessionID: String?, startedAt: Date?, pid: Int32
                 ("picking", .bool(picking)),
                 ("last_error", lastError.map { .string($0) } ?? .null),
                 ("events", .int(events)),
-                ("skip", skip.map { .string($0.rawValue) } ?? .null)])
+                ("skip", skip.map { .string($0.rawValue) } ?? .null),
+                ("listening", .bool(listening)),
+                ("note_at", noteAt.map { .int(Int($0)) } ?? .null)])
 }
 
 struct ControlCommand: Equatable {
-    enum Kind: String { case start, stop }
+    enum Kind: String { case start, stop, note }
     var kind: Kind
     var at: Int64
+    /// The typed note, for `note`.
+    var text: String? = nil
 
-    /// `{"command":"start"|"stop","at":<ms>}`; anything else is ignored.
+    /// `{"command":"start"|"stop","at":<ms>}` or `{"command":"note","text":"…","at":<ms>}`;
+    /// anything else (a note without text too) is ignored.
     static func parse(_ data: Data) -> ControlCommand? {
         guard let obj = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
               let name = obj["command"] as? String, let kind = Kind(rawValue: name.lowercased()) else { return nil }
         let at = (obj["at"] as? NSNumber)?.int64Value ?? 0
-        return ControlCommand(kind: kind, at: at)
+        var text: String?
+        if kind == .note {
+            guard let t = (obj["text"] as? String)?.trimmingCharacters(in: .whitespacesAndNewlines), !t.isEmpty
+            else { return nil }
+            text = t
+        }
+        return ControlCommand(kind: kind, at: at, text: text)
     }
 }
 
@@ -567,4 +597,232 @@ enum AXText {
     }
 
     private static func blank(_ s: String) -> Bool { s.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty }
+}
+
+// MARK: - Voice notes
+
+/// One finished recording from the mic: the on-device transcript and how loud the clip got.
+/// The audio itself is never kept.
+struct VoiceClip: Equatable {
+    var text: String
+    /// Loudest sample, 0…1 (absolute value).
+    var peak: Float
+    var seconds: Double
+}
+
+/// How a voice note ended. Every case turns the mic indicator off.
+enum VoiceOutcome: Equatable {
+    case saved(chars: Int, seconds: Double)
+    case silent(device: String?)   // nothing heard (silent mic, too short, or no words)
+    case notRecording
+    case denied(VoicePermission)
+    case unavailable(locale: String) // no on-device recognition for this language
+    case failed(String)
+    case discarded                   // recording stopped and there was nowhere to write it
+
+    /// What the user sees (a short toast).
+    var message: String {
+        switch self {
+        case .saved: return "Voice note saved"
+        case .silent(let device):
+            let mic = device.map { "“\($0)”" } ?? "the microphone"
+            return "Didn't catch that. Nothing was heard from \(mic). Check System Settings → Sound → Input."
+        case .notRecording: return "Start recording first (⌥⇧C)"
+        case .denied(.microphone):
+            return "Context Capsule can't use the microphone. Turn it on in System Settings → Privacy & Security → Microphone."
+        case .denied(.speech):
+            return "Context Capsule can't use speech recognition. Turn it on in System Settings → Privacy & Security → Speech Recognition."
+        case .unavailable(let locale):
+            return "On-device speech isn't available for \(locale), so voice notes are off (nothing is sent to Apple). "
+                + "Set \"voice_locale\" in ~/.context-capsule/config.json, or add the language in System Settings → Keyboard → Dictation."
+        case .failed(let why): return "Voice note failed: \(why)"
+        case .discarded: return "Voice note not saved: recording had stopped"
+        }
+    }
+
+    /// One log line: counts and durations only, never the words.
+    var logSummary: String {
+        switch self {
+        case .saved(let chars, let seconds): return "voice note saved: \(chars) chars, \(String(format: "%.1f", seconds)) s"
+        case .silent: return "voice note: nothing heard"
+        case .notRecording: return "voice note: not recording"
+        case .denied(let p): return "voice note: \(p.rawValue) permission denied"
+        case .unavailable: return "voice note: on-device recognition unavailable"
+        case .failed: return "voice note: failed"
+        case .discarded: return "voice note: discarded"
+        }
+    }
+}
+
+enum VoicePermission: String { case microphone, speech }
+
+enum Voice {
+    /// Longest note; the mic closes on its own after this.
+    static let maxSeconds: TimeInterval = 120
+    /// Shorter than this is a double press, not speech.
+    static let minSeconds: Double = 0.35
+    /// A clip whose loudest sample stays under this is a dead or muted mic.
+    static let silentPeak: Float = 0.01
+
+    static func peak(_ samples: UnsafeBufferPointer<Float>) -> Float {
+        var p: Float = 0
+        for s in samples { p = max(p, abs(s)) }
+        return p
+    }
+
+    static func peak(_ samples: [Float]) -> Float { samples.withUnsafeBufferPointer(peak) }
+
+    /// Nothing worth writing: silent, too short, or no words came back.
+    static func isEmpty(_ clip: VoiceClip) -> Bool {
+        clip.peak < silentPeak || clip.seconds < minSeconds
+            || clip.text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+    }
+
+    /// The events.jsonl line for a note: same redaction and cap as screen text.
+    static func event(text: String, kind: String, src: String, start: Date, end: Date,
+                      app: String, bundle: String, title: String) -> Event {
+        Event(t: Clock.iso(start), end: Clock.iso(end), app: app, bundle: bundle, title: Redactor.clean(title),
+              src: src, text: Redactor.clean(text.trimmingCharacters(in: .whitespacesAndNewlines)), kind: kind)
+    }
+}
+
+/// The mic and the on-device recognizer. The real one is in Voice.swift; tests use a fake.
+/// Completions may come on any thread; `VoiceNotes` hops to its own.
+protocol VoiceEngine: AnyObject {
+    /// Ask for (or check) microphone + speech permission and on-device support. nil = ready.
+    func prepare(locale: Locale, _ done: @escaping (VoiceOutcome?) -> Void)
+    /// Open the mic and start recognizing. Throws if the mic cannot start.
+    func start() throws
+    /// Close the mic and hand back the final transcript.
+    func finish(_ done: @escaping (Result<VoiceClip, Error>) -> Void)
+    /// Close the mic and drop everything.
+    func cancel()
+    /// Name of the input device, for "nothing heard" messages.
+    var deviceName: String? { get }
+}
+
+/// Where a note goes and what it is about, captured when the user starts talking.
+struct VoiceTarget {
+    var app: String
+    var bundle: String
+    var title: String
+    /// Writes the finished event into the session (the recorder's work queue).
+    var write: (Event) -> Void
+}
+
+/// Press to talk, press again to stop. Owns the mic indicator and guarantees it turns off on every
+/// way out: saved, nothing heard, denied, unavailable, error, timeout, recording stopped.
+/// Main thread only.
+final class VoiceNotes {
+    enum Phase: Equatable { case idle, preparing, listening, finishing }
+
+    private(set) var phase: Phase = .idle
+    /// true while the mic is open. Called on every change, and always with false at the end.
+    var onIndicator: (Bool) -> Void = { _ in }
+    var onOutcome: (VoiceOutcome) -> Void = { _ in }
+    /// Runs a block after a delay; returns a cancel. Injected so tests control time.
+    var schedule: (TimeInterval, @escaping () -> Void) -> () -> Void = { delay, block in
+        let item = DispatchWorkItem(block: block)
+        DispatchQueue.main.asyncAfter(deadline: .now() + delay, execute: item)
+        return { item.cancel() }
+    }
+    /// Hop for engine completions (main queue in the app, inline in tests).
+    var hop: (@escaping () -> Void) -> Void = { block in DispatchQueue.main.async(execute: block) }
+    var now: () -> Date = Date.init
+
+    private let engine: VoiceEngine
+    private var target: VoiceTarget?
+    private var startedAt: Date?
+    private var cancelTimeout: (() -> Void)?
+    private var token = 0 // a newer note makes older callbacks no-ops
+
+    init(engine: VoiceEngine) { self.engine = engine }
+
+    var isActive: Bool { phase != .idle }
+
+    /// The hotkey / menu item. `target` nil = not recording.
+    func toggle(locale: Locale, target: VoiceTarget?) {
+        switch phase {
+        case .idle: begin(locale: locale, target: target)
+        case .listening: finish()
+        case .preparing, .finishing: break // a press while busy does nothing
+        }
+    }
+
+    /// Recording is stopping: finish what was said (it still goes into that session).
+    func recordingWillStop() {
+        switch phase {
+        case .listening: finish()
+        case .preparing: end(.discarded, cancelEngine: true)
+        case .idle, .finishing: break
+        }
+    }
+
+    private func begin(locale: Locale, target: VoiceTarget?) {
+        guard let target else { return report(.notRecording) }
+        token += 1
+        let mine = token
+        phase = .preparing
+        self.target = target
+        engine.prepare(locale: locale) { [weak self] problem in
+            self?.hop {
+                guard let self, self.token == mine, self.phase == .preparing else { return }
+                if let problem { return self.end(problem, cancelEngine: false) }
+                do { try self.engine.start() } catch {
+                    return self.end(.failed(error.localizedDescription), cancelEngine: true)
+                }
+                self.phase = .listening
+                self.startedAt = self.now()
+                self.onIndicator(true)
+                self.cancelTimeout = self.schedule(Voice.maxSeconds) { [weak self] in
+                    guard let self, self.token == mine, self.phase == .listening else { return }
+                    self.finish()
+                }
+            }
+        }
+    }
+
+    private func finish() {
+        guard phase == .listening else { return }
+        let mine = token
+        phase = .finishing
+        cancelTimeout?()
+        cancelTimeout = nil
+        onIndicator(false) // the mic is closing now
+        let started = startedAt ?? now()
+        let ended = now()
+        engine.finish { [weak self] result in
+            self?.hop {
+                guard let self, self.token == mine, self.phase == .finishing else { return }
+                switch result {
+                case .failure(let error):
+                    self.end(.failed(error.localizedDescription), cancelEngine: false)
+                case .success(let clip):
+                    if Voice.isEmpty(clip) { return self.end(.silent(device: self.engine.deviceName), cancelEngine: false) }
+                    guard let target = self.target else { return self.end(.discarded, cancelEngine: false) }
+                    let event = Voice.event(text: clip.text, kind: Event.voice, src: "voice", start: started,
+                                            end: ended, app: target.app, bundle: target.bundle, title: target.title)
+                    target.write(event)
+                    self.end(.saved(chars: event.text.count, seconds: clip.seconds), cancelEngine: false)
+                }
+            }
+        }
+    }
+
+    /// The one way out. Always turns the indicator off.
+    private func end(_ outcome: VoiceOutcome, cancelEngine: Bool) {
+        if cancelEngine { engine.cancel() }
+        cancelTimeout?()
+        cancelTimeout = nil
+        phase = .idle
+        target = nil
+        startedAt = nil
+        onIndicator(false)
+        report(outcome)
+    }
+
+    private func report(_ outcome: VoiceOutcome) {
+        NSLog("Context Capsule: \(outcome.logSummary)")
+        onOutcome(outcome)
+    }
 }
