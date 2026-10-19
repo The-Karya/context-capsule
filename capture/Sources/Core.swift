@@ -1,6 +1,8 @@
-// karya-capsule — capture: pure logic (paths, JSON, times, redaction, exclusion, dedupe, event log).
+// karya-capsule — capture: pure logic (paths, JSON, times, redaction, exclusion, dedupe, event log,
+// picked-content membership, Accessibility text assembly, AX-vs-OCR choice).
 // No UI or screen access here, so the tests can compile this file on its own.
 
+import CoreGraphics
 import Foundation
 
 // MARK: - Paths
@@ -182,6 +184,8 @@ struct Event: Equatable {
     var app: String
     var bundle: String
     var title: String
+    /// Where `text` came from: "ax" (Accessibility) or "ocr". Empty = not written (older files).
+    var src: String = ""
     var text: String
 
     func sameContent(as o: Event) -> Bool {
@@ -190,8 +194,11 @@ struct Event: Equatable {
 
     /// One events.jsonl line (no newline), keys in SPEC order.
     var line: String {
-        jsonObject([("t", .string(t)), ("end", .string(end)), ("app", .string(app)),
-                    ("bundle", .string(bundle)), ("title", .string(title)), ("text", .string(text))])
+        var pairs: [(String, JSONValue)] = [("t", .string(t)), ("end", .string(end)), ("app", .string(app)),
+                                            ("bundle", .string(bundle)), ("title", .string(title))]
+        if !src.isEmpty { pairs.append(("src", .string(src))) }
+        pairs.append(("text", .string(text)))
+        return jsonObject(pairs)
     }
 
     /// Byte offset of the `end` value (after its opening quote) inside `line`.
@@ -256,11 +263,16 @@ func sessionJSON(id: String, startedAt: Date, endedAt: Date?, host: String) -> S
                 ("host", .string(host)), ("version", .int(1))])
 }
 
-func stateJSON(recording: Bool, sessionID: String?, startedAt: Date?, pid: Int32) -> String {
+/// `picking`: the system picker is open, waiting for the user. `lastError`: why the last start did not
+/// happen ("cancelled" when the user closed the picker); cleared on the next start.
+func stateJSON(recording: Bool, sessionID: String?, startedAt: Date?, pid: Int32,
+               picking: Bool = false, lastError: String? = nil) -> String {
     jsonObject([("recording", .bool(recording)),
                 ("session_id", sessionID.map { .string($0) } ?? .null),
                 ("started_at", startedAt.map { .string(Clock.iso($0)) } ?? .null),
-                ("pid", .int(Int(pid)))])
+                ("pid", .int(Int(pid))),
+                ("picking", .bool(picking)),
+                ("last_error", lastError.map { .string($0) } ?? .null)])
 }
 
 struct ControlCommand: Equatable {
@@ -275,4 +287,143 @@ struct ControlCommand: Equatable {
         let at = (obj["at"] as? NSNumber)?.int64Value ?? 0
         return ControlCommand(kind: kind, at: at)
     }
+}
+
+// MARK: - Picked content (what the user chose in the system picker)
+
+enum PickStyle { case display, window, application, unknown }
+
+/// What the user shared. `rect` is its place on screen in global points (top-left origin).
+/// `windowIDs` / `pids` are only known on macOS 15.2+ (SCContentFilter.includedWindows/Applications).
+struct PickedContent: Equatable {
+    var style: PickStyle
+    var rect: CGRect
+    var windowIDs: [UInt32]? = nil
+    var pids: [Int32]? = nil
+}
+
+/// The frontmost window: CGWindowList id, owner pid, frame in global points (top-left origin).
+struct WindowInfo: Equatable {
+    var id: UInt32
+    var pid: Int32
+    var frame: CGRect
+}
+
+enum Membership {
+    /// Points of slack when matching a window frame to the picked rect (shadows, rounding).
+    static let tolerance: CGFloat = 8
+
+    /// Is the front window part of what the user picked? If not, the sample writes nothing.
+    static func contains(_ pick: PickedContent, _ w: WindowInfo) -> Bool {
+        switch pick.style {
+        case .window:
+            if let ids = pick.windowIDs { return ids.contains(w.id) }
+            return sameFrame(pick.rect, w.frame) // macOS 14 – 15.1: match by place and size
+        case .application:
+            if let pids = pick.pids { return pids.contains(w.pid) }
+            return false
+        case .display:
+            guard !pick.rect.isEmpty, !w.frame.isEmpty else { return false }
+            return pick.rect.contains(CGPoint(x: w.frame.midX, y: w.frame.midY))
+        case .unknown:
+            return false
+        }
+    }
+
+    static func sameFrame(_ a: CGRect, _ b: CGRect) -> Bool {
+        guard !a.isEmpty, !b.isEmpty else { return false }
+        return abs(a.minX - b.minX) <= tolerance && abs(a.minY - b.minY) <= tolerance
+            && abs(a.width - b.width) <= tolerance && abs(a.height - b.height) <= tolerance
+    }
+
+    /// The part of the captured image to OCR, normalized with the origin at the bottom left (Vision's
+    /// `regionOfInterest`). A picked window is read whole; a display or app capture is cropped to the
+    /// front window. nil when the window is not on the captured content at all.
+    static func ocrRegion(_ pick: PickedContent, window: CGRect) -> CGRect? {
+        let full = CGRect(x: 0, y: 0, width: 1, height: 1)
+        if pick.style == .window { return full }
+        let c = pick.rect
+        guard !c.isEmpty else { return nil }
+        let i = c.intersection(window)
+        guard !i.isNull, i.width >= 1, i.height >= 1 else { return nil }
+        let r = CGRect(x: (i.minX - c.minX) / c.width, y: (c.maxY - i.maxY) / c.height,
+                       width: i.width / c.width, height: i.height / c.height)
+        return r.intersection(full)
+    }
+}
+
+// MARK: - Accessibility text
+
+/// One element of a window's accessibility tree, in document order (depth-first, parents first).
+struct AXNode: Equatable {
+    var depth: Int
+    var role: String
+    var subrole: String = ""
+    var value: String = ""
+    var title: String = ""
+    var desc: String = ""
+}
+
+enum TextSource: String { case ax, ocr }
+
+enum AXText {
+    /// Below this many letters and digits, AX text is not useful (canvas apps, video): use OCR.
+    static let minUseful = 80
+    /// Walk limits for one sample.
+    static let maxNodes = 2000
+    static let budget: TimeInterval = 0.4
+    static let maxDepth = 60
+    /// Stop collecting past this (the event cap is 4000 after redaction).
+    static let maxChars = 8000
+
+    static let valueRoles: Set<String> = ["AXStaticText", "AXTextArea", "AXTextField", "AXComboBox"]
+    static let labelRoles: Set<String> = ["AXHeading", "AXLink", "AXCell"]
+
+    /// Password fields and anything marked secure: never read, nor anything inside them.
+    static func isSecure(role: String, subrole: String) -> Bool {
+        role == "AXSecureTextField" || subrole == "AXSecureTextField"
+            || role.lowercased().contains("secure") || subrole.lowercased().contains("secure")
+    }
+
+    /// The text one node contributes, or "" if its role carries none.
+    static func text(of n: AXNode) -> String {
+        if isSecure(role: n.role, subrole: n.subrole) { return "" }
+        if valueRoles.contains(n.role) { return [n.value, n.title, n.desc].first { !blank($0) } ?? "" }
+        if labelRoles.contains(n.role) { return [n.title, n.value, n.desc].first { !blank($0) } ?? "" }
+        return ""
+    }
+
+    /// Lines in document order; secure subtrees skipped; repeated lines kept once.
+    static func assemble(_ nodes: [AXNode], maxChars: Int = maxChars) -> String {
+        var out: [String] = []
+        var seen = Set<String>()
+        var total = 0
+        var secureDepth: Int?
+        for n in nodes {
+            if let d = secureDepth {
+                if n.depth > d { continue }
+                secureDepth = nil
+            }
+            if isSecure(role: n.role, subrole: n.subrole) { secureDepth = n.depth; continue }
+            for raw in text(of: n).split(whereSeparator: \.isNewline) {
+                let line = raw.split(whereSeparator: { $0 == " " || $0 == "\t" }).joined(separator: " ")
+                guard !line.isEmpty, !seen.contains(line) else { continue }
+                seen.insert(line)
+                out.append(line)
+                total += line.count + 1
+                if total >= maxChars { return out.joined(separator: "\n") }
+            }
+        }
+        return out.joined(separator: "\n")
+    }
+
+    /// Letters and digits: what makes text worth keeping.
+    static func usefulCount(_ s: String) -> Int { s.reduce(0) { $0 + ($1.isLetter || $1.isNumber ? 1 : 0) } }
+
+    /// AX when it is allowed and gave enough text; otherwise OCR of the picked content.
+    static func choose(trusted: Bool, axText: String) -> TextSource {
+        trusted && usefulCount(axText) >= minUseful ? .ax : .ocr
+    }
+
+    private static func blank(_ s: String) -> Bool { s.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty }
 }
