@@ -1,8 +1,8 @@
 # context-capsule — CI: tests and builds on macOS, Windows and Linux.
+# Runs only when asked: GitHub → Actions → ci → "Run workflow", or `gh workflow run ci`.
 name: ci
 on:
-  push:
-  pull_request:
+  workflow_dispatch:
 
 jobs:
   mcp:
