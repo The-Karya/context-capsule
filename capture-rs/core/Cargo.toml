@@ -1,0 +1,16 @@
+# context-capsule — core: platform-neutral recorder logic shared by the Windows and Linux recorders.
+[package]
+name = "context-capsule-core"
+description = "Context Capsule: session files, redaction, never-record rules, sampling and the recorder engine"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[lib]
+name = "context_capsule_core"
+
+[dependencies]
+regex = "1"
+serde_json = "1"
+chrono = { version = "0.4", default-features = false, features = ["clock", "std"] }
+unicode-segmentation = "1"
