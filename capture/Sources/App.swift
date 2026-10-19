@@ -17,6 +17,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     private var voiceKey: HotKey?
     private lazy var voice = VoiceNotes(engine: SpeechEngine())
     private let toast = Toast()
+    /// Stays up the whole time a voice note listens, so it's always clear the mic is on.
+    private let listenToast = Toast()
+    private var wasRecording = false
+    private var wasListening = false
     private var control: ControlWatcher?
     private var askedAccessibility = false
     private var trustPoll: Timer?
@@ -94,9 +98,16 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         let listening = recorder.listening
         let symbol = listening ? "mic.fill" : recording ? "circle.fill" : "circle"
         let label = listening ? "Context Capsule: listening" : recording ? "Context Capsule: recording" : "Context Capsule"
-        let image = NSImage(systemSymbolName: symbol, accessibilityDescription: label)
-        image?.isTemplate = true
+        var image = NSImage(systemSymbolName: symbol, accessibilityDescription: label)
+        if recording || listening {
+            // Red while recording or listening, so it's obvious at a glance.
+            image = image?.withSymbolConfiguration(NSImage.SymbolConfiguration(paletteColors: [.systemRed]))
+            image?.isTemplate = false
+        } else {
+            image?.isTemplate = true
+        }
         statusItem.button?.image = image
+        announce(recording: recording, listening: listening)
         statusItem.button?.toolTip = listening ? "Listening — press ⌥⇧V to finish the voice note"
             : recording ? "Context Capsule is recording (⌥⇧C to stop, ⌥⇧V for a voice note)" : "Context Capsule (⌥⇧C to record)"
         voiceItem.title = listening ? "Finish voice note" : "Add voice note"
@@ -114,6 +125,27 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         skipItem.title = "Skipping: \(recorder.lastSkip?.message ?? "")"
         toggleItem.title = recording ? "Stop recording" : recorder.isPicking ? "Cancel picking" : "Start recording…"
         axItem.state = AXReader.trusted ? .on : .off
+    }
+
+    /// A clear message whenever recording or listening starts or stops.
+    private func announce(recording: Bool, listening: Bool) {
+        if recording != wasRecording {
+            wasRecording = recording
+            if recording {
+                toast.show("● Recording started. Press ⌥⇧C to stop, ⌥⇧V for a voice note.", under: statusItem.button, seconds: 4)
+            } else {
+                let n = recorder.eventCount
+                toast.show("■ Recording stopped: \(n) event\(n == 1 ? "" : "s") saved.", under: statusItem.button, seconds: 4)
+            }
+        }
+        if listening != wasListening {
+            wasListening = listening
+            if listening {
+                listenToast.show("🎙 Listening… press ⌥⇧V to finish", under: statusItem.button, seconds: Voice.maxSeconds + 5)
+            } else {
+                listenToast.hideNow()
+            }
+        }
     }
 
     @objc private func toggle() { recorder.toggle() }
@@ -211,6 +243,12 @@ final class HotKey {
 final class Toast {
     private var panel: NSPanel?
     private var hide: DispatchWorkItem?
+
+    func hideNow() {
+        hide?.cancel()
+        panel?.orderOut(nil)
+        panel = nil
+    }
 
     func show(_ text: String, under button: NSStatusBarButton?, seconds: TimeInterval) {
         hide?.cancel()

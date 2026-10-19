@@ -16,7 +16,9 @@ paints out any private app window (below) or notification banner that sits on to
 Frames stay in memory and are never written to disk. The file format is in
 [`../SPEC.md`](../SPEC.md).
 
-Menu-bar icon: hollow circle = idle, filled circle = recording. While recording the
+Menu-bar icon: hollow circle = idle, **red** filled circle = recording, **red** mic = listening
+to a voice note. A short message says "● Recording started" / "■ Recording stopped: N events
+saved", and "🎙 Listening… press ⌥⇧V to finish" stays on screen for as long as the mic is on. While recording the
 menu shows how many events were written and, when a sample is skipped, why ("the front
 window is not in what you picked", "Mission Control is open"…). If a recording ends
 with nothing written, an alert says why.
