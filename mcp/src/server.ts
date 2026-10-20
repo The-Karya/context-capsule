@@ -7,6 +7,7 @@ import { DEFAULT_MAX_CHARS, condenseActivity, condenseDay, localDay } from "./ac
 import { addAssignment, createProject, loadProjects } from "./projects.js";
 import {
   CAPSULE_EXT,
+  CAPSULE_GUIDE,
   REQUIRED_SECTIONS,
   exportCapsule,
   findCapsule,
@@ -70,10 +71,12 @@ export function createServer(opts: ServerOptions = {}): McpServer {
     { name: "context-capsule", version: VERSION },
     {
       instructions:
-        "Context Capsule records what the user does on screen (text only, on their Mac) and lets you turn a work session " +
-        "into a capsule: one shareable Markdown file with what they worked on, the decisions and why. " +
-        "Typical flow: start_recording → user works → stop_recording → get_session_activity → write the capsule " +
-        "(see the make_capsule prompt) → save_capsule → export_capsule to share. Received capsules: import_capsule, then get_capsule.",
+        "Context Capsule records what the user does on screen and says about it (text only, on their computer), split by project, " +
+        "and lets you turn it into capsules: Markdown files that are context for another Claude — what was done, where things stand, " +
+        "the decisions and why, and what's next. People can read them but don't have to. " +
+        "Making capsules: the make_day_capsules prompt (a day, per project) or make_capsule (one recording). " +
+        "Receiving one: import_capsule, then get_capsule — read its \"For Claude\" section first and follow it, then help the user carry on " +
+        "from Next steps without asking them to explain what's already in the capsule.",
     },
   );
 
@@ -466,7 +469,8 @@ export function createServer(opts: ServerOptions = {}): McpServer {
     "get_capsule",
     {
       title: "Get capsule",
-      description: "The full text of a capsule, by name (slug), file name or title.",
+      description:
+        "The full text of a capsule, by name (slug), file name or title. It's context for you: read its \"For Claude\" section first and follow it.",
       inputSchema: { name: z.string().min(1) },
       annotations: { readOnlyHint: true },
     },
@@ -579,32 +583,12 @@ export function makeCapsulePrompt(sessionId: string): string {
   const id = sessionId?.trim() || "latest";
   return `Write a capsule from my recorded work session "${id}".
 
-1. Call get_session_activity with session_id "${id}". It is a timeline of what was on my screen: segments by app and window, with local HH:MM times and the screen text (read through Accessibility, or OCR when that wasn't possible, so expect some noise). Lines starting with ">> You said" or ">> You typed" are my voice and typed notes.
+1. Call get_session_activity with session_id "${id}". It is a timeline of what was on my screen: segments by app and window (with the project in [brackets] when known), local HH:MM times and the screen text (from the app itself, or OCR — expect some noise). Lines starting with ">> You said" or ">> You typed" are my voice and typed notes.
+2. Write the capsule:
 
-Voice notes are the user's own words: the primary source for decisions, reasons and intent; screen text is supporting evidence; quote or closely paraphrase them and cite the time.
-2. Write the capsule in Markdown with exactly these sections, in this order:
+${CAPSULE_GUIDE}
 
-## Summary
-2-4 sentences: what this work was and where it ended up.
-## What I worked on
-Bullets, in time order, naming the apps, documents and pages.
-## Decisions
-One bullet per decision: - **Decision** — why. *(seen in <App>, HH:MM)*
-Every decision must cite the moment and app it came from in the timeline. For a decision from a note, cite it as *(you said, HH:MM)* or *(you typed, HH:MM)*.
-## Open questions
-What is still unclear or undecided.
-## Next steps
-Concrete next actions.
-## Sources
-Documents, pages, tickets, URLs and files that appeared, with the app they were in.
-
-Rules:
-- Only use what the timeline shows. If you infer something, mark it as a guess: *(guess)*.
-- Never include secrets: passwords, API keys, tokens, private personal data, or anything marked [redacted].
-- Keep it under ~1500 words. Plain, clear language a teammate can read cold.
-- Don't add front matter; it is added for you.
-
-3. Show me the capsule and ask if I want changes. When I'm happy, call save_capsule with a short title, the Markdown, and session_ids ["${id}"]. Then offer export_capsule so I can send it.`;
+3. Save it with save_capsule (a short title, the Markdown, session_ids ["${id}"]) and tell me its name in one line. Don't paste the whole capsule unless I ask — it's for Claude. Then offer export_capsule so I can send it.`;
 }
 
 /** "20261018" for day "2026-10-19": the session-id prefix of the day before. */
@@ -640,13 +624,15 @@ export function makeDayCapsulesPrompt(date?: string): string {
    - assign_project for stretches that clues can't catch (session id, from/to as HH:MM);
    - leave out only what is clearly not work (personal browsing, private chats).
    Call get_day_activity again to see the sorted day.
-3. For each project worked on that day, write a daily capsule from that project's part only, with the usual sections (## Summary, ## What I worked on, ## Decisions, ## Open questions, ## Next steps, ## Sources). Save it with save_capsule: title "<Project> — <day>", project, kind "daily", date, and the session ids used.
-4. Then update each project's growing capsule: get_capsule with the project id (if it exists), merge in what's new from today (keep decisions and their reasons, update open questions and next steps, drop what is done), and save_capsule with project, kind "project", title "<Project>". If there's none yet, make it from today's capsule.
-5. Finish with a short table: project, time, capsule names — and list what you sorted yourself (new projects, clues added, stretches assigned) so I can correct anything.
+3. For each project worked on that day, write a daily capsule from that project's part only (format below). Save it with save_capsule: title "<Project> — <day>", project, kind "daily", date, and the session ids used.
+4. Then update each project's growing capsule — the one a teammate's Claude loads to know the whole project: get_capsule with the project id (if it exists), merge in what's new from today (keep every decision and its reason, update Where things stand, Open questions and Next steps, move finished items into What was done), and save_capsule with project, kind "project", title "<Project>". If there's none yet, make it from today's capsule. Its "For Claude" covers the whole project, not one day.
+5. Finish with a short table: project, time, capsule names — and list what you sorted yourself (new projects, clues added, stretches assigned) so I can correct anything. Don't paste the capsules; they're for Claude.
 
-Rules:
-- Voice and typed notes are my own words: the primary source for decisions, reasons and intent; screen text is supporting evidence. Quote or closely paraphrase them and cite the time.
+Capsule format:
+
+${CAPSULE_GUIDE}
+
+Also:
 - Keep each project's capsule about that project only. Shared apps (chat, email) go where their content belongs, else leave them out.
-- Only use what the timeline shows; mark guesses as *(guess)*. Never include secrets or private personal data.
 - When unsure where a stretch belongs, pick the most likely project and say so in the final list (*(guess)*), rather than asking in the middle.`;
 }

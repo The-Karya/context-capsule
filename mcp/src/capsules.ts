@@ -9,7 +9,45 @@ import { loadProjects } from "./projects.js";
 import { appTimes, readEvents, resolveSessionId } from "./sessions.js";
 
 export const CAPSULE_EXT = ".capsule.md";
-export const REQUIRED_SECTIONS = ["Summary", "What I worked on", "Decisions", "Open questions", "Next steps", "Sources"];
+/** A capsule is context for the reader's Claude first; "In short" is the only part written for people. */
+export const REQUIRED_SECTIONS = [
+  "In short",
+  "For Claude",
+  "Where things stand",
+  "What was done",
+  "Decisions",
+  "Open questions",
+  "Next steps",
+  "People, links and files",
+];
+
+/** How to write a capsule — shared by the make_capsule and make_day_capsules prompts. */
+export const CAPSULE_GUIDE = `A capsule is context for another Claude, not a report for a person. Whoever receives it loads it into their own Claude, which must then understand the work and carry on — nobody has to read it (but a person can). So write for an AI reader: complete and specific over short; exact names, numbers, file paths, URLs, versions and quotes; no filler, no marketing tone.
+
+Use exactly these sections, in this order:
+
+## In short
+One or two plain sentences for a person who only wants the gist.
+## For Claude
+Speak to the Claude that loads this capsule. Say whose work it is and what it is ("You're picking up <work> from <author>…"), and how to use the capsule: it's the full context; treat Decisions as settled unless the user brings new information; continue from Next steps; ask the user only about Open questions; don't redo what's in What was done. Name the tools, apps and files involved.
+## Where things stand
+The current state: what exists, what works, what's blocked or half done. Concrete.
+## What was done
+Bullets in time order, each with its time and app.
+## Decisions
+One bullet per decision: - **Decision** — why (and what was rejected, if known). Cite where it came from: *(you said, HH:MM)*, *(you typed, HH:MM)* or *(seen in <App>, HH:MM)*.
+## Open questions
+What's still undecided or unclear, each with what it depends on.
+## Next steps
+Numbered, concrete actions in order, with who does them when known.
+## People, links and files
+People and their roles, URLs, tickets, documents and file paths — exactly as they appeared.
+
+Rules:
+- Voice and typed notes ("You said" / "You typed") are the user's own words: the primary source for decisions, reasons and intent. Screen text is supporting evidence. Quote or closely paraphrase notes and cite the time.
+- Only use what the timeline shows; mark inferences *(guess)*.
+- Never include secrets (passwords, keys, tokens, anything [redacted]) or private personal data unrelated to the work.
+- Up to ~2500 words. Don't add front matter; it is added for you.`;
 
 export type FrontValue = string | number | boolean | string[];
 export type FrontMatter = Record<string, FrontValue>;

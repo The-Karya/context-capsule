@@ -235,8 +235,9 @@ Tools:
 | `get_day_activity` `{date?, project?, max_chars?}` | all sessions of a local day, split by project with time per project; unassigned work listed for Claude to sort |
 
 Prompt `make_capsule` `{session_id}`: tells the AI how to write a capsule from
-`get_session_activity` — sections below, decisions must cite the moment/app they came
-from, mark guesses as guesses, never include secrets, keep it under ~1500 words. Voice
+`get_session_activity` — sections below (written for another Claude to load), decisions
+must cite the moment/app they came from, mark guesses as guesses, never include secrets,
+up to ~2500 words; it saves without pasting the capsule into the chat. Voice
 notes are the user's own words: the primary source for decisions, reasons and intent;
 screen text is supporting evidence; quote or closely paraphrase them and cite the time.
 
@@ -266,14 +267,21 @@ kind: daily                 # optional: daily | project
 date: 2026-10-19            # daily capsules
 ---
 
-## Summary
-## What I worked on
+## In short
+## For Claude
+## Where things stand
+## What was done
 ## Decisions
-- **Decision** — why. *(seen in Linear, 10:14)*
+- **Decision** — why. *(you said, 10:14)*
 ## Open questions
 ## Next steps
-## Sources
+## People, links and files
 ```
+
+A capsule is **context for the receiver's Claude**, not a report: complete and specific,
+with a "For Claude" section that tells the loading Claude whose work it is, to treat the
+decisions as settled and to carry on from Next steps. "In short" is the only part written
+for people; they can read the rest, but don't have to.
 
 Plain Markdown, readable by a human, by Claude, ChatGPT or anything else.
 

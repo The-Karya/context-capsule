@@ -17,17 +17,21 @@ import {
 } from "../src/capsules.ts";
 import { tempHome, writeFixtureSession } from "./helpers.ts";
 
-const BODY = `## Summary
-We redesigned pricing.
-## What I worked on
-- Pricing page in Figma
+const BODY = `## In short
+We redesigned the pricing page; Teams is $12 per seat.
+## For Claude
+You're picking up the pricing page redesign from Saachi. Treat the decisions as settled; continue from Next steps.
+## Where things stand
+Figma design done, not shipped.
+## What was done
+- 10:01 Pricing page in Figma
 ## Decisions
 - **Teams at $12/seat** — matches competitors. *(seen in Linear, 10:08)*
 ## Open questions
 - Annual discount?
 ## Next steps
-- Ship it
-## Sources
+1. Ship it
+## People, links and files
 - PRI-12 in Linear
 `;
 

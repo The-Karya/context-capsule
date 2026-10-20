@@ -166,23 +166,32 @@ them apart:
 
 ## The capsule format
 
+A capsule is **context for someone's Claude**. You send it; their Claude loads it and
+knows what you did, where things stand, what you decided and why, and what's next. Nobody
+has to read it, though anyone can: it's plain Markdown.
+
 ```markdown
 ---
 capsule: 1
 title: Pricing page redesign
-author: Saachi
+author: Saachi            # from config.json "author", else OS user full name
 created: 2026-10-19T11:30:00Z
 sessions: [20261019-100103]
 apps: [Figma, Google Chrome, Linear]
+project: website            # optional
+kind: daily                 # optional: daily | project
+date: 2026-10-19            # daily capsules
 ---
 
-## Summary
-## What I worked on
+## In short
+## For Claude
+## Where things stand
+## What was done
 ## Decisions
-- **Use annual pricing by default** — 70% of trials pick it. *(seen in Linear, 10:14)*
+- **Decision** — why. *(you said, 10:14)*
 ## Open questions
 ## Next steps
-## Sources
+## People, links and files
 ```
 
 ## MCP tools

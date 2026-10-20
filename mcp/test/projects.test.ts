@@ -128,7 +128,8 @@ describe("the day view", () => {
 });
 
 describe("project capsules", () => {
-  const md = "## Summary\nx\n## What I worked on\n## Decisions\n## Open questions\n## Next steps\n## Sources";
+  const md =
+    "## In short\nx\n## For Claude\n## Where things stand\n## What was done\n## Decisions\n## Open questions\n## Next steps\n## People, links and files";
 
   test("daily capsules are named <project>-<date>; the project capsule is replaced, with history", () => {
     createProject("Website", ["acme-site"]);
