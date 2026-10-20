@@ -194,7 +194,12 @@ of the front window's **title**, its **`where`** (page address or file path) and
 **New event fields** (optional; omitted when empty, so older lines are unchanged):
 `"where"` — the window's page address or file path when Accessibility gives it (query
 and fragment dropped, then redacted); `"project"` (id) and `"project_by"` (`auto`/`you`).
-Key order: `t, end, [kind, src,] app, bundle, title, [where], [project, project_by], [src,] text`.
+Key order: `t, end, [kind, src,] app, bundle, title, [where], [project, project_by], [focus], [src,] text`.
+
+**Where you look:** each sample reads the window in use (keyboard focus). If the mouse moved
+or scrolled over another *shared* screen in the last 30 s (or the window in use isn't on a
+shared screen), the window under the mouse is read too, with `"focus":"pointer"` — written only
+when it has something new, and never counted as time spent (it was seen, not worked in).
 
 **After the fact:** `sessions/<id>/assign.json` holds corrections, without rewriting
 events: `{"assign": [{"from": iso, "to": iso, "project": id}]}` (later entries win).

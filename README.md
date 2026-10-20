@@ -86,8 +86,10 @@ Claude treats them as the main source, and screen text as supporting evidence.
 ## Several screens
 
 While contextualizing, **Add a screen** shares another screen (up to 4, each picked by you).
-Each moment, Context Capsule reads only the shared screen with the window you're using (the
-one with keyboard focus). A screen you didn't share is never read.
+Each moment, Context Capsule reads the window you're using (the one with keyboard focus — so
+keyboard-only work is followed too), and, if you're reading on another shared screen (your
+mouse moved or scrolled there in the last 30 seconds), that window as well. A screen you
+didn't share is never read, and picking a screen that's already shared is refused.
 
 ## Every day
 

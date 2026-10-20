@@ -18,6 +18,8 @@ export interface Segment {
   title: string;
   /** Project id, "" if not sorted yet. */
   project: string;
+  /** Read because the mouse was over it on another screen (seen, not worked in). */
+  lookedAt?: boolean;
   start: string;
   end: string;
   ms: number;
@@ -61,14 +63,18 @@ type RawSegment = Segment & { raw: string[][]; idx: number };
 export function groupSegments(events: CaptureEvent[]): RawSegment[] {
   const segs: RawSegment[] = [];
   let broken = false;
+  // The window in use and the window under the mouse are two streams: one doesn't split the other's runs.
+  const lastOf = new Map<boolean, RawSegment>();
   events.forEach((e, idx) => {
     if (isNote(e)) {
       broken = true;
+      lastOf.clear();
       return;
     }
     const title = collapse(e.title ?? "");
     const project = e.project ?? "";
-    const last = broken ? undefined : segs[segs.length - 1];
+    const looked = e.focus === "pointer";
+    const last = broken ? undefined : lastOf.get(looked);
     broken = false;
     const lines = (e.text ?? "").split(/\r?\n/).map(collapse).filter(Boolean);
     const end = e.end ?? e.t;
@@ -78,7 +84,10 @@ export function groupSegments(events: CaptureEvent[]): RawSegment[] {
       last.events += 1;
       last.raw.push(lines);
     } else {
-      segs.push({ app: e.app, title, project, start: e.t, end, ms: eventMs(e), events: 1, lines: [], raw: [lines], idx });
+      const seg: RawSegment = { app: e.app, title, project, start: e.t, end, ms: eventMs(e), events: 1, lines: [], raw: [lines], idx };
+      if (looked) seg.lookedAt = true;
+      segs.push(seg);
+      lastOf.set(looked, seg);
     }
   });
   return segs;
@@ -168,7 +177,7 @@ function segmentHeader(s: Segment, names: Map<string, string>): string {
   const span = `${formatClock(s.start)}–${formatClock(s.end)}`;
   const where = s.title ? `${s.app} — ${s.title}` : s.app;
   const project = s.project ? `[${names.get(s.project) ?? s.project}] ` : "";
-  return `## ${span} · ${project}${where}`;
+  return `## ${span} · ${project}${where}${s.lookedAt ? " (looked at, on another screen)" : ""}`;
 }
 
 /** "Time per project: Client report 2h 00m, Website 1h 05m, not sorted yet 20m" ("" if none). */

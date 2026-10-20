@@ -31,6 +31,8 @@ export interface CaptureEvent {
    * "later" (matched a clue added after recording). Missing = not sorted yet. */
   project?: string;
   project_by?: "you" | "auto" | "later";
+  /** "pointer": read because the mouse was over it on another shared screen — seen, not worked in. */
+  focus?: "pointer";
 }
 
 /** Spoken or typed by the user, not read off the screen. */
@@ -131,6 +133,7 @@ export function readEvents(id: string): CaptureEvent[] {
         ...(typeof e.where === "string" && e.where ? { where: e.where } : {}),
         ...(typeof e.project === "string" && e.project ? { project: e.project } : {}),
         ...(e.project_by === "you" || e.project_by === "auto" ? { project_by: e.project_by } : {}),
+        ...(e.focus === "pointer" ? { focus: "pointer" as const } : {}),
       });
     } catch {
       // skip partial or broken lines
@@ -169,7 +172,8 @@ export function resolveProjects(sessionId: string, events: CaptureEvent[]): Capt
 /** Time per project ("" = not sorted yet), most first. Notes don't count as time. */
 export function projectTimes(events: CaptureEvent[]): { project: string; ms: number }[] {
   const by = new Map<string, number>();
-  for (const e of events) if (!isNote(e)) by.set(e.project ?? "", (by.get(e.project ?? "") ?? 0) + eventMs(e));
+  for (const e of events)
+    if (!isNote(e) && e.focus !== "pointer") by.set(e.project ?? "", (by.get(e.project ?? "") ?? 0) + eventMs(e));
   return [...by.entries()].map(([project, ms]) => ({ project, ms })).sort((a, b) => b.ms - a.ms);
 }
 
@@ -182,7 +186,7 @@ export function eventMs(e: CaptureEvent): number {
 
 export function appTimes(events: CaptureEvent[]): { app: string; ms: number }[] {
   const byApp = new Map<string, number>();
-  for (const e of events) if (!isNote(e)) byApp.set(e.app, (byApp.get(e.app) ?? 0) + eventMs(e));
+  for (const e of events) if (!isNote(e) && e.focus !== "pointer") byApp.set(e.app, (byApp.get(e.app) ?? 0) + eventMs(e));
   return [...byApp.entries()].map(([app, ms]) => ({ app, ms })).sort((a, b) => b.ms - a.ms);
 }
 

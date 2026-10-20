@@ -218,6 +218,9 @@ struct Event: Equatable {
     /// Project id, and how it was chosen: "auto" (matched a clue) or "you" (picked by the user).
     var project: String = ""
     var projectBy: String = ""
+    /// "pointer": read because the mouse was over it on another shared screen (not the window in use).
+    /// Empty for the window in use. Pointer samples don't count as time spent.
+    var focus: String = ""
 
     static let voice = "voice"
     static let note = "note"
@@ -228,17 +231,18 @@ struct Event: Equatable {
     func sameContent(as o: Event) -> Bool {
         !isNote && !o.isNote && kind == o.kind && src == o.src
             && app == o.app && bundle == o.bundle && title == o.title && text == o.text
-            && location == o.location && project == o.project && projectBy == o.projectBy
+            && location == o.location && project == o.project && projectBy == o.projectBy && focus == o.focus
     }
 
     /// One events.jsonl line (no newline), keys in SPEC order.
-    /// Key order: t, end, [kind, src,] app, bundle, title, [where], [project, project_by], [src,] text.
+    /// Key order: t, end, [kind, src,] app, bundle, title, [where], [project, project_by], [focus], [src,] text.
     var line: String {
         var pairs: [(String, JSONValue)] = [("t", .string(t)), ("end", .string(end))]
         if !kind.isEmpty { pairs += [("kind", .string(kind)), ("src", .string(src))] }
         pairs += [("app", .string(app)), ("bundle", .string(bundle)), ("title", .string(title))]
         if !location.isEmpty { pairs.append(("where", .string(location))) }
         if !project.isEmpty { pairs += [("project", .string(project)), ("project_by", .string(projectBy))] }
+        if !focus.isEmpty { pairs.append(("focus", .string(focus))) }
         if kind.isEmpty && !src.isEmpty { pairs.append(("src", .string(src))) }
         pairs.append(("text", .string(text)))
         return jsonObject(pairs)
@@ -289,7 +293,7 @@ final class EventLog {
     /// just move its `end` and return true. Otherwise the caller writes the sample (with empty text) itself.
     func extendIfSameWindow(_ e: Event) throws -> Bool {
         guard var prev = last, !prev.isNote, !e.isNote, prev.app == e.app, prev.bundle == e.bundle, prev.title == e.title,
-              prev.location == e.location, prev.project == e.project else { return false }
+              prev.location == e.location, prev.project == e.project, prev.focus == e.focus else { return false }
         prev.end = e.end
         try rewriteLast(prev)
         return true
@@ -1199,5 +1203,28 @@ enum ConfigFile {
         obj[key] = value ?? NSNull()
         let data = try JSONSerialization.data(withJSONObject: obj, options: [.prettyPrinted, .sortedKeys])
         try writeAtomically(String(decoding: data, as: UTF8.self) + "\n", to: url)
+    }
+}
+
+// MARK: - Reading where you look (the mouse) as well as where you type
+
+enum PointerRule {
+    /// How long after the mouse last moved or scrolled its screen still counts as "being looked at".
+    static let window: TimeInterval = 30
+
+    /// The top normal window under a point (global, top-left origin), private ones included (they're skipped later).
+    static func window(at point: CGPoint, in list: [ListedWindow]) -> ListedWindow? {
+        list.first { WindowList.isNormal($0) && $0.frame.contains(point) }
+    }
+
+    /// Read the window under the mouse too? Only when it's on a shared screen other than the one in use (or the
+    /// window in use isn't on a shared screen), it isn't the window in use, and the mouse moved or scrolled
+    /// there recently — a mouse just parked on another screen doesn't keep it being read.
+    static func shouldRead(pointer: ListedWindow?, pointerPick: PickedContent?, front: ListedWindow?,
+                           frontPick: PickedContent?, lastActivity: Date?, now: Date) -> Bool {
+        guard let pointer, let pointerPick, let lastActivity, now.timeIntervalSince(lastActivity) <= window else { return false }
+        if let front, front.id == pointer.id { return false }
+        guard let frontPick else { return true }
+        return pointerPick.source != frontPick.source
     }
 }

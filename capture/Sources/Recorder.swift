@@ -155,6 +155,7 @@ final class Recorder {
         reloadProjects(force: true)
         currentProject = projectChoice.pinned.map { ($0, "you") }
         askedProject = false
+        watchPointer()
         let newLines = self.newLines
         work.async { newLines.reset() }
         sessionID = id
@@ -176,6 +177,7 @@ final class Recorder {
 
     private func endSession(wait: Bool) {
         if isRecording { willStop?() }
+        stopWatchingPointer()
         capture.stop()
         guard let id = sessionID, let started = startedAt, let dir = sessionDir else { return }
         timer?.invalidate()
@@ -349,6 +351,50 @@ final class Recorder {
     /// Accessibility when allowed and useful, else from OCR of the picked content's latest frame —
     /// cropped to the front window, never-record windows painted out, never a frame from before the
     /// last app switch, never during Mission Control.
+    /// One window to read this moment: the window in use, or (focus "pointer") the one under the mouse.
+    private struct Target {
+        var appName: String
+        var bundle: String?
+        var pid: pid_t
+        var window: ListedWindow
+        var pick: PickedContent
+        var focus: String
+    }
+
+    /// When the mouse last moved or scrolled (main thread).
+    private var pointerActivity: Date?
+    private var lastPointer: CGPoint?
+    private var pointerMonitor: Any?
+
+    /// Mouse and scroll activity (no permission needed for these); also noticed by polling at each sample.
+    private func watchPointer() {
+        guard pointerMonitor == nil else { return }
+        pointerMonitor = NSEvent.addGlobalMonitorForEvents(matching: [.scrollWheel, .mouseMoved]) { [weak self] _ in
+            self?.pointerActivity = Date()
+        }
+    }
+
+    private func stopWatchingPointer() {
+        if let pointerMonitor { NSEvent.removeMonitor(pointerMonitor) }
+        pointerMonitor = nil
+        pointerActivity = nil
+        lastPointer = nil
+    }
+
+    /// The mouse position in global top-left coordinates (CGWindowList's), and whether it moved since last time.
+    private func pointerNow() -> CGPoint {
+        let p = NSEvent.mouseLocation
+        let mainHeight = NSScreen.screens.first?.frame.height ?? 0
+        let point = CGPoint(x: p.x, y: mainHeight - p.y)
+        if let last = lastPointer, hypot(last.x - point.x, last.y - point.y) > 2 { pointerActivity = Date() }
+        lastPointer = point
+        return point
+    }
+
+    /// One sample: the window in use (keyboard focus) when it's on something the user shared — and, if the mouse
+    /// moved or scrolled over another shared screen in the last 30 s, the window under it too. Text comes from
+    /// Accessibility when allowed and useful, else from OCR of that screen's latest frame — cropped to the window,
+    /// never-record windows painted out, never a frame from before the last app switch, never during Mission Control.
     private func tick() {
         guard let log, !sampling else { return } // skip a tick if the last one is still busy
         let now = Date()
@@ -358,20 +404,42 @@ final class Recorder {
             bundle == own || Exclusion.isExcluded(bundle: bundle, appName: name, userList: userList)
         }
         guard let front = Screen.frontWindow(isExcluded: isExcluded) else { return skip(.noWindow, log) }
-
-        if isExcluded(front.bundle, front.appName) { return skip(.privateApp, log) } // nothing read
         if WindowList.overlayActive(front.list) {
             changedAt = now // the frame after it closes is the first good one
             return skip(.overlay, log)
         }
-        guard let window = front.window else { return skip(.noWindow, log) }
-        // Several screens can be shared: use the one holding the window in front (keyboard focus, not the mouse).
         let picks = capture.pickedContents()
         guard !picks.isEmpty else { return skip(.notPicked, log) }
-        guard let pick = Membership.pick(for: window.info, in: picks) else {
-            let unknown = picks.contains { $0.style == .display && $0.rect.isEmpty }
-            return skip(unknown ? .unknownDisplay : .notPicked, log)
+
+        // The window in use.
+        var targets: [Target] = []
+        var frontSkip: Skip?
+        var frontPick: PickedContent?
+        if isExcluded(front.bundle, front.appName) {
+            frontSkip = .privateApp // nothing read
+        } else if let window = front.window {
+            if let pick = Membership.pick(for: window.info, in: picks) {
+                frontPick = pick
+                targets.append(Target(appName: front.appName, bundle: front.bundle, pid: front.pid, window: window,
+                                      pick: pick, focus: ""))
+            } else {
+                frontSkip = picks.contains { $0.style == .display && $0.rect.isEmpty } ? .unknownDisplay : .notPicked
+            }
+        } else {
+            frontSkip = .noWindow
         }
+
+        // Where you're looking: the window under the mouse, on another shared screen.
+        let pointer = PointerRule.window(at: pointerNow(), in: front.list)
+        let pointerPick = pointer.flatMap { Membership.pick(for: $0.info, in: picks) }
+        if PointerRule.shouldRead(pointer: pointer, pointerPick: pointerPick, front: front.window, frontPick: frontPick,
+                                  lastActivity: pointerActivity, now: now),
+           let pointer, let pointerPick, let app = NSRunningApplication(processIdentifier: pointer.pid),
+           !pointer.excluded, !isExcluded(app.bundleIdentifier, app.localizedName ?? pointer.owner) {
+            targets.append(Target(appName: app.localizedName ?? pointer.owner, bundle: app.bundleIdentifier, pid: pointer.pid,
+                                  window: pointer, pick: pointerPick, focus: "pointer"))
+        }
+        if targets.isEmpty { return skip(frontSkip ?? .notPicked, log) }
 
         sampling = true
         reloadProjects()
@@ -380,47 +448,70 @@ final class Recorder {
         let projects = self.projects
         let choice = self.projectChoice
         let newLines = self.newLines
+        let list = front.list
         work.async { [weak self] in
-            var outcome: Skip?
+            var outcome: Skip? = frontSkip
             defer {
                 let count = log.appended
                 DispatchQueue.main.async { self?.sampled(outcome, count: count) }
             }
-            let axText = AXReader.text(pid: front.pid)
-            let source = AXText.choose(trusted: AXReader.trusted, axText: axText)
-            var text = axText
-            if source == .ocr {
-                guard let frame = capture.latestFrame(source: pick.source),
-                      Freshness.ok(frameAt: frame.at, changedAt: changedAt) else {
-                    log.breakRun(); outcome = .waitingFrame; return
+            for target in targets {
+                let why = Self.read(target, list: list, log: log, now: now, capture: capture, changedAt: changedAt,
+                                    projects: projects, choice: choice, newLines: newLines) { found, window in
+                    DispatchQueue.main.async { self?.sampledProject(found, window: window) }
                 }
-                let current = capture.pickedContents().first { $0.source == pick.source } ?? pick
-                switch Membership.ocrDecision(current, front: window, list: front.list) {
-                case .skip(let why):
-                    log.breakRun(); outcome = why; return
-                case .read(let region, let masks):
-                    text = Screen.recognizeText(in: frame.buffer, region: region, masks: masks) // frame dropped after
-                }
+                if target.focus.isEmpty { outcome = why }
             }
-            let title = AXReader.title(pid: front.pid) ?? capture.pickedWindowTitle(id: window.id) ?? window.name ?? ""
-            let location = Location.clean(AXReader.location(pid: front.pid))
-            let stamp = Clock.iso(now)
-            var event = Event(t: stamp, end: stamp, app: front.appName, bundle: front.bundle ?? "",
-                              title: Redactor.clean(title), src: source.rawValue, text: Redactor.clean(text))
-            event.location = location
-            if let project = choice.resolve(projects, title: event.title, location: location, app: front.appName) {
-                event.project = project.id
-                event.projectBy = project.by
-            }
-            let found = event.project.isEmpty ? nil : (event.project, event.projectBy)
-            let window = (event.title, location, front.appName)
-            DispatchQueue.main.async { self?.sampledProject(found, window: window) }
-            // Save only what's new in this window since it was last seen; nothing new: just extend the time.
-            event.text = newLines.filter(event.text, window: NewLines.key(app: event.app, bundle: event.bundle,
-                                                                          title: event.title, location: location))
-            if event.text.isEmpty, (try? log.extendIfSameWindow(event)) == true { return }
-            do { try log.record(event) } catch { NSLog("Context Capsule: cannot write event: \(error)") }
         }
+    }
+
+    /// Read one target and write what's new (work queue). Returns why nothing was read, if so.
+    private static func read(_ target: Target, list: [ListedWindow], log: EventLog, now: Date, capture: PickerCapture,
+                             changedAt: Date?, projects: [Project], choice: ProjectChoice, newLines: NewLines,
+                             noticed: ((id: String, by: String)?, (String, String, String)) -> Void) -> Skip? {
+        let window = target.window
+        let axText = AXReader.text(pid: target.pid)
+        let source = AXText.choose(trusted: AXReader.trusted, axText: axText)
+        var text = axText
+        if source == .ocr {
+            guard let frame = capture.latestFrame(source: target.pick.source),
+                  Freshness.ok(frameAt: frame.at, changedAt: changedAt) else {
+                if target.focus.isEmpty { log.breakRun() }
+                return .waitingFrame
+            }
+            let current = capture.pickedContents().first { $0.source == target.pick.source } ?? target.pick
+            switch Membership.ocrDecision(current, front: window, list: list) {
+            case .skip(let why):
+                if target.focus.isEmpty { log.breakRun() }
+                return why
+            case .read(let region, let masks):
+                text = Screen.recognizeText(in: frame.buffer, region: region, masks: masks) // frame dropped after
+            }
+        }
+        let title = AXReader.title(pid: target.pid) ?? capture.pickedWindowTitle(id: window.id) ?? window.name ?? ""
+        let location = Location.clean(AXReader.location(pid: target.pid))
+        let stamp = Clock.iso(now)
+        var event = Event(t: stamp, end: stamp, app: target.appName, bundle: target.bundle ?? "",
+                          title: Redactor.clean(title), src: source.rawValue, text: Redactor.clean(text))
+        event.location = location
+        event.focus = target.focus
+        if let project = choice.resolve(projects, title: event.title, location: location, app: target.appName) {
+            event.project = project.id
+            event.projectBy = project.by
+        }
+        if target.focus.isEmpty {
+            noticed(event.project.isEmpty ? nil : (event.project, event.projectBy), (event.title, location, target.appName))
+        }
+        // Save only what's new in this window since it was last seen; nothing new: just extend the time (the window
+        // in use), or write nothing (the window under the mouse).
+        event.text = newLines.filter(event.text, window: NewLines.key(app: event.app, bundle: event.bundle,
+                                                                      title: event.title, location: location))
+        if event.text.isEmpty {
+            if !target.focus.isEmpty { return nil }
+            if (try? log.extendIfSameWindow(event)) == true { return nil }
+        }
+        do { try log.record(event) } catch { AppLog.shared.write("cannot write event: \(error.localizedDescription)") }
+        return nil
     }
 
     /// Main thread: the project the latest written sample got. Auto mode keeps the last project across

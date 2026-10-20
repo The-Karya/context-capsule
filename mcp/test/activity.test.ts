@@ -237,3 +237,16 @@ describe("get_moment: look closer at a stretch", () => {
     expect(out).toMatch(/More after .*call get_moment again with from "/);
   });
 });
+
+describe("the window under the mouse", () => {
+  test("counted as seen, not as time; doesn't split the main run; labelled", () => {
+    const looked = (min: number, text: string): CaptureEvent => ({ ...ev(min, "Safari", "Docs", text, 1), focus: "pointer" });
+    const events = [ev(0, "Code", "main.ts", "first", 1), looked(1, "api reference"), ev(2, "Code", "main.ts", "second", 1)];
+    const segs = buildSegments(events);
+    expect(segs.map((s) => `${s.app}${s.lookedAt ? "*" : ""}`)).toEqual(["Code", "Safari*"]);
+    expect(segs[0]!.events).toBe(2);
+    const out = condenseActivity({ id: "x", started_at: at(0), ended_at: at(3) }, events);
+    expect(out).toContain("Safari — Docs (looked at, on another screen)");
+    expect(out).toContain("Apps: Code 2m"); // Safari not counted as time
+  });
+});

@@ -688,6 +688,34 @@ check(setText.contains("\"author\" : \"Saachi\"") && setText.contains("future_ke
 setCfg = Config.load(from: setURL)
 check(setCfg.remindAt == nil, "reminder turned off")
 
+// MARK: where you look
+
+let scrA = PickedContent(style: .display, rect: CGRect(x: 0, y: 0, width: 1440, height: 900), source: 1)
+let scrB = PickedContent(style: .display, rect: CGRect(x: 1440, y: 0, width: 1920, height: 1080), source: 2)
+let typing = ListedWindow(id: 1, pid: 10, frame: CGRect(x: 100, y: 100, width: 800, height: 600))
+let reading = ListedWindow(id: 2, pid: 20, frame: CGRect(x: 1600, y: 100, width: 900, height: 700))
+let lookNow = Date(timeIntervalSince1970: 2000)
+check(PointerRule.window(at: CGPoint(x: 1700, y: 300), in: [typing, reading])?.id == 2, "window under the mouse")
+check(PointerRule.window(at: CGPoint(x: 5000, y: 300), in: [typing, reading]) == nil, "nothing under the mouse")
+check(PointerRule.shouldRead(pointer: reading, pointerPick: scrB, front: typing, frontPick: scrA,
+                             lastActivity: lookNow.addingTimeInterval(-5), now: lookNow), "reading on the other screen: read it too")
+check(!PointerRule.shouldRead(pointer: reading, pointerPick: scrB, front: typing, frontPick: scrA,
+                              lastActivity: lookNow.addingTimeInterval(-60), now: lookNow), "mouse parked a minute ago: not")
+check(!PointerRule.shouldRead(pointer: reading, pointerPick: scrB, front: typing, frontPick: scrA,
+                              lastActivity: nil, now: lookNow), "mouse never moved: not")
+check(!PointerRule.shouldRead(pointer: typing, pointerPick: scrA, front: typing, frontPick: scrA,
+                              lastActivity: lookNow, now: lookNow), "mouse on the window in use: once is enough")
+check(!PointerRule.shouldRead(pointer: reading, pointerPick: scrA, front: typing, frontPick: scrA,
+                              lastActivity: lookNow, now: lookNow), "same screen: the window in use is enough")
+check(PointerRule.shouldRead(pointer: reading, pointerPick: scrB, front: typing, frontPick: nil,
+                             lastActivity: lookNow, now: lookNow), "window in use isn't shared: read where you look")
+check(!PointerRule.shouldRead(pointer: reading, pointerPick: nil, front: typing, frontPick: scrA,
+                              lastActivity: lookNow, now: lookNow), "mouse over a screen that isn't shared: never")
+var pointerEvent = Event(t: "a", end: "a", app: "Safari", bundle: "s", title: "Docs", src: "ax", text: "x")
+pointerEvent.focus = "pointer"
+check(pointerEvent.line == #"{"t":"a","end":"a","app":"Safari","bundle":"s","title":"Docs","focus":"pointer","src":"ax","text":"x"}"#,
+      "pointer event line", pointerEvent.line)
+
 try? FileManager.default.removeItem(at: tmp)
 print("\(passes) passed, \(failures) failed")
 exit(failures == 0 ? 0 : 1)
