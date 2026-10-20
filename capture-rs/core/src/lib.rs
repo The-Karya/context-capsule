@@ -6,6 +6,7 @@
 #![forbid(unsafe_code)]
 
 pub mod applog;
+pub mod capsules;
 pub mod clock;
 pub mod engine;
 pub mod events;
@@ -22,12 +23,18 @@ pub mod pointer;
 pub mod projects;
 pub mod redact;
 pub mod reminder;
+pub mod settings;
 pub mod state;
+pub mod stats;
 pub mod text;
 pub mod update;
 pub mod voice;
+pub mod window;
 
 pub use applog::AppLog;
+pub use capsules::{CapsuleSummary, Group};
+pub use settings::ConfigFile;
+pub use stats::{Assignments, Fix, Totals, WorkStats};
 pub use engine::{Engine, Options};
 pub use events::{Event, EventLog, Recorded};
 pub use exclusion::{Config, Exclusion};
