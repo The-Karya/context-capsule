@@ -133,7 +133,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         }
         let connected = ClaudeConnect.isConnected
         Claude.makeTodaysCapsules()
-        if connected { toast.show("In Claude, press Return to make your capsules.", under: statusItem.button, seconds: 5) }
+        if connected { toast.show("In Claude, press ⌘V, then Return.", under: statusItem.button, seconds: 6) }
     }
 
     func menuWillOpen(_ menu: NSMenu) { refresh() } // the Accessibility check mark may have changed

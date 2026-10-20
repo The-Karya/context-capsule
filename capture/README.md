@@ -17,7 +17,7 @@ Frames stay in memory and are never written to disk. The file format is in
 [`../SPEC.md`](../SPEC.md).
 
 Menu: **Start recording** (⌥C) · **Add voice note** (⌥V) · **Project** · **Make today's
-capsules** (opens the Claude app with "Make my capsules for today." typed in; stops a running
+capsules** (opens a new Claude chat with the request ready to paste (⌘V, Return); stops a running
 recording first) · **My capsules…** (capsules by project with Share / Open, and a Projects tab to
 rename, edit or delete projects) · **Set up Context Capsule…** · Quit.
 

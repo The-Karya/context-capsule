@@ -1080,8 +1080,11 @@ struct CapsuleSummary: Equatable {
     }
 }
 
-/// Opening Claude with a message already typed (the user still presses Enter).
+/// Opening the Claude app on a new chat. A link with the message pre-filled (`newChat(prefill:)`) makes Claude
+/// show a red "use caution" warning, so the app opens a clean chat and puts the request on the clipboard instead.
 enum ClaudeLink {
+    static let newChat = URL(string: "claude://claude.ai/new")!
+
     /// Names the app, so Claude uses Context Capsule's tools rather than guessing (Drive, Gmail…).
     static let dayPrompt = "Use Context Capsule to make my capsules for today."
 

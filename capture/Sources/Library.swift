@@ -63,14 +63,13 @@ final class LibraryModel: ObservableObject {
 }
 
 enum Claude {
-    /// Open the Claude app on a new chat with the request typed in (also copied, in case the app ignores it).
+    /// Open the Claude app on a new chat, with the request on the clipboard (⌘V, Return).
     /// Not connected yet: connect first. No Claude app: say where to get it.
     static func makeTodaysCapsules() {
         let pasteboard = NSPasteboard.general
         pasteboard.clearContents()
         pasteboard.setString(ClaudeLink.dayPrompt, forType: .string)
-        guard NSWorkspace.shared.urlForApplication(withBundleIdentifier: ClaudeConnect.desktopBundleID) != nil,
-              let url = ClaudeLink.newChat(prefill: ClaudeLink.dayPrompt) else {
+        guard NSWorkspace.shared.urlForApplication(withBundleIdentifier: ClaudeConnect.desktopBundleID) != nil else {
             ClaudeConnect.connect() // explains how to get the Claude app
             return
         }
@@ -88,7 +87,7 @@ enum Claude {
             return
         }
         AppLog.shared.write("make today's capsules: opening Claude")
-        NSWorkspace.shared.open(url)
+        NSWorkspace.shared.open(ClaudeLink.newChat) // a clean chat; the request is on the clipboard
     }
 }
 
