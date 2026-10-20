@@ -73,3 +73,17 @@ jobs:
           cargo test -p context-capsule-linux &&
           cargo clippy -p context-capsule-linux --all-targets -- -D warnings &&
           cargo build --release -p context-capsule-linux"
+
+  # The Linux release file, Context-Capsule-<version>-x86_64.AppImage (built in the same Linux box).
+  appimage:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Build the Linux box
+        run: docker build -t context-capsule-linux -f capture-rs/ci/linux.Dockerfile capture-rs/ci
+      - name: Build the AppImage
+        run: docker run --rm -v "$PWD:/work" -w /work/capture-rs context-capsule-linux sh linux/appimage.sh
+      - uses: actions/upload-artifact@v4
+        with:
+          name: context-capsule-linux-appimage
+          path: capture-rs/target-appimage/Context-Capsule-*-x86_64.AppImage

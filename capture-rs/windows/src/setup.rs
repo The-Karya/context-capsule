@@ -118,9 +118,9 @@ pub const RUN_KEY: &str = r"Software\Microsoft\Windows\CurrentVersion\Run";
 pub const STARTUP_APPROVED_KEY: &str = r"Software\Microsoft\Windows\CurrentVersion\Explorer\StartupApproved\Run";
 pub const RUN_VALUE: &str = "Context Capsule";
 
-/// The Run value for this exe.
+/// The Run value for this exe (`--login`: started at login, so it doesn't ask to install).
 pub fn run_command(exe: &str) -> String {
-    format!("\"{exe}\"")
+    format!("\"{exe}\" {}", crate::install::LOGIN_ARG)
 }
 
 /// Does the Run value start this exe?
@@ -500,7 +500,7 @@ mod tests {
     #[test]
     fn run_at_login_values() {
         let exe = r"C:\Users\s\Desktop\kit\context-capsule.exe";
-        assert_eq!(run_command(exe), format!("\"{exe}\""));
+        assert_eq!(run_command(exe), format!("\"{exe}\" --login"));
         assert!(run_value_matches(&run_command(exe), exe));
         assert!(run_value_matches(r#""C:\USERS\S\Desktop\kit\context-capsule.exe" --quiet"#, exe), "case and arguments");
         assert!(run_value_matches(exe, exe), "no quotes");

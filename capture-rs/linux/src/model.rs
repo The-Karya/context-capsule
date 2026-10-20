@@ -58,29 +58,38 @@ pub fn download(path: &Path, mut progress: impl FnMut(u64)) -> Result<(), String
     let dir = path.parent().ok_or("bad model path")?;
     std::fs::create_dir_all(dir).map_err(|e| e.to_string())?;
     let part = path.with_extension("bin.part");
-    let response = ureq::get(URL).call().map_err(|e| format!("download failed: {e}"))?;
-    let mut body = response.into_body().into_reader();
-    let mut file = std::fs::File::create(&part).map_err(|e| e.to_string())?;
-    let mut h = Sha256::new();
-    let mut buf = vec![0u8; 1 << 16];
-    let mut total = 0u64;
-    loop {
-        let n = body.read(&mut buf).map_err(|e| format!("download failed: {e}"))?;
-        if n == 0 {
-            break;
+    let file = std::fs::File::create(&part).map_err(|e| e.to_string())?;
+    let mut out = Hashing { file, hash: Sha256::new() };
+    let fetched = crate::net::fetch(URL, BYTES, &mut out, &mut progress);
+    let total = match fetched.and_then(|t| out.file.sync_all().map(|()| t).map_err(|e| e.to_string())) {
+        Ok(t) => t,
+        Err(e) => {
+            let _ = std::fs::remove_file(&part);
+            return Err(e);
         }
-        h.update(&buf[..n]);
-        file.write_all(&buf[..n]).map_err(|e| e.to_string())?;
-        total += n as u64;
-        progress(total);
-    }
-    file.sync_all().map_err(|e| e.to_string())?;
-    drop(file);
-    if hex(&h.finalize()) != SHA256 || total != BYTES {
+    };
+    if hex(&out.hash.finalize()) != SHA256 || total != BYTES {
         let _ = std::fs::remove_file(&part);
         return Err("the downloaded speech model did not match its checksum; nothing was kept".into());
     }
     std::fs::rename(&part, path).map_err(|e| e.to_string())
+}
+
+/// Writes to the file and hashes on the way.
+struct Hashing {
+    file: std::fs::File,
+    hash: Sha256,
+}
+
+impl Write for Hashing {
+    fn write(&mut self, buf: &[u8]) -> std::io::Result<usize> {
+        let n = self.file.write(buf)?;
+        self.hash.update(&buf[..n]);
+        Ok(n)
+    }
+    fn flush(&mut self) -> std::io::Result<()> {
+        self.file.flush()
+    }
 }
 
 #[cfg(test)]

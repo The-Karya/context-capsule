@@ -13,7 +13,7 @@ path = "src/main.rs"
 [features]
 default = ["voice"]
 # On-device voice notes: whisper.cpp + the microphone. Off: voice notes say they are not built in.
-voice = ["dep:whisper-rs", "dep:cpal", "dep:sha2", "dep:ureq"]
+voice = ["dep:whisper-rs", "dep:cpal", "dep:sha2"]
 
 [dependencies]
 context-capsule-core = { path = "../core" }
@@ -27,7 +27,8 @@ x11rb = { version = "0.14", features = ["randr", "xinput"] }
 chrono = { version = "0.4", default-features = false, features = ["clock", "std"] }
 zbus = { version = "5", default-features = false, features = ["tokio"] }
 futures-util = { version = "0.3", default-features = false, features = ["std"] }
+# https downloads (rustls): updates, and the speech model.
+ureq = "3"
 cpal = { version = "0.18", optional = true }
 sha2 = { version = "0.11", optional = true }
-ureq = { version = "3", optional = true }
 whisper-rs = { version = "0.16", optional = true }

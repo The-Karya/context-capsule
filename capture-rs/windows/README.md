@@ -35,7 +35,7 @@ written, a message says why. Menu: Start / Stop recording, Add / Finish voice no
 screen… (while recording: the picker again, up to 4 screens or windows; each sample uses the
 one holding the window you type in; picking one that's already shared says "That screen is
 already shared. Pick a different one."), Project (Auto-detect, your projects, New project from this
-window… — works without a recording too), Settings, Quit.
+window… — works without a recording too), Settings, Check for updates, Quit.
 
 Each sample saves only the lines not already saved for that window in this recording, so long
 documents are kept whole as you scroll (no size limit; a 100,000-character safety net).
@@ -46,11 +46,39 @@ recorded today and no capsule exists for today, a box asks "Make today's capsule
 then Enter. Raw recordings older than 30 days are deleted (`"keep_recordings_days"`, 0 = keep);
 capsules are never deleted.
 
+## Install, uninstall, updates
+
+The download is one file, `Context-Capsule-<version>-windows.exe`. No admin, no installer.
+
+- **Install**: run it from anywhere (Downloads…) and it asks *Install Context Capsule?* —
+  **Install** copies it to `%LOCALAPPDATA%\Programs\Context Capsule\context-capsule.exe`, adds a
+  Start menu shortcut and an entry in Settings → Apps (under HKCU: publisher Karya, the version,
+  *Uninstall* runs `context-capsule.exe --uninstall`), points open at login at the installed copy,
+  then starts it. A copy that is already running is asked to quit first. **Just run it** runs it
+  where it is (it asks again the next time you open that file, never at login).
+- The Claude extension (`context-capsule.mcpb`) is inside the exe and written next to it when
+  missing or changed, so Connect Claude works from a single download.
+- **Uninstall** (Settings → Apps → Context Capsule → Uninstall): the running copy quits; the
+  shortcut, the Settings → Apps entry, open at login, our registry key and the program folder go.
+  Your recordings and capsules stay unless you answer **Yes** to *Also delete your recordings and
+  capsules?* (No is the default).
+- **Updates**: a minute after launch and then once a day (never while contextualizing or during a
+  voice note), it fetches `latest.json` and its Ed25519 signature from the release feed
+  (`"update_feed"` in config.json overrides it; `"auto_update": false` turns automatic checks off).
+  Signature first, then the version (only newer), then the new exe is downloaded next to the running
+  one as `<exe>.new` and checked (size and SHA-256). Then: *Context Capsule 0.2.0 is ready. Restart
+  to update.* **Restart now** renames the running exe to `.old` (Windows allows that), moves the new
+  one in, starts it and quits; the new one waits for the old one to end and deletes `.old`. Any
+  failure keeps the current version and is only logged (shown only after **Check for updates**,
+  in the tray menu). No network = no update, silently. Nothing about you is sent.
+- For the Settings window: `update::check_now()`, `update::auto_update()`,
+  `update::set_auto_update(on)`.
+
 ## Setup window
 
 Shown on first launch and from the tray menu (**Settings**): Voice notes
 (microphone allowed? **Allow** opens the Windows microphone settings), Connect Claude (opens
-`context-capsule.mcpb`, shipped next to the exe, with the Claude app, which asks to install it;
+`context-capsule.mcpb`, written next to the exe from inside it, with the Claude app, which asks to install it;
 without the Claude app it offers the download page), Open at login (a `Run` entry under
 HKCU). Each row shows a check mark when done. Connected means the extension is in Claude's
 `Claude Extensions` folder or `claude_desktop_config.json` has a `context-capsule` server.
@@ -107,8 +135,11 @@ cd capture-rs\windows
 ..\target\release\context-capsule.exe
 ```
 
-Both build scripts copy `mcp/dist-ext/context-capsule.mcpb` next to the exe (build it first
-with `mcp/extension/build.sh`). Started from a terminal, it prints its log lines there; the
+The exe carries `mcp/dist-ext/context-capsule.mcpb` inside it (build it first with
+`mcp/extension/build.sh`; `build.rs` embeds it), and both build scripts also copy it next to the
+exe. On a Mac, `./cross-build.sh` also makes the release file
+`target-xwin/Context-Capsule-<version>-windows.exe` and prints its size and SHA-256 (for
+`latest.json`). Started from a terminal, it prints its log lines there; the
 same lines go to `app.log` in the data folder (counts, reasons and error codes only, capped at
 256 KB). Data folder: `CONTEXT_CAPSULE_HOME`
 if set, else `%USERPROFILE%\.context-capsule` (the same rule as the MCP server).
@@ -126,7 +157,10 @@ cd capture-rs && cargo test -p context-capsule-windows
 
 | file | does |
 |---|---|
-| `src/main.rs` | entry point |
+| `src/main.rs` | entry point (install / uninstall / finish an update, then the app) |
+| `src/install.rs` | install without admin, uninstall, the embedded extension, the exe swap for updates |
+| `src/update.rs` | update checks, "ready, restart to update", restart into the new exe |
+| `src/net.rs` | https downloads through WinINet (the speech model, updates) |
 | `src/app.rs` | the UI thread: hidden owner window, tray menu, cues, alerts; starts the engine thread |
 | `src/setup.rs` | the setup window (voice notes, Connect Claude, open at login) |
 | `src/connect.rs` | Connect Claude: the extension next to the exe, connected or not |

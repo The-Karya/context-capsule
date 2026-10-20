@@ -8,9 +8,11 @@
 mod connect;
 mod hotkeys;
 mod input;
+mod install;
 // Only used by voice notes.
 #[cfg_attr(not(feature = "voice"), allow(dead_code, unused_imports))]
 mod model;
+mod net;
 mod ocr;
 mod picker;
 mod pointer;
@@ -19,6 +21,7 @@ mod setup;
 mod tray;
 mod toast;
 mod uia;
+mod update;
 #[cfg_attr(not(feature = "voice"), allow(dead_code))]
 mod voice;
 mod windows_list;
@@ -34,7 +37,10 @@ mod win;
 
 #[cfg(windows)]
 fn main() {
-    app::run();
+    // Install / uninstall / finish an update first; false: this process is done.
+    if install::startup() {
+        app::run();
+    }
 }
 
 #[cfg(not(windows))]

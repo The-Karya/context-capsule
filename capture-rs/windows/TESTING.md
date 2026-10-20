@@ -1,6 +1,6 @@
 # Context Capsule for Windows: test checklist
 
-Thank you for testing! This takes about 40–50 minutes. You need Windows 10 (1903 or
+Thank you for testing! This takes about 45–55 minutes. You need Windows 10 (1903 or
 later) or Windows 11, a microphone for part 8, the **Claude app** for Windows (signed
 in) for parts 1, 9 and 10, and a second monitor for part 5 if you have one.
 
@@ -10,14 +10,15 @@ your PC, in `C:\Users\<you>\.context-capsule\`.
 
 ## 0. Start it
 
-1. Unzip the kit anywhere, e.g. your Desktop. Keep `context-capsule.exe` and
-   `context-capsule.mcpb` together in the same folder.
+1. Put the file you got (`Context-Capsule-0.1.0-windows.exe`, or `context-capsule.exe` from
+   the kit) in a folder, e.g. your Desktop.
 2. Open **PowerShell** in that folder (Shift + right-click in the folder → *Open PowerShell
-   window here*, or *Open in Terminal*), and run:
+   window here*, or *Open in Terminal*), and run it, e.g.:
    ```
-   .\context-capsule.exe
+   .\Context-Capsule-0.1.0-windows.exe
    ```
    Leave this window open: it shows a log, which helps us. It never shows what you type.
+   It asks *Install Context Capsule?* Click **Just run it** for now (part 12 tries Install).
 3. If Windows says *"Windows protected your PC"*: click **More info → Run anyway**. (The
    test build is not signed yet.)
 4. ✅ A small **circle icon** appears in the system tray, bottom right. It may be hidden
@@ -200,11 +201,32 @@ after 7 days instead of 30; capsules are never deleted).
      (Settings → System → Display → Scale, e.g. 125%).
 5. Quit: tray icon → **Quit Context Capsule**.
 
+## 12. Install, update, uninstall
+
+1. Quit Context Capsule. Double-click `Context-Capsule-0.1.0-windows.exe` in its folder.
+   ✅ A box asks *Install Context Capsule?* Click **Install**.
+2. ✅ The tray icon comes back. In the Start menu, ✅ *Context Capsule* is there. In
+   `%LOCALAPPDATA%\Programs\Context Capsule\` ✅ you see `context-capsule.exe` and
+   `context-capsule.mcpb`. No admin question came up.
+3. Settings → Apps → Installed apps: ✅ *Context Capsule*, publisher *Karya*, version 0.1.0.
+4. If open at login was on (part 1): Settings → Apps → Startup ✅ still lists Context Capsule
+   (it now starts the installed copy).
+5. Right-click the tray icon → **Check for updates**. ✅ A message says *You have the latest
+   version.* or *Couldn't check for updates. Try again later.* (until we publish a release,
+   the second one is expected). An update itself can only be tested once a newer release is
+   out: then a box says *Context Capsule 0.2.0 is ready. Restart to update.*, **Restart now**
+   starts the new version within a few seconds, and Settings → Apps shows the new version.
+6. Settings → Apps → Context Capsule → **Uninstall**. ✅ The tray icon goes away, and a box asks
+   *Also delete your recordings and capsules?* Click **No**. ✅ *Context Capsule is removed.*
+7. ✅ The Start menu entry, the Settings → Apps entry and the folder
+   `%LOCALAPPDATA%\Programs\Context Capsule` are gone, and
+   `C:\Users\<you>\.context-capsule\` is still there.
+
 ## Notes for the tester
 
-- Nothing is uploaded by Context Capsule. The only internet use is the one-time speech
-  model download in part 8, from huggingface.co, after you say yes. Claude only sees your
+- Nothing is uploaded by Context Capsule. The internet is used for the one-time speech
+  model download in part 8, from huggingface.co, after you say yes, and to check for a new
+  version on github.com (nothing about you is sent). Claude only sees your
   recordings when you ask it to (part 10).
-- To remove everything: quit the app, turn Context Capsule off in Settings → Apps →
-  Startup, remove *Context Capsule* in Claude (Settings → Extensions), then delete the kit
-  folder and `C:\Users\<you>\.context-capsule\`.
+- To remove everything: uninstall it (part 12) and say **Yes** to deleting your recordings,
+  remove *Context Capsule* in Claude (Settings → Extensions), and delete the downloaded file.

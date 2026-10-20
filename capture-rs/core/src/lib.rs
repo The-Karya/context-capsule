@@ -24,6 +24,7 @@ pub mod redact;
 pub mod reminder;
 pub mod state;
 pub mod text;
+pub mod update;
 pub mod voice;
 
 pub use applog::AppLog;

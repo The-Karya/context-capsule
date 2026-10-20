@@ -141,6 +141,12 @@ impl ksni::Tray for CapsuleTray {
             .into(),
             self.project_menu(),
             MenuItem::Separator,
+            StandardItem {
+                label: context_capsule_core::update::CHECK_LABEL.into(),
+                activate: Box::new(|_: &mut Self| crate::update::check_now()),
+                ..Default::default()
+            }
+            .into(),
             StandardItem { label: "Quit".into(), activate: send(Msg::Quit), ..Default::default() }
                 .into(),
         ]
@@ -241,6 +247,7 @@ impl Tray {
     }
 
     pub fn set_status(&self, status: &Status) {
+        crate::update::set_busy(status.recording || status.listening); // no update check meanwhile
         self.look.lock().unwrap().status = status.clone();
         let status = status.clone();
         self.update(move |t| t.status = status);

@@ -1,12 +1,14 @@
 // context-capsule — linux: the Linux recorder — tray, hotkeys and portal on a small async runtime; the
 // shared core engine on its own thread, fed through one message channel. Writes the same files as macOS.
 
-mod autostart;
 mod apps;
+mod appimage;
+mod autostart;
 mod atspi_front;
 mod atspi_text;
 mod desktop;
 mod hotkeys;
+mod net;
 #[cfg(feature = "voice")]
 mod model;
 mod notify;
@@ -17,6 +19,7 @@ mod portal;
 mod probe;
 mod reminder;
 mod tray;
+mod update;
 mod voice;
 mod x11;
 
@@ -81,6 +84,9 @@ fn main() {
     }
     if !probe {
         hotkeys::start(&handle, session, tx.clone(), changed.clone(), scrolled.clone(), notifier.clone());
+        update::start(&paths, notifier.clone(), tx.clone());
+        let (root, n) = (paths.root.clone(), notifier.clone());
+        std::thread::spawn(move || appimage::offer_once(&root, &n));
     }
 
     let a11y = rt.block_on(async {
@@ -164,6 +170,7 @@ fn main() {
         Err(e) => eprintln!("Context Capsule: cannot start the engine: {e}"),
     }
     rt.shutdown_timeout(Duration::from_secs(1));
+    update::relaunch_if_pending();
 }
 
 #[cfg(feature = "voice")]

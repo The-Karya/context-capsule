@@ -31,7 +31,7 @@ use windows::Win32::UI::WindowsAndMessaging::{
     AppendMenuW, CreatePopupMenu, CreateWindowExW, DefWindowProcW, DestroyMenu, DestroyWindow, DispatchMessageW, GetCursorPos,
     GetMessageW, PostMessageW, PostQuitMessage, RegisterClassW, RegisterWindowMessageW, SetForegroundWindow, TrackPopupMenu,
     IsDialogMessageW, TranslateMessage, HMENU, MF_CHECKED, MF_GRAYED, MF_POPUP, MF_SEPARATOR, MF_STRING, MSG, TPM_BOTTOMALIGN, TPM_NONOTIFY,
-    TPM_RETURNCMD, TPM_RIGHTBUTTON, WINDOW_EX_STYLE, WM_APP, WM_CONTEXTMENU, WM_DESTROY, WM_ENDSESSION, WM_HOTKEY, WM_NULL,
+    TPM_RETURNCMD, TPM_RIGHTBUTTON, WINDOW_EX_STYLE, WM_APP, WM_CLOSE, WM_CONTEXTMENU, WM_DESTROY, WM_ENDSESSION, WM_HOTKEY, WM_NULL,
     WM_QUERYENDSESSION, WM_SETTINGCHANGE, WM_TIMER, WNDCLASSW, WS_EX_TOOLWINDOW, WS_POPUP, KillTimer, SetTimer,
 };
 
@@ -43,6 +43,7 @@ const ID_VOICE: u32 = 11;
 const ID_QUIT: u32 = 13;
 const ID_SETUP: u32 = 14;
 const ID_ADD_SCREEN: u32 = 15;
+const ID_UPDATES: u32 = 16;
 const ID_PROJECT_AUTO: u32 = 20;
 const ID_PROJECT_NEW: u32 = 21;
 /// Projects are 100, 101, … in list order.
@@ -172,6 +173,7 @@ pub fn run() {
     changes::install();
     let engine = spawn_engine(paths.clone(), ui, capture.clone(), tx.clone(), rx, log.clone());
     setup::open_at_login_once(&log);
+    crate::update::start(hwnd, log.clone());
     if !setup::seen() {
         setup::show(&log); // first launch
     }
@@ -324,6 +326,8 @@ extern "system" fn proc(hwnd: HWND, msg: u32, wp: WPARAM, lp: LPARAM) -> LRESULT
         WM_SETTINGCHANGE => {
             with_app(|a| a.tray.retheme()); // light / dark taskbar
         }
+        // Another copy (install, uninstall) or "Restart now" asks us to quit: end cleanly, like Quit.
+        WM_CLOSE => quit(hwnd),
         WM_QUERYENDSESSION => return LRESULT(1),
         WM_ENDSESSION if wp.0 != 0 => quit_now(),
         WM_DESTROY => {
@@ -347,6 +351,7 @@ fn handle(hwnd: HWND, cmd: UiCmd) {
         UiCmd::Status(s) => {
             with_app(|a| {
                 a.tray.set_tip(tray::tooltip(&s, SystemTime::now()));
+                crate::update::set_busy(s.recording || s.listening); // no update check meanwhile
                 cues(a, &s);
                 a.status = *s;
                 look_tick(hwnd, a);
@@ -481,6 +486,7 @@ fn show_menu(hwnd: HWND) {
             let _ = AppendMenuW(menu, MF_STRING | MF_POPUP, sub.0 as usize, &HSTRING::from(model.project.as_str()));
         }
         item(menu, ID_SETUP, "Settings", true);
+        item(menu, ID_UPDATES, context_capsule_core::update::CHECK_LABEL, true);
         let _ = AppendMenuW(menu, MF_SEPARATOR, 0, None);
         item(menu, ID_QUIT, "Quit", true);
 
@@ -503,6 +509,7 @@ fn show_menu(hwnd: HWND) {
                 setup::show(&log);
             }
         }
+        ID_UPDATES => crate::update::check_now(),
         ID_QUIT => quit(hwnd),
         ID_PROJECT_AUTO => send(Msg::PickProject(None)),
         ID_PROJECT_NEW => new_project(hwnd, &status),

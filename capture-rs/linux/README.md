@@ -27,7 +27,7 @@ screen. Soft sounds when recording or the mic starts and stops (`pw-play`, `papl
 (why the last sample wrote nothing), Start / Stop recording, Add / Finish voice note, Add another
 screen… (while recording: the sharing dialog again, up to 4 monitors or windows, one portal
 session each; each sample uses the one holding the focused window; picking a monitor that's
-already shared says "That screen is already shared. Pick a different one."), Quit.
+already shared says "That screen is already shared. Pick a different one."), Check for updates, Quit.
 A session that ends with nothing written shows a message saying why. Each sample saves only the
 lines not already saved for that window in the recording (no size limit; a 100,000-character
 safety net).
@@ -37,6 +37,36 @@ no capsule exists for today, it asks "Make today's capsules?" once a day (zenity
 notification with buttons). **Make** copies the request (`wl-copy`, `xclip` or `xsel`) and opens
 `claude://claude.ai/new` with `xdg-open`; press Ctrl+V, then Enter. Recordings older than
 `"keep_recordings_days"` (30; 0 = keep) are deleted; capsules never are.
+
+## The AppImage
+
+The release is one file, `Context-Capsule-<version>-x86_64.AppImage`. Make it runnable
+(Properties → Allow executing, or `chmod +x`) and open it. The first time it asks *Add Context
+Capsule to your apps?* — **Add** writes `~/.local/share/applications/com.thekarya.contextcapsule.desktop`
+(pointing at the AppImage) and its icon. Open at login points at the AppImage too. It uses the
+system's PipeWire, D-Bus, ALSA and Tesseract (the "run" packages below). Built on Debian 12, so it
+needs glibc 2.36 or newer (Ubuntu 23.04+, Fedora 37+, Debian 12+).
+
+Build it with `./appimage.sh`, for this machine's arch (on a Mac it runs itself in the Docker
+image from `../ci/linux.Dockerfile`, natively: an arm Mac makes an aarch64 AppImage). The x86_64
+release file comes from the `appimage` job of the manual CI workflow (an artifact). The file lands in
+`../target-appimage/`, and the script prints its size and SHA-256 (for `latest.json`).
+
+## Updates
+
+A minute after launch and then once a day (never while contextualizing or during a voice note), it
+fetches `latest.json` and its Ed25519 signature from the release feed (`"update_feed"` in
+config.json overrides it; `"auto_update": false` turns automatic checks off; **Check for updates** in
+the tray menu checks now). Signature first, then the version (only newer).
+
+- **As an AppImage** (`$APPIMAGE` set and its folder writable): the new AppImage is downloaded next to
+  it (`.<name>.new`) and checked (size and SHA-256), then *Context Capsule 0.2.0 is ready. Restart to
+  update.* **Restart now** makes it runnable, renames it over `$APPIMAGE`, quits cleanly and starts it.
+- **Built from source**: it only says *A new version is out: Context Capsule 0.2.0.*
+
+Any failure keeps the current version and is only logged (shown only after Check for updates). No
+network = no update, silently. Nothing about you is sent. For a settings window: `update::check_now()`,
+`update::auto_update()`, `update::set_auto_update(on)`.
 
 ## Install the dependencies
 

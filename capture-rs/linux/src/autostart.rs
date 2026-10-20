@@ -1,5 +1,5 @@
 // context-capsule — linux: open at login by default (an XDG autostart entry), once — if the user removes it
-// (or turns it off in their desktop's startup settings), it stays off.
+// (or turns it off in their desktop's startup settings), it stays off. From an AppImage it starts $APPIMAGE.
 
 use std::path::{Path, PathBuf};
 
@@ -7,8 +7,8 @@ use std::path::{Path, PathBuf};
 pub fn desktop_entry(exe: &str) -> String {
     format!(
         "[Desktop Entry]\nType=Application\nName=Context Capsule\nComment=Turn your work into context for Claude\n\
-         Exec=\"{}\"\nIcon=media-record\nX-GNOME-Autostart-enabled=true\nNoDisplay=false\n",
-        exe.replace('"', "\\\"")
+         Exec={}\nIcon=media-record\nX-GNOME-Autostart-enabled=true\nNoDisplay=false\n",
+        crate::appimage::exec_quote(exe)
     )
 }
 
@@ -29,7 +29,8 @@ pub fn install_once(data_dir: &Path, env: &dyn Fn(&str) -> Option<String>) -> Op
     let _ = std::fs::create_dir_all(data_dir);
     let _ = std::fs::write(&marker, "1\n");
     let dir = autostart_dir(env)?;
-    let exe = std::env::current_exe().ok()?;
+    // From an AppImage: the AppImage file (the program inside is gone once it quits).
+    let exe = crate::appimage::launcher(env)?;
     std::fs::create_dir_all(&dir).ok()?;
     std::fs::write(dir.join("com.thekarya.contextcapsule.desktop"), desktop_entry(&exe.to_string_lossy())).ok()?;
     Some("open at login: on (first launch)")

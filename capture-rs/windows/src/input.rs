@@ -77,15 +77,17 @@ pub fn choice_template(title: &str, prompt: &str, yes: &str, no: &str) -> Vec<u1
     let mut t = Vec::with_capacity(160);
     push_u32(&mut t, WS_POPUP | WS_CAPTION | WS_SYSMENU | DS_MODALFRAME | DS_SETFONT | DS_CENTER | DS_SETFOREGROUND);
     push_u32(&mut t, WS_EX_TOPMOST);
+    // A longer question gets a second line.
+    let extra: i16 = if prompt.chars().count() > 40 { 10 } else { 0 };
     t.push(3); // controls
-    t.extend([0u16, 0, 200, 54]); // x, y, cx, cy
+    t.extend([0u16, 0, 200, 54 + extra as u16]); // x, y, cx, cy
     t.extend([0, 0]); // no menu, default class
     push_str(&mut t, title);
     t.push(9); // point size
     push_str(&mut t, "Segoe UI");
-    push_item(&mut t, SS_NOPREFIX, [7, 9, 186, 14], ID_PROMPT, STATIC, prompt);
-    push_item(&mut t, WS_TABSTOP | BS_DEFPUSHBUTTON, [89, 32, 50, 14], ID_OK, BUTTON, yes);
-    push_item(&mut t, WS_TABSTOP, [143, 32, 50, 14], ID_CANCEL, BUTTON, no);
+    push_item(&mut t, SS_NOPREFIX, [7, 9, 186, 14 + extra], ID_PROMPT, STATIC, prompt);
+    push_item(&mut t, WS_TABSTOP | BS_DEFPUSHBUTTON, [89, 32 + extra, 50, 14], ID_OK, BUTTON, yes);
+    push_item(&mut t, WS_TABSTOP, [143, 32 + extra, 50, 14], ID_CANCEL, BUTTON, no);
     t
 }
 
@@ -266,6 +268,9 @@ mod tests {
         assert!(ids.iter().all(|i| (i - 8) % 2 == 0), "DWORD aligned");
         assert_eq!(t[ids[1]], ID_OK, "Make is the default (Enter)");
         assert_eq!(t[ids[2]], ID_CANCEL, "Not now is Esc");
+        assert_eq!(&t[5..9], &[0, 0, 200, 54], "one line");
+        let long = choice_template("Context Capsule", "Context Capsule 0.2.0 is ready. Restart to update.", "Restart now", "Later");
+        assert_eq!(&long[5..9], &[0, 0, 200, 64], "two lines for a longer question");
     }
 
     #[test]
