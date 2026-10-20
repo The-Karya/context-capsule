@@ -198,7 +198,7 @@ struct WelcomeView: View {
                 Group {
                     Shortcut(keys: "⌥ C", label: "Start contextualizing")
                     Divider().padding(.leading, 14)
-                    Shortcut(keys: "⌥ V", label: "Talk")
+                    Shortcut(keys: "⌥ V", label: "Speak a note")
                     Divider().padding(.leading, 14)
                     Shortcut(keys: "in Claude", label: "Make my capsules")
                 }

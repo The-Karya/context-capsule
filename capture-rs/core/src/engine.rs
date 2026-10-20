@@ -648,7 +648,7 @@ impl<P: Platform> Engine<P> {
         Projects::clue(title, location)
     }
 
-    /// "New project from this window…": create it, then with a clue let auto-detect find it from now
+    /// "New project from this window": create it, then with a clue let auto-detect find it from now
     /// on; without one (or while another project is pinned) stick to it until changed.
     pub fn new_project(&mut self, name: &str, clue: Option<&str>) -> Option<Project> {
         let name = name.trim();

@@ -129,7 +129,7 @@ While recording, explain your work out loud: what you're doing, how, and the dec
 you make and why. Your words become the main source for the capsule; the screen text
 backs them up.
 
-- Press **⌥V** (or menu → *Add voice note*), talk, press **⌥V** again. The menu-bar
+- Press **⌥V** (or menu → *Speak a note*), talk, press **⌥V** again. The menu-bar
   icon shows a microphone while it listens. A note stops by itself after 2 minutes.
 - The microphone is open **only** between the two presses.
 - Speech is turned into text **on your computer**: Apple Speech (on-device only) on
@@ -153,7 +153,7 @@ them apart:
 
 - **It detects the project** from clues in the window: a folder, file, website or document
   name. The menu shows the current project (**Project: …**); pick one there to stick to
-  it, or **New project from this window…** to make one (it remembers the window's clue).
+  it, or **New project from this window** to make one (it remembers the window's clue).
 - **Claude sorts the rest by itself.** Ask: *"make my capsules for today"* (the
   `make_day_capsules` prompt). Claude groups new work into projects (and remembers clues so
   it's automatic next time), then writes:

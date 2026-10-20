@@ -16,10 +16,10 @@ paints out any private app window (below) or notification banner that sits on to
 Frames stay in memory and are never written to disk. The file format is in
 [`../SPEC.md`](../SPEC.md).
 
-Menu: **Start recording** (⌥C) · **Add voice note** (⌥V) · **Project** · **Make today's
+Menu: **Start recording** (⌥C) · **Speak a note** (⌥V) · **Project** · **Make today's
 capsules** (opens a new Claude chat with the request ready to paste (⌘V, Return); stops a running
-recording first) · **My capsules…** (capsules by project with Share (Copy file — paste into WhatsApp, Slack, email…; Copy text; Save a copy…; Show in Finder; More… for AirDrop/Mail/Messages) and Open, and a Projects tab to
-rename, edit or delete projects) · **Set up Context Capsule…** · Quit.
+recording first) · **My capsules** (capsules by project with Share (Copy file — paste into WhatsApp, Slack, email…; Copy text; Save a copy…; Show in Finder; More… for AirDrop/Mail/Messages) and Open, and a Projects tab to
+rename, edit or delete projects) · **Settings** · Quit.
 
 Menu-bar icon: hollow circle = idle; **a red dot and the time** (● 12:34) while recording; **a
 red mic with bars that move with your voice** while listening. Nothing appears on the screen
@@ -34,7 +34,7 @@ icon in the menu bar; stopping there stops the recording.
 
 ## Several screens
 
-When more than one screen is connected, **Add another screen…** (in the menu while recording)
+When more than one screen is connected, **Add a screen** (in the menu while recording)
 opens the picker again; up to 4 screens or windows can be shared, each chosen by you. Each
 sample reads only the shared screen holding the window you're typing in (keyboard focus, not
 the mouse pointer).
@@ -52,14 +52,14 @@ the mouse pointer).
 Menu → **Project: …** shows the project of the window in front, detected from the clues in
 `~/.context-capsule/projects.json` (matched in the window title, its page address or file
 path, and the app name). Pick a project to stick to it until you pick **Auto-detect**
-again; **New project from this window…** makes one and remembers the window's clue. A short
+again; **New project from this window** makes one and remembers the window's clue. A short
 message says when the project changes. Each event gets `"project"` and `"project_by"`
 (`auto` / `you`), and `"where"` (the page address or file path, without `?query` or
 `#fragment`) when Accessibility gives it.
 
 ## Voice notes
 
-While recording, press **⌥V** (or menu → *Add voice note*), talk, press ⌥V again.
+While recording, press **⌥V** (or menu → *Speak a note*), talk, press ⌥V again.
 
 - The mic opens only between the two presses; the menu-bar icon is a microphone while it
   listens, and goes back to the filled circle on every way out (saved, nothing heard,

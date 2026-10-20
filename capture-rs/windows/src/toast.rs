@@ -261,7 +261,7 @@ mod tests {
         assert_eq!(seconds_for("Project: Client report"), 3);
         assert_eq!(seconds_for("● Contextualizing. Press Ctrl+Alt+Shift+C to stop, Ctrl+Alt+Shift+V to talk."), 4);
         assert_eq!(seconds_for("■ Stopped contextualizing: 3 moments saved."), 4);
-        assert_eq!(seconds_for("● Recording started. Press X to stop, Y to talk. More screens? Menu → Add another screen."), 5);
+        assert_eq!(seconds_for("● Recording started. Press X to stop, Y to talk. More screens? Menu → Add a screen."), 5);
         assert_eq!(seconds_for("Screen added: 2 screens shared."), 3);
     }
 

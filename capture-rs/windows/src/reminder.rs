@@ -63,7 +63,7 @@ mod win {
         if how == ClaudeOpener::Missing {
             log.write("make capsules: the Claude app is not installed");
             let body = "Context Capsule makes your capsules with the Claude desktop app. Download it, sign in and \
-                        connect Context Capsule (tray menu → Set up Context Capsule…).\n\nOpen the download page now?";
+                        connect Context Capsule (tray menu → Settings).\n\nOpen the download page now?";
             if win::ask_yes_no("Install the Claude app first", body) {
                 win::open(connect::DOWNLOAD_URL);
             }

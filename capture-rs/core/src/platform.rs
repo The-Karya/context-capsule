@@ -87,7 +87,7 @@ pub struct Status {
     /// The current project's id and how it was chosen ("auto" / "you").
     pub project: Option<String>,
     pub project_by: Option<String>,
-    /// A clue from the window of the latest sample, to prefill "New project from this window…".
+    /// A clue from the window of the latest sample, to prefill "New project from this window".
     pub new_project_clue: Option<String>,
     /// How many screens or windows are shared right now.
     pub sources: usize,
@@ -112,7 +112,7 @@ impl Status {
     }
 
     /// The "Project" submenu, like the Mac's: Auto-detect, every project (the picked one checked),
-    /// then "New project from this window…".
+    /// then "New project from this window".
     pub fn project_items(&self) -> Vec<ProjectItem> {
         let mut items = vec![ProjectItem::Auto { checked: self.pinned.is_none() }];
         if !self.projects.is_empty() {
@@ -126,12 +126,12 @@ impl Status {
         items
     }
 
-    /// "Add another screen…", with how many are shared once there are several.
+    /// "Add a screen", with how many are shared once there are several.
     pub fn add_screen_label(&self) -> String {
         if self.sources > 1 {
-            format!("Add another screen… ({} shared)", self.sources)
+            format!("Add a screen ({} shared)", self.sources)
         } else {
-            "Add another screen…".into()
+            "Add a screen".into()
         }
     }
 
@@ -140,7 +140,7 @@ impl Status {
         self.recording && self.sources < MAX_SOURCES
     }
 
-    /// The words above the name field of "New project from this window…".
+    /// The words above the name field of "New project from this window".
     pub fn new_project_prompt(&self) -> String {
         match &self.new_project_clue {
             Some(clue) => format!("Windows with “{clue}” will count as this project from now on."),
@@ -156,13 +156,13 @@ pub enum ProjectItem {
     Auto { checked: bool },
     Project { id: String, name: String, checked: bool },
     Separator,
-    /// "New project from this window…"
+    /// "New project from this window"
     New,
 }
 
 impl ProjectItem {
     pub const AUTO: &'static str = "Auto-detect";
-    pub const NEW: &'static str = "New project from this window…";
+    pub const NEW: &'static str = "New project from this window";
 }
 
 /// The short message when the current project changes.
@@ -173,7 +173,7 @@ pub fn project_message(project: Option<&Project>) -> String {
 /// The short message when recording starts (Mac parity: "● Recording started…"). With several monitors
 /// it says how to share another one.
 pub fn recording_started_message(t: &PlatformText, several_screens: bool) -> String {
-    let more = if several_screens { " More screens? Menu → Add another screen." } else { "" };
+    let more = if several_screens { " More screens? Menu → Add a screen." } else { "" };
     format!("● Contextualizing. Press {} to stop, {} to talk.{more}", t.record_hotkey, t.voice_hotkey)
 }
 
@@ -203,7 +203,7 @@ pub enum Msg {
     ToggleRecord,
     /// Voice hotkey or menu item: start or finish a voice note.
     ToggleVoice,
-    /// "Add another screen…": while recording, the picker again for one more screen or window.
+    /// "Add a screen": while recording, the picker again for one more screen or window.
     AddScreen,
     /// The picker / capture outcome.
     Pick(PickOutcome),
@@ -211,7 +211,7 @@ pub enum Msg {
     VoiceReady,
     /// The "Project" menu: stick to this project id, or auto-detect again (None).
     PickProject(Option<String>),
-    /// "New project from this window…": the name the user typed, and the clue the dialog showed.
+    /// "New project from this window": the name the user typed, and the clue the dialog showed.
     NewProject { name: String, clue: Option<String> },
     /// Stop any session, write state.json, and return from `run`.
     Quit,
@@ -310,7 +310,7 @@ mod tests {
             recording_started_message(&t, false),
             "● Contextualizing. Press Ctrl+Alt+Shift+C to stop, Ctrl+Alt+Shift+V to talk."
         );
-        assert!(recording_started_message(&t, true).ends_with(" More screens? Menu → Add another screen."));
+        assert!(recording_started_message(&t, true).ends_with(" More screens? Menu → Add a screen."));
         assert_eq!(screens_message(2, true), "Screen added: 2 screens shared.");
         assert_eq!(screens_message(1, false), "A screen stopped sharing: 1 left.");
         assert_eq!(recording_stopped_message(12), "■ Stopped contextualizing: 12 moments saved.");

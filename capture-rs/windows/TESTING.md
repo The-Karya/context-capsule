@@ -40,7 +40,7 @@ that step is done.
    Settings → Apps → Startup.)
 4. The **Use** list says: Record = Ctrl+Alt+Shift+C, Talk = Ctrl+Alt+Shift+V, Make my
    capsules = in Claude. Click **Done**.
-5. Right-click the tray icon → **Set up Context Capsule…** ✅ The window opens again.
+5. Right-click the tray icon → **Settings** ✅ The window opens again.
    Close it.
 
 ## 2. Start and cancel
@@ -85,15 +85,15 @@ that step is done.
 ## 5. Several screens (needs a second monitor)
 
 1. Start a recording and pick your **main screen**. ✅ The message ends with *More screens?
-   Menu → Add another screen.*
-2. Right-click the tray icon → **Add another screen…** ✅ The Windows picker opens again.
+   Menu → Add a screen.*
+2. Right-click the tray icon → **Add a screen** ✅ The Windows picker opens again.
    Pick the **other screen**. ✅ A message says *Screen added: 2 screens shared.* and the
-   menu item now reads *Add another screen… (2 shared)*.
+   menu item now reads *Add a screen (2 shared)*.
 3. Work in a window on one screen for 20 seconds, then in a window on the other screen for
    20 seconds. Leave the mouse pointer on the *first* screen while you type on the second.
    ✅ The tray menu shows no *Skipping* line: the screen with the window you type in is the
    one that's read, wherever the mouse is.
-4. Optional: **Add another screen…** again and close the picker without choosing.
+4. Optional: **Add a screen** again and close the picker without choosing.
    ✅ Recording goes on; nothing changes.
 5. Optional: stop sharing one screen from Windows (the yellow border's sharing button, if your
    Windows shows one, or unplug that monitor). ✅ *A screen stopped sharing: 1 left.* and the

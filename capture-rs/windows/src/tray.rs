@@ -87,7 +87,7 @@ pub struct MenuModel {
     pub skip: Option<String>,
     pub toggle: String,
     pub voice: String,
-    /// "Add another screen…" while recording (None: hidden), and whether it can be clicked.
+    /// "Add a screen" while recording (None: hidden), and whether it can be clicked.
     pub add_screen: Option<(String, bool)>,
     /// "Project: …", the title of the project submenu.
     pub project: String,
@@ -108,11 +108,11 @@ pub fn menu_model(s: &Status, now: SystemTime, short_time: &dyn Fn(SystemTime) -
     let toggle = if s.recording {
         format!("Stop contextualizing\t{RECORD_LABEL}")
     } else if s.picking {
-        format!("Cancel picking\t{RECORD_LABEL}")
+        format!("Cancel\t{RECORD_LABEL}")
     } else {
-        format!("Start contextualizing…\t{RECORD_LABEL}")
+        format!("Start contextualizing\t{RECORD_LABEL}")
     };
-    let voice = if s.listening { format!("Finish voice note\t{VOICE_LABEL}") } else { format!("Add voice note\t{VOICE_LABEL}") };
+    let voice = if s.listening { format!("Done speaking\t{VOICE_LABEL}") } else { format!("Speak a note\t{VOICE_LABEL}") };
     let add_screen = s.recording.then(|| (s.add_screen_label(), s.can_add_screen()));
     MenuModel { info, skip, toggle, voice, add_screen, project: menu_text(&s.project_title()) }
 }
@@ -357,13 +357,13 @@ mod tests {
         let now = SystemTime::UNIX_EPOCH + Duration::from_secs(755);
         let idle = menu_model(&Status::default(), now, &t);
         assert_eq!(idle.info, "Not contextualizing");
-        assert_eq!(idle.toggle, "Start contextualizing…\tCtrl+Alt+Shift+C");
-        assert_eq!(idle.voice, "Add voice note\tCtrl+Alt+Shift+V");
+        assert_eq!(idle.toggle, "Start contextualizing\tCtrl+Alt+Shift+C");
+        assert_eq!(idle.voice, "Speak a note\tCtrl+Alt+Shift+V");
         assert_eq!(idle.skip, None);
 
         let picking = Status { picking: true, ..Default::default() };
         assert_eq!(menu_model(&picking, now, &t).info, "Pick a window or screen…");
-        assert!(menu_model(&picking, now, &t).toggle.starts_with("Cancel picking"));
+        assert!(menu_model(&picking, now, &t).toggle.starts_with("Cancel"));
         assert_eq!(idle.add_screen, None, "hidden when not recording");
 
         let rec = Status {
@@ -378,14 +378,14 @@ mod tests {
         };
         let m = menu_model(&rec, now, &t);
         assert_eq!(m.info, "● Contextualizing 12:34 — since 14:57 — 12 moments");
-        assert_eq!(m.add_screen, Some(("Add another screen…".to_string(), true)));
+        assert_eq!(m.add_screen, Some(("Add a screen".to_string(), true)));
         assert_eq!(m.skip.as_deref(), Some("Skipping: the front window is not in what you picked"));
         assert!(m.toggle.starts_with("Stop contextualizing"));
-        assert!(m.voice.starts_with("Finish voice note"));
+        assert!(m.voice.starts_with("Done speaking"));
         let one = Status { events: 1, skip: None, sources: 4, ..rec };
         assert_eq!(menu_model(&one, now, &t).info, "● Contextualizing 12:34 — since 14:57 — 1 moment");
         assert_eq!(menu_model(&one, now, &t).skip, None);
-        assert_eq!(menu_model(&one, now, &t).add_screen, Some(("Add another screen… (4 shared)".to_string(), false)), "4 at most");
+        assert_eq!(menu_model(&one, now, &t).add_screen, Some(("Add a screen (4 shared)".to_string(), false)), "4 at most");
 
         assert_eq!(idle.project, "Project: Auto-detect");
 

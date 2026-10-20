@@ -902,11 +902,11 @@ fn several_shared_screens() {
     assert_eq!(Membership::pick(&on_left, &both).map(|p| p.source), Some(1), "the other screen");
     assert_eq!(Membership::pick(&on_right, std::slice::from_ref(&left)), None, "window on a screen that isn't shared: not recorded");
     let s = Status { recording: true, sources: 2, ..Default::default() };
-    assert_eq!(s.add_screen_label(), "Add another screen… (2 shared)");
+    assert_eq!(s.add_screen_label(), "Add a screen (2 shared)");
     assert!(s.can_add_screen());
     assert!(!Status { sources: MAX_SOURCES, ..s.clone() }.can_add_screen(), "up to 4");
     assert!(!Status::default().can_add_screen(), "only while recording");
-    assert_eq!(Status { sources: 1, ..s }.add_screen_label(), "Add another screen…");
+    assert_eq!(Status { sources: 1, ..s }.add_screen_label(), "Add a screen");
 }
 
 // MARK: only what's new

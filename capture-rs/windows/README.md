@@ -28,7 +28,7 @@ the time, the event count and, when a sample is skipped, why. If a recording end
 written, a message says why. Menu: Start / Stop recording, Add / Finish voice note, Add another
 screen… (while recording: the picker again, up to 4 screens or windows; each sample uses the
 one holding the window you type in), Project (Auto-detect, your projects, New project from this
-window… — works without a recording too), Set up Context Capsule…, Quit.
+window… — works without a recording too), Settings, Quit.
 
 Each sample saves only the lines not already saved for that window in this recording, so long
 documents are kept whole as you scroll (no size limit; a 100,000-character safety net).
@@ -41,7 +41,7 @@ capsules are never deleted.
 
 ## Setup window
 
-Shown on first launch and from the tray menu (**Set up Context Capsule…**): Voice notes
+Shown on first launch and from the tray menu (**Settings**): Voice notes
 (microphone allowed? **Allow** opens the Windows microphone settings), Connect Claude (opens
 `context-capsule.mcpb`, shipped next to the exe, with the Claude app, which asks to install it;
 without the Claude app it offers the download page), Open at login (a `Run` entry under

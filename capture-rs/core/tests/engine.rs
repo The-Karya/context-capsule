@@ -903,7 +903,7 @@ fn several_screens_each_sample_uses_the_one_in_front() {
     g.p().frames_of = vec![(2, Frame { bgra: vec![90u8; 100 * 50 * 4].into(), width: 100, height: 50, stride: 400, arrived })];
     g.engine.on_pick(PickOutcome::Added(2));
     assert_eq!(g.engine.status().sources, 2);
-    assert_eq!(g.engine.status().add_screen_label(), "Add another screen… (2 shared)");
+    assert_eq!(g.engine.status().add_screen_label(), "Add a screen (2 shared)");
     assert_eq!(g.engine.platform().toasts.last().unwrap(), "Screen added: 2 screens shared.");
 
     // The window in front moves to the second screen: that screen's frame is read.

@@ -64,7 +64,7 @@ pub enum UiCmd {
     Toast(String),
     Alert(String, String),
     PresentPicker,
-    /// "Add another screen…": the picker for one more screen or window.
+    /// "Add a screen": the picker for one more screen or window.
     AddSource,
     /// Evening: "Make today's capsules?"
     Remind,
@@ -108,7 +108,7 @@ struct App {
     status: Status,
     engine: Option<std::thread::JoinHandle<()>>,
     log: AppLog,
-    /// For "New project from this window…": the window in front when the menu opened.
+    /// For "New project from this window": the window in front when the menu opened.
     apps: windows_list::Apps,
     menu_front: Option<Front>,
     /// UI Automation on this thread, made the first time a browser's address is needed.
@@ -475,9 +475,9 @@ fn show_menu(hwnd: HWND) {
             // The submenu is destroyed with the menu.
             let _ = AppendMenuW(menu, MF_STRING | MF_POPUP, sub.0 as usize, &HSTRING::from(model.project.as_str()));
         }
-        item(menu, ID_SETUP, "Set up Context Capsule…", true);
+        item(menu, ID_SETUP, "Settings", true);
         let _ = AppendMenuW(menu, MF_SEPARATOR, 0, None);
-        item(menu, ID_QUIT, "Quit Context Capsule", true);
+        item(menu, ID_QUIT, "Quit", true);
 
         let mut pt = POINT::default();
         let _ = GetCursorPos(&mut pt);

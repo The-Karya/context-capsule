@@ -10,9 +10,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     private let infoItem = NSMenuItem(title: "", action: nil, keyEquivalent: "")
     private let skipItem = NSMenuItem(title: "", action: nil, keyEquivalent: "")
     private let toggleItem = NSMenuItem(title: "", action: #selector(toggle), keyEquivalent: "c")
-    private let addScreenItem = NSMenuItem(title: "Add another screen…", action: #selector(addScreen), keyEquivalent: "")
+    private let addScreenItem = NSMenuItem(title: "Add a screen", action: #selector(addScreen), keyEquivalent: "")
     private let projectItem = NSMenuItem(title: "Project: Auto-detect", action: nil, keyEquivalent: "")
-    private let voiceItem = NSMenuItem(title: "Add voice note", action: #selector(toggleVoice), keyEquivalent: "v")
+    private let voiceItem = NSMenuItem(title: "Speak a note", action: #selector(toggleVoice), keyEquivalent: "v")
     private let axItem = NSMenuItem(title: "Read text directly (Accessibility)…", action: #selector(askAccessibility),
                                     keyEquivalent: "")
     private var hotKey: HotKey?
@@ -55,11 +55,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         menu.addItem(projectItem)
         menu.addItem(.separator())
         menu.addItem(NSMenuItem(title: "Make today's capsules", action: #selector(makeCapsules), keyEquivalent: ""))
-        menu.addItem(NSMenuItem(title: "My capsules…", action: #selector(showLibrary), keyEquivalent: ""))
+        menu.addItem(NSMenuItem(title: "My capsules", action: #selector(showLibrary), keyEquivalent: ""))
         menu.addItem(.separator())
-        menu.addItem(NSMenuItem(title: "Set up Context Capsule…", action: #selector(showWelcome), keyEquivalent: ""))
+        menu.addItem(NSMenuItem(title: "Settings", action: #selector(showWelcome), keyEquivalent: ""))
         menu.addItem(.separator())
-        menu.addItem(NSMenuItem(title: "Quit Context Capsule", action: #selector(NSApplication.terminate(_:)), keyEquivalent: "q"))
+        menu.addItem(NSMenuItem(title: "Quit", action: #selector(NSApplication.terminate(_:)), keyEquivalent: "q"))
         for item in menu.items where item.action != nil && item.action != #selector(NSApplication.terminate(_:)) {
             item.target = self
         }
@@ -195,10 +195,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         announce(recording: recording, listening: listening)
         statusItem.button?.toolTip = listening ? "Listening — press ⌥V to finish the voice note"
             : recording ? "Contextualizing (⌥C to stop, ⌥V to talk)" : "Context Capsule (⌥C to start contextualizing)"
-        voiceItem.title = listening ? "Finish voice note" : "Add voice note"
+        voiceItem.title = listening ? "Done speaking" : "Speak a note"
         addScreenItem.isHidden = !recording || NSScreen.screens.count < 2
         addScreenItem.isEnabled = recorder.canAddScreen
-        addScreenItem.title = recorder.sharedScreens > 1 ? "Add another screen… (\(recorder.sharedScreens) shared)" : "Add another screen…"
+        addScreenItem.title = recorder.sharedScreens > 1 ? "Add a screen (\(recorder.sharedScreens) shared)" : "Add a screen"
         buildProjectMenu()
 
         if recorder.sessionID != nil, let started = recorder.startedAt {
@@ -212,11 +212,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         }
         skipItem.isHidden = !(recording && recorder.lastSkip != nil)
         skipItem.title = "Skipping: \(recorder.lastSkip?.message ?? "")"
-        toggleItem.title = recording ? "Stop contextualizing" : recorder.isPicking ? "Cancel picking" : "Start contextualizing…"
+        toggleItem.title = recording ? "Stop contextualizing" : recorder.isPicking ? "Cancel" : "Start contextualizing"
         axItem.state = AXReader.trusted ? .on : .off
     }
 
-    /// "Project: <name>" with Auto-detect, every project, and "New project from this window…".
+    /// "Project: <name>" with Auto-detect, every project, and "New project from this window".
     private func buildProjectMenu() {
         recorder.reloadProjects()
         let pinned = recorder.projectChoice.pinned
@@ -238,7 +238,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
             sub.addItem(item)
         }
         sub.addItem(.separator())
-        let new = NSMenuItem(title: "New project from this window…", action: #selector(newProject), keyEquivalent: "")
+        let new = NSMenuItem(title: "New project from this window", action: #selector(newProject), keyEquivalent: "")
         new.target = self
         sub.addItem(new)
     }
@@ -339,7 +339,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         if recording != wasRecording {
             wasRecording = recording
             if recording {
-                let more = NSScreen.screens.count > 1 ? " More screens? Menu → Add another screen." : ""
+                let more = NSScreen.screens.count > 1 ? " More screens? Menu → Add a screen." : ""
                 toast.show("● Contextualizing. ⌥C stops, ⌥V to talk.\(more)", under: statusItem.button, seconds: 5)
             } else {
                 let n = recorder.eventCount

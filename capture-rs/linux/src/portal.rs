@@ -1,6 +1,6 @@
 // context-capsule — linux: the picker = consent. The xdg-desktop-portal ScreenCast dialog (one monitor
 // or window, cursor hidden, nothing remembered), its PipeWire stream, and what was picked, placed on screen.
-// "Add another screen…" opens the dialog again: one portal session and one stream per shared source, up to 4.
+// "Add a screen" opens the dialog again: one portal session and one stream per shared source, up to 4.
 
 use crate::pipewire::{self, FrameSlot};
 use ashpd::desktop::screencast::{CursorMode, Screencast, SelectSourcesOptions, SourceType, Stream};

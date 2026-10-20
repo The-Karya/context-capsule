@@ -66,7 +66,7 @@ files. Build script `capture/build.sh` → `capture/build/Context Capsule.app`
     else the `CGWindowList` name when macOS gives it out (never prompted for), else empty;
   - if the app, title and text are the same as the previous sample, skip it
     (only extend the previous event's `end`).
-- **Voice notes** — `⌥V` (menu *Add voice note*) starts talking, press again to stop;
+- **Voice notes** — `⌥V` (menu *Speak a note*) starts talking, press again to stop;
   only while recording (else a message: "Start recording first (⌥C)"). The mic opens
   only between the presses; the menu-bar icon shows a mic while listening and resets on
   every way out (saved, empty, denied, error, 2-min limit, recording stopped).

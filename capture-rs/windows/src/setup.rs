@@ -108,7 +108,7 @@ impl Done {
 
 /// The "Use" list: what, then the keys (or where).
 pub fn uses() -> [(&'static str, &'static str); 3] {
-    [("Start contextualizing", RECORD_LABEL), ("Talk", VOICE_LABEL), ("Make my capsules", "in Claude")]
+    [("Start contextualizing", RECORD_LABEL), ("Speak a note", VOICE_LABEL), ("Make my capsules", "in Claude")]
 }
 
 // MARK: open at login (HKCU\...\Run)
@@ -466,7 +466,7 @@ mod tests {
         assert_eq!(Step::from_button(ID_BUTTON + 3), None);
         assert_eq!(Step::from_button(ID_DONE), None);
         assert_eq!(uses()[0], ("Start contextualizing", "Ctrl+Alt+Shift+C"));
-        assert_eq!(uses()[1], ("Talk", "Ctrl+Alt+Shift+V"));
+        assert_eq!(uses()[1], ("Speak a note", "Ctrl+Alt+Shift+V"));
         assert_eq!(uses()[2], ("Make my capsules", "in Claude"));
         let d = Done { voice: true, claude: false, login: true };
         assert!(d.get(Step::Voice) && !d.get(Step::Claude) && d.get(Step::Login));
@@ -492,7 +492,7 @@ mod tests {
         let t = template();
         assert_eq!(t[4] as usize, c.len(), "control count in the header");
         let s = String::from_utf16_lossy(&t);
-        for word in ["Context Capsule", "Set up", "Voice notes", "Connect Claude", "Open at login", "Use", "Start contextualizing", "Talk", "Done"] {
+        for word in ["Context Capsule", "Set up", "Voice notes", "Connect Claude", "Open at login", "Use", "Start contextualizing", "Speak a note", "Done"] {
             assert!(s.contains(word), "{word}");
         }
     }

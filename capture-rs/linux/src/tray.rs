@@ -44,9 +44,9 @@ pub fn toggle_label(status: &Status) -> &'static str {
     if status.recording {
         "Stop contextualizing"
     } else if status.picking {
-        "Cancel picking"
+        "Cancel"
     } else {
-        "Start contextualizing…"
+        "Start contextualizing"
     }
 }
 
@@ -125,7 +125,7 @@ impl ksni::Tray for CapsuleTray {
             }
             .into(),
             StandardItem {
-                label: if self.status.listening { "Finish voice note" } else { "Add voice note" }.into(),
+                label: if self.status.listening { "Done speaking" } else { "Speak a note" }.into(),
                 shortcut: vec![keys("V")],
                 activate: send(Msg::ToggleVoice),
                 ..Default::default()
@@ -141,7 +141,7 @@ impl ksni::Tray for CapsuleTray {
             .into(),
             self.project_menu(),
             MenuItem::Separator,
-            StandardItem { label: "Quit Context Capsule".into(), activate: send(Msg::Quit), ..Default::default() }
+            StandardItem { label: "Quit".into(), activate: send(Msg::Quit), ..Default::default() }
                 .into(),
         ]
     }
@@ -359,11 +359,11 @@ mod tests {
         let now = SystemTime::now();
         let mut s = Status::default();
         assert_eq!(info_line(&s, now, &t), "Not contextualizing");
-        assert_eq!(toggle_label(&s), "Start contextualizing…");
+        assert_eq!(toggle_label(&s), "Start contextualizing");
         assert_eq!(title_text(&s, now), "Context Capsule");
         s.picking = true;
         assert_eq!(info_line(&s, now, &t), "Pick a window or screen…");
-        assert_eq!(toggle_label(&s), "Cancel picking");
+        assert_eq!(toggle_label(&s), "Cancel");
         s = Status {
             recording: true,
             session_id: Some("20261019-100103".into()),

@@ -1,5 +1,5 @@
 // context-capsule — windows: the system capture picker (GraphicsCapturePicker) and the captures of what the
-// user picked: one at the start, and up to 4 in all through "Add another screen…" (the picker once per added
+// user picked: one at the start, and up to 4 in all through "Add a screen" (the picker once per added
 // screen or window). The user's choice is the consent; we capture only that, keep only the latest frame of
 // each, in memory, and never write it to disk.
 //! Windows draws its yellow border around what is shared; we keep it (it tells the user what is read).
