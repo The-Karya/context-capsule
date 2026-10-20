@@ -47,12 +47,13 @@ capsule is written **for Claude**: people can read it, but they don't have to.
 Everything in one place (menu → **Open Context Capsule**). Mac for now; on Windows and Linux
 the same actions are in the tray menu and a small setup window.
 
-- **Home**: Start / Stop contextualizing with a live timer, Speak a note, Add a screen, the
-  current project (change it or make a new one), and Make today's capsules.
+- **Home**: a hello with your name, Start / Stop contextualizing with a live timer, Speak a
+  note, Add a screen, your projects as one-click buttons, time per project today and this
+  week, your latest capsule, and Make today's capsules. It fits any window size.
 - **Capsules**: your capsules by project, with Share (Copy file, Copy text, Save a copy,
   Show in Finder, AirDrop/Mail/Messages) and Open.
 - **Projects**: rename them, change how they're found, delete them.
-- **Settings**: set up, the evening reminder and its time, when to delete old recordings,
+- **Settings**: your name (it goes on your capsules), set up, the evening reminder and its time, when to delete old recordings,
   sounds, the voice-note language, and apps never to record.
 - **Help**: shortcuts, how it works, privacy.
 

@@ -716,6 +716,36 @@ pointerEvent.focus = "pointer"
 check(pointerEvent.line == #"{"t":"a","end":"a","app":"Safari","bundle":"s","title":"Docs","focus":"pointer","src":"ax","text":"x"}"#,
       "pointer event line", pointerEvent.line)
 
+// MARK: time per project
+
+let statRoot = tmp.appendingPathComponent("stat-sessions")
+let statDir = statRoot.appendingPathComponent("20261019-100000")
+try! FileManager.default.createDirectory(at: statDir, withIntermediateDirectories: true)
+try! """
+{"t":"2026-10-19T10:00:00Z","end":"2026-10-19T10:30:00Z","app":"Code","bundle":"c","title":"x","project":"web","project_by":"auto","src":"ax","text":"a"}
+{"t":"2026-10-19T10:30:00Z","end":"2026-10-19T10:30:00Z","app":"Code","bundle":"c","title":"x","project":"web","project_by":"auto","src":"ax","text":"b"}
+{"t":"2026-10-19T10:31:00Z","end":"2026-10-19T10:41:00Z","app":"Slack","bundle":"s","title":"y","src":"ax","text":"c"}
+{"t":"2026-10-19T10:35:00Z","end":"2026-10-19T10:45:00Z","app":"Safari","bundle":"f","title":"z","focus":"pointer","src":"ax","text":"d"}
+{"t":"2026-10-19T10:40:00Z","end":"2026-10-19T10:41:00Z","kind":"voice","src":"voice","app":"Code","bundle":"c","title":"x","text":"why"}
+{"t":"2026-10-20T09:00:00Z","end":"2026-10-20T09:10:00Z","app":"Code","bundle":"c","title":"x","project":"web","project_by":"auto","src":"ax","text":"e"}
+""".write(to: statDir.appendingPathComponent("events.jsonl"), atomically: true, encoding: .utf8)
+let dayStart = Date(timeIntervalSince1970: 1_792_368_000) // 2026-10-19T00:00:00Z
+let stats = WorkStats.totals(sessions: statRoot, from: dayStart, to: dayStart.addingTimeInterval(86_400))
+check(stats.byProject.map(\.id) == ["web", ""] && stats.byProject[0].seconds == 1803 && stats.byProject[1].seconds == 600,
+      "time per project: notes and looked-at windows don't count", "\(stats.byProject)")
+check(stats.seconds == 2403, "total time")
+try! #"{"assign":[{"project":"chat","from":"2026-10-19T10:31:00Z","to":"2026-10-19T10:32:00Z"}]}"#
+    .write(to: statDir.appendingPathComponent("assign.json"), atomically: true, encoding: .utf8)
+let sorted = WorkStats.totals(sessions: statRoot, from: dayStart, to: dayStart.addingTimeInterval(86_400))
+check(sorted.byProject.map(\.id) == ["web", "chat"], "Claude's corrections count", "\(sorted.byProject)")
+try? FileManager.default.removeItem(at: statDir.appendingPathComponent("assign.json"))
+let byClue = WorkStats.totals(sessions: statRoot, from: dayStart, to: dayStart.addingTimeInterval(86_400),
+                              projects: [Project(id: "team", name: "Team", match: ["Slack"])])
+check(byClue.byProject.map(\.id) == ["web", "team"], "clues made later count too", "\(byClue.byProject)")
+check(WorkStats.duration(40) == "40 s" && WorkStats.duration(720) == "12 m" && WorkStats.duration(3900) == "1 h 05 m", "durations")
+check(WorkStats.greeting(hour: 9) == "Good morning" && WorkStats.greeting(hour: 14) == "Good afternoon"
+      && WorkStats.greeting(hour: 20) == "Good evening", "greetings")
+
 try? FileManager.default.removeItem(at: tmp)
 print("\(passes) passed, \(failures) failed")
 exit(failures == 0 ? 0 : 1)

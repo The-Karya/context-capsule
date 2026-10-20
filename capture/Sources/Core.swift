@@ -1228,3 +1228,84 @@ enum PointerRule {
         return pointerPick.source != frontPick.source
     }
 }
+
+// MARK: - Time per project (for Home: Today and This week)
+
+enum WorkStats {
+    struct Totals: Equatable {
+        var seconds: Double = 0
+        /// Project id ("" = not sorted yet) → seconds, most first.
+        var byProject: [(id: String, seconds: Double)] = []
+        static func == (a: Totals, b: Totals) -> Bool {
+            a.seconds == b.seconds && a.byProject.map(\.id) == b.byProject.map(\.id) && a.byProject.map(\.seconds) == b.byProject.map(\.seconds)
+        }
+    }
+
+    /// Time spent in windows in use between two moments, from the recordings (notes and windows only looked at
+    /// on another screen don't count; each moment counts at least one 3-second sample, like the Claude side).
+    static func totals(sessions: URL, from: Date, to: Date, projects: [Project] = []) -> Totals {
+        let iso = ISO8601DateFormatter()
+        let earliest = Clock.sessionID(from.addingTimeInterval(-86_400)) // a recording can start the day before
+        let names = (try? FileManager.default.contentsOfDirectory(atPath: sessions.path)) ?? []
+        var by: [String: Double] = [:]
+        for id in names where id.count == 15 && id >= earliest {
+            guard let text = try? String(contentsOf: sessions.appendingPathComponent(id).appendingPathComponent("events.jsonl"),
+                                         encoding: .utf8) else { continue }
+            let fixes = Assignments.load(sessions.appendingPathComponent(id).appendingPathComponent("assign.json"))
+            for line in text.split(separator: "\n") {
+                guard let obj = try? JSONSerialization.jsonObject(with: Data(line.utf8)) as? [String: Any],
+                      let t = (obj["t"] as? String).flatMap(iso.date(from:)), t >= from, t < to,
+                      obj["kind"] == nil, (obj["focus"] as? String) != "pointer" else { continue }
+                let end = (obj["end"] as? String).flatMap(iso.date(from:)) ?? t
+                // The same order as the Claude side: a correction, what the recorder chose, then today's clues.
+                var project = obj["project"] as? String ?? ""
+                if let fixed = Assignments.at(fixes, t) {
+                    project = fixed
+                } else if project.isEmpty, let p = Projects.detect(projects, title: obj["title"] as? String ?? "",
+                                                                   location: obj["where"] as? String ?? "",
+                                                                   app: obj["app"] as? String ?? "") {
+                    project = p.id
+                }
+                by[project, default: 0] += max(3, end.timeIntervalSince(t))
+            }
+        }
+        let sorted = by.map { (id: $0.key, seconds: $0.value) }.sorted { $0.seconds > $1.seconds }
+        return Totals(seconds: sorted.reduce(0) { $0 + $1.seconds }, byProject: sorted)
+    }
+
+    /// "1 h 05 m", "12 m", "40 s".
+    static func duration(_ seconds: Double) -> String {
+        let s = Int(seconds)
+        if s < 60 { return "\(s) s" }
+        let m = s / 60
+        return m < 60 ? "\(m) m" : String(format: "%d h %02d m", m / 60, m % 60)
+    }
+
+    /// "Good morning" / "Good afternoon" / "Good evening".
+    static func greeting(hour: Int) -> String {
+        hour < 12 ? "Good morning" : hour < 18 ? "Good afternoon" : "Good evening"
+    }
+}
+
+/// Corrections Claude made to which project a stretch belongs to (`assign.json` in a recording's folder).
+enum Assignments {
+    struct Fix { var from: Date?; var to: Date?; var project: String }
+
+    static func load(_ url: URL) -> [Fix] {
+        guard let data = try? Data(contentsOf: url), let obj = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+              let list = obj["assign"] as? [[String: Any]] else { return [] }
+        let iso = ISO8601DateFormatter()
+        return list.compactMap { a in
+            guard let p = a["project"] as? String else { return nil }
+            return Fix(from: (a["from"] as? String).flatMap(iso.date(from:)), to: (a["to"] as? String).flatMap(iso.date(from:)),
+                       project: p)
+        }
+    }
+
+    /// The correction covering `t` (later ones win); "" means "no project"; nil: none.
+    static func at(_ fixes: [Fix], _ t: Date) -> String? {
+        var hit: String?
+        for f in fixes where (f.from.map { t >= $0 } ?? true) && (f.to.map { t < $0 } ?? true) { hit = f.project }
+        return hit
+    }
+}
