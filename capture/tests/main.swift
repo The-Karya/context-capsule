@@ -1,6 +1,7 @@
 // context-capsule — capture: tiny test runner for Core.swift (redaction, exclusion, dedupe, file formats,
 // picked-content membership, AX text assembly, AX-vs-OCR choice).
 
+import CryptoKit
 import Foundation
 
 var failures = 0
@@ -754,6 +755,103 @@ check(byClue.byProject.map(\.id) == ["web", "team"], "clues made later count too
 check(WorkStats.duration(40) == "40 s" && WorkStats.duration(720) == "12 m" && WorkStats.duration(3900) == "1 h 05 m", "durations")
 check(WorkStats.greeting(hour: 9) == "Good morning" && WorkStats.greeting(hour: 14) == "Good afternoon"
       && WorkStats.greeting(hour: 20) == "Good evening", "greetings")
+
+// MARK: updates
+
+check(SemVer("0.2.0")! > SemVer("0.1.0")! && SemVer("0.10.0")! > SemVer("0.9.9")! && SemVer("1.0.0")! > SemVer("0.99.99")!,
+      "versions compare as numbers")
+check(SemVer("v0.2.0") == SemVer("0.2.0") && SemVer("0.2") == SemVer("0.2.0"), "a leading v and a missing patch")
+check(SemVer("0.2.0-beta.1")! < SemVer("0.2.0")! && SemVer("0.2.0-beta.2")! < SemVer("0.2.0-beta.10")!
+      && SemVer("0.2.0-alpha")! < SemVer("0.2.0-beta")!, "pre-releases come before the release")
+check(SemVer("") == nil && SemVer("x.y") == nil && SemVer("1.2.3.4") == nil && SemVer("1.-2.0") == nil && SemVer("1.0.0-") == nil,
+      "nonsense versions are refused")
+check(!(SemVer("0.1.0")! > SemVer("0.1.0")!), "the same version is not newer")
+
+// A test key made here; the real private key is never read by tests.
+let testKey = Curve25519.Signing.PrivateKey()
+let testPub = testKey.publicKey.rawRepresentation.base64EncodedString()
+let sha = String(repeating: "ab", count: 32)
+let feedText = """
+{"version":"0.2.0","date":"2026-10-21","notes":"Fixes.",
+ "mac":{"url":"https://example.com/Context-Capsule-0.2.0-mac.zip","sha256":"\(sha)","size":1234},
+ "linux":{"url":"https://example.com/Context-Capsule-0.2.0-x86_64.AppImage","sha256":"\(sha)","size":99}}
+"""
+let feedData = Data(feedText.utf8)
+func sign(_ d: Data) -> Data { Data(((try? testKey.signature(for: d)) ?? Data()).base64EncodedString().utf8) }
+let goodSig = sign(feedData)
+
+check(Update.verify(feed: feedData, signature: goodSig, publicKey: testPub), "a good signature is accepted")
+check(Update.verify(feed: feedData, signature: goodSig + Data("\n".utf8), publicKey: testPub), "a trailing newline in the .sig is fine")
+check(!Update.verify(feed: Data((feedText + " ").utf8), signature: goodSig, publicKey: testPub), "a changed feed is refused")
+check(!Update.verify(feed: feedData, signature: goodSig), "signed by another key: refused")
+check(!Update.verify(feed: feedData, signature: Data("not base64!".utf8), publicKey: testPub), "a broken signature is refused")
+check(!Update.verify(feed: feedData, signature: Data(), publicKey: testPub), "no signature is refused")
+check(Data(base64Encoded: Update.publicKey)?.count == 32, "the built-in public key is 32 bytes")
+
+let parsed = UpdateFeed.parse(feedData)
+check(parsed?.version == "0.2.0" && parsed?.assets["mac"]?.size == 1234 && parsed?.assets["windows"] == nil
+      && parsed?.notes == "Fixes.", "feed parsed; a missing platform is fine")
+check(UpdateFeed.parse(Data(#"{"version":"0.2.0","mac":{"url":"http://example.com/a.zip","sha256":"\#(sha)","size":1}}"#.utf8)) == nil,
+      "plain http is refused")
+check(UpdateFeed.parse(Data(#"{"version":"0.2.0","mac":{"url":"https://example.com/a.zip","sha256":"abc","size":1}}"#.utf8)) == nil,
+      "a short sha256 is refused")
+check(UpdateFeed.parse(Data(#"{"version":"0.2.0","mac":{"url":"https://example.com/a.zip","sha256":"\#(sha)","size":0}}"#.utf8)) == nil,
+      "a zero size is refused")
+check(UpdateFeed.parse(Data(#"{"version":"soon"}"#.utf8)) == nil && UpdateFeed.parse(Data("[]".utf8)) == nil, "a bad feed is refused")
+
+let macAsset = parsed!.assets["mac"]!
+check(Update.decide(feed: feedData, signature: goodSig, current: "0.1.0", publicKey: testPub)
+      == .update(version: "0.2.0", asset: macAsset), "newer + signed: update")
+check(Update.decide(feed: feedData, signature: goodSig, current: "0.2.0", publicKey: testPub) == .upToDate, "same version: up to date")
+check(Update.decide(feed: feedData, signature: goodSig, current: "0.3.0", publicKey: testPub) == .upToDate, "never go back")
+check(Update.decide(feed: feedData, signature: goodSig, current: "0.1.0") == .badSignature, "the signature is checked first")
+check(Update.decide(feed: feedData, signature: goodSig, current: "0.1.0", platform: "windows", publicKey: testPub)
+      == .noBuildForThisPlatform(version: "0.2.0"), "no file for this platform: no update")
+check(Update.decide(feed: feedData, signature: goodSig, current: "0.1.0", platform: "linux", publicKey: testPub)
+      != .upToDate, "each platform picks its own file")
+let badJSON = Data("{\"version\":".utf8)
+check(Update.decide(feed: badJSON, signature: sign(badJSON), current: "0.1.0", publicKey: testPub) == .badFeed, "signed but broken: refused")
+
+let t0 = Date(timeIntervalSince1970: 1_792_368_000)
+check(!Update.shouldCheck(now: t0.addingTimeInterval(30), launchedAt: t0, lastCheck: nil, auto: true, busy: false), "not in the first minute")
+check(Update.shouldCheck(now: t0.addingTimeInterval(61), launchedAt: t0, lastCheck: nil, auto: true, busy: false), "a minute after launch")
+check(!Update.shouldCheck(now: t0.addingTimeInterval(61), launchedAt: t0, lastCheck: nil, auto: true, busy: true), "not while busy")
+check(!Update.shouldCheck(now: t0.addingTimeInterval(61), launchedAt: t0, lastCheck: nil, auto: false, busy: false), "not when turned off")
+check(!Update.shouldCheck(now: t0.addingTimeInterval(3600), launchedAt: t0, lastCheck: t0.addingTimeInterval(61), auto: true, busy: false),
+      "not again the same day")
+check(Update.shouldCheck(now: t0.addingTimeInterval(90_000), launchedAt: t0, lastCheck: t0.addingTimeInterval(61), auto: true, busy: false),
+      "again a day later")
+
+check(Update.feedURLs(base: nil)?.feed.absoluteString
+      == "https://github.com/The-Karya/context-capsule/releases/latest/download/latest.json", "default feed")
+check(Update.feedURLs(base: "https://example.com/cc")?.signature.absoluteString == "https://example.com/cc/latest.json.sig", "feed base from config")
+check(Update.feedURLs(base: "http://example.com/") == nil, "an http feed is refused")
+
+check(Update.sha256(Data("abc".utf8)) == "ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad", "sha256")
+let dl = tmp.appendingPathComponent("download.zip")
+try! FileManager.default.createDirectory(at: tmp, withIntermediateDirectories: true)
+try! Data("abc".utf8).write(to: dl)
+let abcSum = Update.sha256(Data("abc".utf8))
+check(Update.checkDownload(dl, against: UpdateAsset(url: URL(string: "https://e.com/a")!, sha256: abcSum, size: 3)) == nil, "download matches")
+check(Update.checkDownload(dl, against: UpdateAsset(url: URL(string: "https://e.com/a")!, sha256: abcSum, size: 4)) != nil, "wrong size")
+check(Update.checkDownload(dl, against: UpdateAsset(url: URL(string: "https://e.com/a")!, sha256: sha, size: 3)) != nil, "wrong sha256")
+
+check(Update.isInApplications("/Applications/Context Capsule.app", home: "/Users/me")
+      && Update.isInApplications("/Users/me/Applications/Context Capsule.app", home: "/Users/me"), "in Applications")
+check(!Update.isInApplications("/Volumes/Context Capsule/Context Capsule.app", home: "/Users/me")
+      && !Update.isInApplications("/Users/me/Downloads/Context Capsule.app", home: "/Users/me"), "not in Applications")
+
+check(Update.requirement(identifier: "com.x", teamID: "ABCDE12345", leafCertSHA1: nil)
+      == "identifier \"com.x\" and anchor apple generic and certificate leaf[subject.OU] = \"ABCDE12345\"", "Developer ID: same team")
+check(Update.requirement(identifier: "com.x", teamID: nil, leafCertSHA1: String(repeating: "A", count: 40))
+      == "identifier \"com.x\" and certificate leaf = H\"\(String(repeating: "a", count: 40))\"", "local certificate: same certificate")
+check(Update.requirement(identifier: "com.x", teamID: nil, leafCertSHA1: nil) == nil, "ad-hoc: no updates")
+check(Update.requirement(identifier: "com.x", teamID: "AB\"CD", leafCertSHA1: nil) == nil, "odd team ids are refused")
+
+check(Config.load(from: tmp.appendingPathComponent("none.json")).autoUpdate, "updates are automatic by default")
+let upCfg = tmp.appendingPathComponent("up.json")
+try! #"{"auto_update": false, "update_feed": "https://example.com/"}"#.write(to: upCfg, atomically: true, encoding: .utf8)
+check(!Config.load(from: upCfg).autoUpdate && Config.load(from: upCfg).updateFeed == "https://example.com/", "update settings read")
 
 try? FileManager.default.removeItem(at: tmp)
 print("\(passes) passed, \(failures) failed")

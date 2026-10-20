@@ -35,8 +35,16 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     private var wasRecording = false
     private var wasListening = false
     private var control: ControlWatcher?
+    private lazy var updater = Updater(paths: paths) { [weak self] in
+        guard let self else { return false }
+        return self.recorder.isRecording || self.recorder.listening || self.recorder.isPicking
+    }
+    private let updatePrompt = UpdatePrompt()
+    private let updateItem = NSMenuItem(title: "Check for Updates", action: #selector(updateClicked), keyEquivalent: "")
 
     func applicationDidFinishLaunching(_ notification: Notification) {
+        // Run from the disk image or Downloads: offer once to move to Applications (it then reopens from there).
+        if MoveToApplications.offerIfNeeded() { return }
         try? FileManager.default.createDirectory(at: paths.sessions, withIntermediateDirectories: true)
 
         statusItem = NSStatusBar.system.statusItem(withLength: NSStatusItem.variableLength)
@@ -57,6 +65,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         menu.addItem(NSMenuItem(title: "Open Context Capsule", action: #selector(showMain), keyEquivalent: "o"))
         menu.addItem(NSMenuItem(title: "Make today's capsules", action: #selector(makeCapsules), keyEquivalent: ""))
         menu.addItem(.separator())
+        menu.addItem(updateItem)
         menu.addItem(NSMenuItem(title: "Quit", action: #selector(NSApplication.terminate(_:)), keyEquivalent: "q"))
         for item in menu.items where item.action != nil && item.action != #selector(NSApplication.terminate(_:)) {
             item.target = self
@@ -145,6 +154,16 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         daily.onMake = { [weak self] in self?.makeCapsules() }
         daily.start()
 
+        appModel.version = Updater.currentVersion
+        appModel.checkForUpdates = { [weak self] in self?.updater.check(manual: true) }
+        appModel.restartToUpdate = { [weak self] in self?.restartToUpdate() }
+        updater.onChange = { [weak self] in self?.refresh() }
+        updater.onReady = { [weak self] version in
+            guard let self else { return }
+            self.updatePrompt.show(version: version) { [weak self] in self?.restartToUpdate() }
+        }
+        updater.start()
+
         // Notice when Accessibility is switched on or off (no event for it): log it and say so.
         lastTrusted = AXReader.trusted
         AppLog.shared.write("accessibility: \(lastTrusted ? "on" : "off") at launch")
@@ -170,6 +189,19 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     }
 
     @objc private func showMain() { main.show(.home) }
+
+    /// "Check for Updates", or "Restart to Update" once a new version is ready.
+    @objc private func updateClicked() {
+        if updater.readyVersion != nil { restartToUpdate(); return }
+        updater.check(manual: true) { [weak self] text in
+            guard let self, self.updater.readyVersion == nil else { return }
+            self.toast.show(text, under: self.statusItem.button, seconds: 4)
+        }
+    }
+
+    private func restartToUpdate() {
+        if let problem = updater.restartNow() { toast.show(problem, under: statusItem.button, seconds: 5) }
+    }
 
     @objc private func addScreen() { recorder.addScreen() }
 
@@ -228,6 +260,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         skipItem.title = "Skipping: \(recorder.lastSkip?.message ?? "")"
         toggleItem.title = recording ? "Stop contextualizing" : recorder.isPicking ? "Cancel" : "Start contextualizing"
         axItem.state = AXReader.trusted ? .on : .off
+        updateItem.title = updater.readyVersion != nil ? "Restart to Update" : "Check for Updates"
     }
 
     /// What the window shows (it updates live while open).
@@ -244,6 +277,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         m.screens = recorder.sharedScreens
         m.canAddScreen = recorder.canAddScreen
         m.hasSeveralScreens = NSScreen.screens.count > 1
+        m.updateLine = updater.line
+        m.updateReady = updater.readyVersion != nil
+        m.updateWorking = updater.working
     }
 
     /// "Project: <name>" with Auto-detect, every project, and "New project from this window".

@@ -165,6 +165,10 @@ struct Config {
     var keepDays = 30
     /// Soft sounds when recording / the mic starts and stops.
     var sounds = true
+    /// Download and prepare new versions by themselves (they install only when you say Restart).
+    var autoUpdate = true
+    /// Base URL of latest.json and latest.json.sig; nil = the GitHub release (Update.defaultFeedBase).
+    var updateFeed: String? = nil
 
     /// Reads `{"exclude_apps": [...], "voice_locale": "en-GB"}`; a missing or broken file means defaults.
     static func load(from url: URL) -> Config {
@@ -178,7 +182,8 @@ struct Config {
         return Config(excludeApps: (obj["exclude_apps"] as? [String]) ?? [],
                       voiceLocale: locale?.isEmpty == false ? locale : nil,
                       askProject: obj["ask_project"] as? Bool ?? false,
-                      remindAt: remind, keepDays: max(0, keep), sounds: obj["sounds"] as? Bool ?? true)
+                      remindAt: remind, keepDays: max(0, keep), sounds: obj["sounds"] as? Bool ?? true,
+                      autoUpdate: obj["auto_update"] as? Bool ?? true, updateFeed: obj["update_feed"] as? String)
     }
 }
 

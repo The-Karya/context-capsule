@@ -34,6 +34,13 @@ final class AppModel: ObservableObject {
     var pickProject: (String?) -> Void = { _ in }
     var newProject: () -> Void = {}
     var askAccessibility: () -> Void = {}
+    /// Updates (Settings → Updates).
+    @Published var version = ""
+    @Published var updateLine = ""
+    @Published var updateReady = false
+    @Published var updateWorking = false
+    var checkForUpdates: () -> Void = {}
+    var restartToUpdate: () -> Void = {}
 
     var projectName: String? { projectID.flatMap { id in projects.first { $0.id == id }?.name ?? id } }
 }
@@ -453,6 +460,7 @@ final class Preferences: ObservableObject {
     @Published var name = ""
     /// "system", "light" or "dark".
     @Published var appearance = "system"
+    @Published var autoUpdate = true
 
     /// The first word of the name, for the greeting.
     var firstName: String { name.split(separator: " ").first.map(String.init) ?? "" }
@@ -499,6 +507,7 @@ final class Preferences: ObservableObject {
         }
         keepDays = c.keepDays
         sounds = c.sounds
+        autoUpdate = c.autoUpdate
         voiceLocale = c.voiceLocale ?? ""
         neverRecord = c.excludeApps
         name = Self.name(from: url)
@@ -665,6 +674,24 @@ private struct SettingsView: View {
             Divider().padding(.leading, 14)
             row("Add an app") { Button("Choose…") { prefs.addApp() } }
         }
+
+        Caption(text: "Updates")
+        Panel {
+            row("Update automatically") {
+                Toggle("", isOn: $prefs.autoUpdate).labelsHidden().toggleStyle(.switch)
+                    .onChange(of: prefs.autoUpdate) { prefs.save("auto_update", prefs.autoUpdate) }
+            }
+            Divider().padding(.leading, 14)
+            row("Version \(app.version)") {
+                if app.updateReady {
+                    Button("Restart now", action: app.restartToUpdate)
+                } else {
+                    Button("Check for Updates", action: app.checkForUpdates).disabled(app.updateWorking)
+                }
+            }
+        }
+        Text(app.updateLine.isEmpty ? "New versions are signed and checked. Nothing about you is sent." : app.updateLine)
+            .font(.system(size: 12)).foregroundStyle(.secondary).padding(.leading, 4)
     }
 }
 

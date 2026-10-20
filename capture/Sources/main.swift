@@ -27,6 +27,28 @@ if let i = CommandLine.arguments.firstIndex(of: "--render-icons"), i + 1 < Comma
     exit(0)
 }
 
+if let i = CommandLine.arguments.firstIndex(of: "--test-update"), i + 3 < CommandLine.arguments.count {
+    // For checking a release by hand, offline: --test-update latest.json latest.json.sig Context-Capsule-<ver>-mac.zip
+    // runs the same checks as a real update (signature, version, size, SHA-256, unzip, same signer); installs nothing.
+    let a = CommandLine.arguments
+    guard let feed = try? Data(contentsOf: URL(fileURLWithPath: a[i + 1])),
+          let sig = try? Data(contentsOf: URL(fileURLWithPath: a[i + 2])) else { print("cannot read the feed"); exit(1) }
+    switch Update.decide(feed: feed, signature: sig, current: Updater.currentVersion) {
+    case .update(let version, let asset):
+        let folder = FileManager.default.temporaryDirectory.appendingPathComponent("cc-test-update-\(getpid())")
+        try? FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
+        let zip = folder.appendingPathComponent("update.zip")
+        try? FileManager.default.copyItem(at: URL(fileURLWithPath: a[i + 3]), to: zip)
+        let result = Updater.stage(zip: zip, asset: asset, version: version, in: folder)
+        try? FileManager.default.removeItem(at: folder)
+        switch result {
+        case .success: print("ok: \(version) would install"); exit(0)
+        case .failure(let why): print("refused: \(why.reason)"); exit(1)
+        }
+    case let other: print("no update: \(other)"); exit(1)
+    }
+}
+
 let app = NSApplication.shared
 let delegate = AppDelegate()
 app.delegate = delegate
