@@ -263,7 +263,9 @@ struct Panel<Content: View>: View {
     var body: some View {
         let shape = RoundedRectangle(cornerRadius: 14, style: .continuous)
         if #available(macOS 26, *) {
-            VStack(spacing: 0) { content }.glassEffect(.regular, in: shape)
+            VStack(spacing: 0) { content }
+                .background(shape.fill(Color.primary.opacity(0.035))) // always visible, even where the glass has nothing behind it
+                .glassEffect(.regular, in: shape)
         } else {
             VStack(spacing: 0) { content }.background(shape.fill(.regularMaterial))
         }

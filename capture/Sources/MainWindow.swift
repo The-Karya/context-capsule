@@ -95,7 +95,7 @@ struct MainView: View {
             // on wide windows Home gets a second column.
             GeometryReader { geo in
                 ScrollView {
-                    VStack(alignment: .leading, spacing: 24) {
+                    VStack(alignment: .leading, spacing: nav.section == .home ? 24 : 8) {
                         switch nav.section ?? .home {
                         case .home: HomeView(app: app, nav: nav, wide: geo.size.width > 900)
                         case .capsules: CapsulesView(library: library, app: app)
@@ -104,13 +104,14 @@ struct MainView: View {
                         case .help: HelpView()
                         }
                     }
+                    .environment(\.captionGap, nav.section == .home ? 0 : 16)
                     .padding(.horizontal, 32)
                     .padding(.vertical, 24)
                     .frame(maxWidth: geo.size.width > 900 ? 1120 : 760, alignment: .leading)
                     .frame(maxWidth: .infinity)
                 }
             }
-            .navigationTitle((nav.section ?? .home).title)
+            .navigationTitle("")
             .toolbar {
                 ToolbarItem(placement: .primaryAction) { StatusPill(app: app) }
             }
@@ -127,9 +128,18 @@ private struct Title: View {
     var body: some View { Text(text).font(.system(size: 22, weight: .semibold)) }
 }
 
+private struct CaptionGap: EnvironmentKey { static let defaultValue: CGFloat = 0 }
+extension EnvironmentValues {
+    /// Space above a caption: pages that list caption, panel, caption, panel… use it to keep each caption with its panel.
+    var captionGap: CGFloat { get { self[CaptionGap.self] } set { self[CaptionGap.self] = newValue } }
+}
+
 private struct Caption: View {
     let text: String
-    var body: some View { Text(text).font(.system(size: 12, weight: .medium)).foregroundStyle(.secondary).padding(.leading, 4) }
+    @Environment(\.captionGap) private var gap
+    var body: some View {
+        Text(text).font(.system(size: 12, weight: .medium)).foregroundStyle(.secondary).padding(.leading, 4).padding(.top, gap)
+    }
 }
 
 /// One project's share of the time: name, a bar, the duration.
@@ -611,7 +621,7 @@ private struct SettingsView: View {
         Panel {
             row("Appearance") {
                 Picker("", selection: $prefs.appearance) {
-                    Text("Match my Mac").tag("system")
+                    Text("System").tag("system")
                     Text("Light").tag("light")
                     Text("Dark").tag("dark")
                 }
