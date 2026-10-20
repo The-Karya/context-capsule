@@ -171,6 +171,29 @@ export function finishDay(day: string): { complete: boolean; text: string } {
   const table = rows.length
     ? ["| Project | Time | Daily capsule | Project capsule |", "|---|---|---|---|", ...rows].join("\n")
     : "No projects to write up.";
-  if (!missing.length) return { complete: true, text: `Done for ${day} ✓\n\n${table}` };
-  return { complete: false, text: `Not done yet for ${day}. Still missing:\n${missing.map((m) => `- ${m}`).join("\n")}\n\n${table}` };
+
+  // What the user should know: drafts and guesses (Unsure), and what wasn't written up (Skipped).
+  const unsure: string[] = [];
+  for (const p of projectsToWrite(d)) {
+    const c = capsulesFor(all, p.id, day);
+    for (const cap of [c.daily, updatedFor(c.whole, day) ? c.whole : undefined]) {
+      if (!cap) continue;
+      if (cap.draft) unsure.push(`${cap.slug} was saved as a draft (some checks didn't pass)`);
+      const guesses = (fs.readFileSync(cap.path, "utf8").match(/\(guess\)/gi) ?? []).length;
+      if (guesses) unsure.push(`${cap.slug} has ${guesses} guess(es) marked *(guess)*`);
+    }
+  }
+  const skipped = d.projects
+    .filter((p) => p.id && !projectsToWrite(d).includes(p))
+    .map((p) => `${names.get(p.id) ?? p.id} (${formatDuration(p.ms)}, too little to write up)`);
+  const report = [
+    ...(unsure.length ? ["Unsure:", ...unsure.map((u) => `- ${u}`)] : []),
+    ...(skipped.length ? ["Skipped:", ...skipped.map((k) => `- ${k}`)] : []),
+  ].join("\n");
+
+  if (!missing.length) return { complete: true, text: `Done for ${day} ✓\n\n${table}${report ? `\n\n${report}` : ""}` };
+  return {
+    complete: false,
+    text: `Not done yet for ${day}. Still missing:\n${missing.map((m) => `- ${m}`).join("\n")}\n\n${table}${report ? `\n\n${report}` : ""}`,
+  };
 }

@@ -248,3 +248,31 @@ describe("tools", () => {
     expect((byFile.messages[0]!.content as { text: string }).text).toContain('Call import_capsule with path "~/Downloads/plan.capsule.md"');
   });
 });
+
+describe("finish_day reports what's unsure or skipped", () => {
+  test("guesses and drafts are Unsure; tiny projects are Skipped", async () => {
+    writeSession(home, "20261019-100000", [
+      ev(0, "Code", "x — acme-site", "work", 60),
+      ev(60, "Figma", "logo — acme-brand", "peek", 1),
+    ]);
+    createProject("Website", ["acme-site"]);
+    createProject("Brand", ["acme-brand"]);
+    const guessy = VALID_BODY.replace("*(seen in Linear, 10:08)*", "*(guess)*");
+    expect((await call("save_capsule", { title: "w", markdown: guessy, project: "website", kind: "daily", date: day })).isError).toBe(false);
+    expect((await call("save_capsule", { title: "Website", markdown: VALID_BODY, project: "website", kind: "project" })).isError).toBe(false);
+    const fin = (await call("finish_day", { date: day })).text;
+    expect(fin).toContain(`Done for ${day} ✓`);
+    expect(fin).toContain("Unsure:");
+    expect(fin).toContain("1 guess(es)");
+    expect(fin).toContain("Skipped:");
+    expect(fin).toContain("Brand (1m, too little to write up)");
+  });
+
+  test("the review prompt checks facts, reasons and privacy, and never exports", async () => {
+    const p = await client.getPrompt({ name: "review_capsule", arguments: { name: "website" } });
+    const t = (p.messages[0]!.content as { text: string }).text;
+    expect(t).toContain("Confirmed problems");
+    expect(t).toContain("Nothing private");
+    expect(t).toContain("Don't export it");
+  });
+});

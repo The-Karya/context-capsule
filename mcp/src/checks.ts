@@ -1,6 +1,7 @@
 // context-capsule — mcp: checks a capsule before it is saved, so every capsule another Claude loads is
 // complete. Problems come back as precise "fix this" lines; Claude fixes them and saves again.
 import { REQUIRED_SECTIONS } from "./capsules.js";
+import { formatClock } from "./sessions.js";
 
 export interface CheckResult {
   /** Must be fixed before saving. */
@@ -37,6 +38,51 @@ const CITED = /\((?:[^()]*\b(?:you said|you typed|seen in|guess)\b[^()]*)\)/i;
 const TIME = /\b\d{1,2}:\d{2}\b/;
 
 const short = (s: string) => (s.length > 70 ? `${s.slice(0, 67)}…` : s);
+
+/** What the capsule was written from, to check its citations against. */
+export interface Evidence {
+  /** Voice and typed notes: kind and time (ISO). */
+  notes: { kind: "voice" | "note"; t: string }[];
+  /** Screen samples: app and time (ISO). */
+  screen: { app: string; t: string }[];
+}
+
+const minutesOf = (hhmm: string) => {
+  const [h, m] = hhmm.split(":").map(Number);
+  return h! * 60 + m!;
+};
+const near = (a: number, b: number, tolerance: number) => Math.min(Math.abs(a - b), 1440 - Math.abs(a - b)) <= tolerance;
+
+/** Every *(you said, HH:MM)* / *(you typed, HH:MM)* must match a real note within 2 minutes (local time);
+ * *(seen in <App>, HH:MM)* should match that app on screen within 10 minutes (a warning only). */
+export function checkCitations(markdown: string, ev: Evidence): CheckResult {
+  const errors: string[] = [];
+  const warnings: string[] = [];
+  const said = ev.notes.filter((n) => n.kind === "voice").map((n) => minutesOf(formatClock(n.t)));
+  const typed = ev.notes.filter((n) => n.kind === "note").map((n) => minutesOf(formatClock(n.t)));
+  const bad: string[] = [];
+  for (const m of markdown.matchAll(/\byou (said|typed),?\s*(\d{1,2}:\d{2})/gi)) {
+    const at = minutesOf(m[2]!);
+    const pool = m[1]!.toLowerCase() === "said" ? said : typed;
+    if (!pool.some((p) => near(p, at, 2))) bad.push(`you ${m[1]!.toLowerCase()}, ${m[2]}`);
+  }
+  if (bad.length)
+    errors.push(
+      `These citations match no ${bad.some((b) => b.includes("typed")) ? "note" : "voice note"} at that time — check the time, ` +
+        `or cite the screen instead: ${[...new Set(bad)].map((b) => `(${b})`).join(", ")}.`,
+    );
+  const unseen: string[] = [];
+  for (const m of markdown.matchAll(/\bseen in ([^,()]+?),\s*(\d{1,2}:\d{2})/gi)) {
+    const app = m[1]!.trim().toLowerCase();
+    const at = minutesOf(m[2]!);
+    const hit = ev.screen.some((e) => e.app.toLowerCase().includes(app) || app.includes(e.app.toLowerCase())
+      ? near(minutesOf(formatClock(e.t)), at, 10) : false);
+    if (!hit) unseen.push(`seen in ${m[1]!.trim()}, ${m[2]}`);
+  }
+  if (unseen.length && ev.screen.length)
+    warnings.push(`Not found on screen around that time: ${[...new Set(unseen)].slice(0, 5).map((u) => `(${u})`).join(", ")}.`);
+  return { errors, warnings };
+}
 
 export function checkCapsule(markdown: string): CheckResult {
   const errors: string[] = [];

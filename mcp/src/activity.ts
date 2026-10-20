@@ -11,6 +11,7 @@ import {
   projectTimes,
 } from "./sessions.js";
 import { loadProjects } from "./projects.js";
+import { SCREEN_RULE, SCREEN_RULE_SHORT, screenBlock } from "./untrusted.js";
 
 export interface Segment {
   app: string;
@@ -182,6 +183,8 @@ export interface ActivityOptions {
   maxChars?: number;
   /** Replaces the "# Session <id>" first line (used by the day view). */
   heading?: string;
+  /** Leave out the screen-text rule (the day view says it once at the top). */
+  noRule?: boolean;
 }
 
 /** The full condensed timeline for one session, never longer than maxChars. Voice and typed
@@ -229,6 +232,7 @@ export function condenseActivity(meta: SessionMeta, events: CaptureEvent[], opts
     `Apps: ${apps || "none"}`,
     ...(perProject ? [perProject] : []),
     `${segs.length} segments from ${screen.length} screen samples. ${source}: repeated lines, menus and numbers-only lines are removed; each line appears once, where it was first seen.${noteHead}`,
+    ...(opts.noRule ? [] : [maxChars < 4000 ? SCREEN_RULE_SHORT : SCREEN_RULE]),
   ].join("\n");
 
   if (!segs.length && !notes.length) return trimTo(`${head}\n\n(No activity was captured in this session.)`, maxChars);
@@ -242,8 +246,9 @@ export function condenseActivity(meta: SessionMeta, events: CaptureEvent[], opts
 
   const headers = segs.map((s) => segmentHeader(s, names));
   const noteChars = notes.length ? items.reduce((n, it) => n + (it.kind === "note" ? 2 + it.line.length : 0), 0) : 0;
-  // fixed cost: head + notes in full + per segment "\n\n" + header + "\n" before a body
-  const fixed = head.length + noteChars + headers.reduce((n, h) => n + 2 + h.length + 1, 0);
+  // fixed cost: head + notes in full + per segment "\n\n" + header + "\n" + the <screen> wrapper
+  const WRAP = screenBlock("").length;
+  const fixed = head.length + noteChars + headers.reduce((n, h) => n + 2 + h.length + 1 + WRAP, 0);
   const bodies = segs.map((s) => s.lines.join("\n"));
   const shares = fairShares(
     bodies.map((b) => b.length),
@@ -256,7 +261,7 @@ export function condenseActivity(meta: SessionMeta, events: CaptureEvent[], opts
       if (it.kind === "note") parts.push(it.line);
       else if (withSegments) {
         const body = bodies[it.i] ? trimTo(bodies[it.i]!, shares[it.i]!) : "";
-        parts.push(body ? `${headers[it.i]}\n${body}` : headers[it.i]!);
+        parts.push(body ? `${headers[it.i]}\n${screenBlock(body)}` : headers[it.i]!);
       }
     }
     return parts;
@@ -321,6 +326,7 @@ export function condenseDay(day: string, events: CaptureEvent[], sessionIds: str
     times.some((t) => !t.project)
       ? 'Work "not sorted yet" matched no project: suggest which project it belongs to (or a new one, with clues from its windows) and ask the user.'
       : "",
+    maxChars < 4000 ? SCREEN_RULE_SHORT : SCREEN_RULE,
   ]
     .filter(Boolean)
     .join("\n");
@@ -337,7 +343,7 @@ export function condenseDay(day: string, events: CaptureEvent[], sessionIds: str
     const ms = projectTimes(g).reduce((n, t) => n + t.ms, 0);
     const meta = { id: day, started_at: g[0]!.t, ended_at: g[g.length - 1]!.end ?? g[g.length - 1]!.t };
     const heading = `# Project: ${label(id)} (${formatDuration(ms)})${id ? ` · id ${id}` : ""}`;
-    return (limit: number) => condenseActivity(meta, g, { maxChars: limit, heading });
+    return (limit: number) => condenseActivity(meta, g, { maxChars: limit, heading, noRule: true });
   });
   // Measure each project's full timeline, then split the space fairly (short ones keep everything).
   const full = sections.map((render) => render(1_000_000).length);

@@ -5,7 +5,8 @@ import os from "node:os";
 import path from "node:path";
 import { capsulesDir, configFile, expandHome, homeDir } from "./paths.js";
 import { readJson, writeFileAtomic, writeUnique } from "./fsutil.js";
-import { checkCapsule } from "./checks.js";
+import { checkCapsule, checkCitations, type CheckResult } from "./checks.js";
+import { PLAYBOOK_VERSION } from "./playbook.js";
 import { loadProjects } from "./projects.js";
 import { appTimes, readEvents, resolveSessionId } from "./sessions.js";
 
@@ -36,6 +37,8 @@ export interface CapsuleInfo {
   project?: string;
   kind?: string;
   date?: string;
+  /** Saved before every check passed. */
+  draft?: boolean;
 }
 
 export type CapsuleKind = "daily" | "project";
@@ -182,25 +185,53 @@ export function missingSections(markdown: string): string[] {
 
 // ---------- secrets: a last safety net ----------
 
-const SECRET_PATTERNS: RegExp[] = [
-  /\bsk-[A-Za-z0-9_-]{16,}/g,
-  /\bghp_[A-Za-z0-9]{20,}/g,
-  /\bgithub_pat_[A-Za-z0-9_]{20,}/g,
-  /\bxox[bpas]-[A-Za-z0-9-]{10,}/g,
-  /\bAKIA[0-9A-Z]{16}\b/g,
-  /^(\s*[-*]?\s*password\s*[:=]\s*).+$/gim,
+const SECRET_PATTERNS: { kind: string; re: RegExp }[] = [
+  { kind: "API key", re: /\bsk-[A-Za-z0-9_-]{16,}/g },
+  { kind: "GitHub token", re: /\bgh[pousr]_[A-Za-z0-9]{20,}/g },
+  { kind: "GitHub token", re: /\bgithub_pat_[A-Za-z0-9_]{20,}/g },
+  { kind: "Slack token", re: /\bxox[bpasr]-[A-Za-z0-9-]{10,}/g },
+  { kind: "AWS key", re: /\b(?:AKIA|ASIA)[0-9A-Z]{16}\b/g },
+  { kind: "bearer token", re: /\bbearer\s+[A-Za-z0-9._\-+/=]{16,}/gi },
+  { kind: "private key", re: /-----BEGIN [A-Z ]*PRIVATE KEY-----[\s\S]*?(-----END [A-Z ]*PRIVATE KEY-----|$)/g },
+  { kind: "IBAN", re: /\b[A-Z]{2}\d{2}(?: ?[A-Z0-9]{4}){3,7}(?: ?[A-Z0-9]{1,4})?\b/g },
+  { kind: "password", re: /^(\s*[-*]?\s*password\s*[:=]\s*).+$/gim },
 ];
 
-export function redactSecrets(text: string): { text: string; count: number } {
+/** 13–19 digits (spaces or dashes allowed) passing the Luhn check: a card number. */
+const CARD = /\b(?:\d[ -]?){12,18}\d\b/g;
+function luhn(digits: string): boolean {
+  let sum = 0;
+  for (let i = 0; i < digits.length; i++) {
+    let d = Number(digits[digits.length - 1 - i]);
+    if (i % 2 === 1) {
+      d *= 2;
+      if (d > 9) d -= 9;
+    }
+    sum += d;
+  }
+  return sum % 10 === 0;
+}
+
+/** Remove secrets and payment numbers. Returns how many, and which kinds (for a plain-words note). */
+export function redactSecrets(text: string): { text: string; count: number; kinds: string[] } {
   let count = 0;
+  const kinds = new Set<string>();
   let out = text;
-  for (const re of SECRET_PATTERNS) {
+  for (const { kind, re } of SECRET_PATTERNS) {
     out = out.replace(re, (match, prefix?: unknown) => {
       count++;
+      kinds.add(kind);
       return typeof prefix === "string" && /password/i.test(prefix) ? `${prefix}[redacted]` : "[redacted]";
     });
   }
-  return { text: out, count };
+  out = out.replace(CARD, (match) => {
+    const digits = match.replace(/\D/g, "");
+    if (digits.length < 13 || !luhn(digits)) return match;
+    count++;
+    kinds.add("card number");
+    return "[redacted]";
+  });
+  return { text: out, count, kinds: [...kinds] };
 }
 
 // ---------- author ----------
@@ -224,6 +255,10 @@ export function resolveAuthor(): string {
 }
 
 // ---------- save / list / get ----------
+
+/** Refusals per capsule being written, so a stuck Claude ends with a draft instead of looping forever. */
+const attempts = new Map<string, number>();
+export const MAX_TRIES = 3;
 
 export interface SaveResult {
   path: string;
@@ -256,18 +291,49 @@ export function saveCapsule(input: {
   let body = parseCapsule(input.markdown).body.trim();
   if (!body) throw new Error("The capsule markdown is empty.");
 
-  // Every capsule another Claude loads must be complete: refuse with precise fixes, so Claude fixes and retries.
-  const check = checkCapsule(body);
-  if (check.errors.length)
-    throw new Error(
-      `Not saved yet. Fix these, then call save_capsule again with the whole capsule:\n${check.errors.map((e) => `- ${e}`).join("\n")}`,
-    );
+  // What it was written from: notes and screen samples of the given sessions, to check its citations.
+  const notes: { kind: "voice" | "note"; t: string }[] = [];
+  const screen: { app: string; t: string }[] = [];
+  for (const raw of input.session_ids ?? []) {
+    try {
+      for (const e of readEvents(resolveSessionId(raw))) {
+        if (e.kind === "voice" || e.kind === "note") notes.push({ kind: e.kind, t: e.t });
+        else screen.push({ app: e.app, t: e.t });
+      }
+    } catch {
+      // unknown sessions are reported below
+    }
+  }
+
+  // Every capsule another Claude loads must be complete and true to its sources: refuse with numbered fixes,
+  // so Claude fixes and retries. After MAX_TRIES refusals it is saved as a draft, with what's left to fix.
+  const check: CheckResult = checkCapsule(body);
+  if (notes.length || screen.length) {
+    const c = checkCitations(body, { notes, screen });
+    check.errors.push(...c.errors);
+    check.warnings.push(...c.warnings);
+  }
+  const attemptKey = `${input.kind ?? ""}|${input.project ?? ""}|${input.date ?? ""}|${slugify(title)}`;
+  let draft = false;
+  if (check.errors.length) {
+    const tries = (attempts.get(attemptKey) ?? 0) + 1;
+    attempts.set(attemptKey, tries);
+    if (tries < MAX_TRIES)
+      throw new Error(
+        `Not saved yet (try ${tries} of ${MAX_TRIES}). Fix these, then call save_capsule again with the whole capsule. ` +
+          `Change only what this list names; keep everything else as written:\n` +
+          check.errors.map((e, i) => `${i + 1}. ${e}`).join("\n"),
+      );
+    draft = true;
+    warnings.push(`Saved as a DRAFT after ${MAX_TRIES} tries. Still to fix: ${check.errors.join(" ")}`);
+  }
+  attempts.delete(attemptKey);
   warnings.push(...check.warnings);
 
   const red = redactSecrets(body);
   if (red.count) {
     body = red.text;
-    warnings.push(`Redacted ${red.count} thing(s) that looked like a secret (API key, token or password).`);
+    warnings.push(`Removed ${red.count} private thing(s) before saving: ${red.kinds.join(", ")}.`);
   }
 
   const sessions: string[] = [];
@@ -291,6 +357,8 @@ export function saveCapsule(input: {
     apps: [...apps].sort((a, b) => a.localeCompare(b)),
     ...(project ? { project, kind: kind! } : {}),
     ...(date ? { date } : {}),
+    playbook: PLAYBOOK_VERSION,
+    ...(draft ? { draft: true } : {}),
   };
   const text = `${stringifyFrontMatter(front)}\n${body}\n`;
 
@@ -342,6 +410,7 @@ export function listCapsules(): CapsuleInfo[] {
       ...(typeof front?.project === "string" ? { project: front.project } : {}),
       ...(typeof front?.kind === "string" ? { kind: front.kind } : {}),
       ...(typeof front?.date === "string" ? { date: front.date } : {}),
+      ...(front?.draft === true ? { draft: true } : {}),
     });
   }
   return out.sort((a, b) => b.created.localeCompare(a.created) || a.slug.localeCompare(b.slug));

@@ -6,8 +6,9 @@ the decisions you made and why. Send the file to anyone; their Claude loads it a
 knows the project.
 
 The Context Capsule menu-bar app (in `../capture`) does the recording. This server reads what
-it wrote, starts and stops it, and saves, imports and exports capsules. Everything stays
-on your Mac. No account, no cloud, no API key.
+it wrote, starts and stops it, and saves, imports and exports capsules. No account, no
+cloud, no API key: files stay on your computer, and text reaches Claude only when your
+Claude reads it through these tools (see ../PRIVACY.md).
 
 ## Install
 

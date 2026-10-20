@@ -118,6 +118,14 @@
         "capsule"
       ],
       "text": "Pick up the work in this capsule: ${arguments.capsule}"
+    },
+    {
+      "name": "review_capsule",
+      "description": "Second look before sharing",
+      "arguments": [
+        "name"
+      ],
+      "text": "Give capsule ${arguments.name} a second look before I share it."
     }
   ],
   "compatibility": {

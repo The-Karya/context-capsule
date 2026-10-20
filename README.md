@@ -12,7 +12,9 @@ worked on, the decisions you made and why, open questions and next steps.
 Load the capsule into Claude and it knows your project. Email it to a teammate and
 their Claude knows it too.
 
-- **Local.** Screen text stays on your computer. No account, no cloud, no telemetry.
+- **Recorded locally.** Recordings stay on your computer; Context Capsule has no account,
+  no cloud and no telemetry. Text only goes to Claude when you ask your Claude to make or
+  read a capsule — exactly like anything else you paste into Claude. See [PRIVACY.md](PRIVACY.md).
 - **You choose what it sees.** Each recording starts with the system window/screen
   picker (macOS, Windows, or the Linux screen-sharing portal). Context Capsule reads
   only what you picked; on macOS it needs no Screen Recording permission.
@@ -210,8 +212,9 @@ Add apps to never record in `~/.context-capsule/config.json`:
 { "author": "Your Name", "exclude_apps": ["com.example.secretapp"] }
 ```
 
-Always read a capsule before you share it: it is your work, in your words, and you
-decide what leaves your laptop.
+A capsule is written for Claude, but you decide what you send: ask Claude for a
+*second look* (`review_capsule`) before sharing, or open it and edit. What leaves your
+computer, and when, is listed in [PRIVACY.md](PRIVACY.md).
 
 ## Develop
 

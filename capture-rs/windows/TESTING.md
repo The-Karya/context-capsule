@@ -4,7 +4,7 @@ Thank you for testing! This takes about 20–30 minutes. You need Windows 10 (19
 later) or Windows 11, and a microphone for part 5.
 
 Context Capsule records the **text** of the window or screen you choose (no screenshots,
-no audio), so an AI can later write a short summary of your work. Everything stays on
+no audio), so an AI can later write a short summary of your work. Recordings stay on
 your PC, in `C:\Users\<you>\.context-capsule\`.
 
 ## 0. Start it

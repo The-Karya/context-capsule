@@ -57,7 +57,9 @@ describe("save_capsule", () => {
   test("writes front matter with author from config, sessions and apps", () => {
     fs.writeFileSync(path.join(home, "config.json"), JSON.stringify({ author: "Test Author" }));
     writeFixtureSession(home, "20261019-100000");
-    const r = saveCapsule({ title: "Pricing page redesign", markdown: BODY, session_ids: ["20261019-100000"] });
+    // the fixture has no voice notes, so cite the screen (Linear at 10:08 is in the fixture)
+    const fromScreen = BODY.replace("*(you said, 10:14)*", "*(seen in Linear, 10:08)*");
+    const r = saveCapsule({ title: "Pricing page redesign", markdown: fromScreen, session_ids: ["20261019-100000"] });
     expect(r.path).toBe(path.join(home, "capsules", "pricing-page-redesign.capsule.md"));
     expect(r.warnings).toEqual([]);
     const { front, body } = parseCapsule(fs.readFileSync(r.path, "utf8"));
@@ -103,7 +105,7 @@ describe("save_capsule", () => {
     expect(parseCapsule(text).front!.capsule).toBe(1);
     expect(text).not.toContain("sk-abcdef");
     expect(text).not.toContain("hunter2");
-    expect(r.warnings.join(" ")).toContain("Redacted 2");
+    expect(r.warnings.join(" ")).toContain("Removed 2 private thing(s) before saving: API key, password.");
   });
 
   test("list and find by slug, file name or title", () => {
