@@ -76,8 +76,27 @@ enum Setup {
     }
 }
 
-/// One setup step: a ✓ or an empty circle, a short label, and one button. More detail on hover.
+/// The capsule mark: a soft gradient pill with a sparkle.
+struct CapsuleMark: View {
+    var size: CGFloat = 56
+    var body: some View {
+        ZStack {
+            Capsule()
+                .fill(LinearGradient(colors: [Color(red: 0.45, green: 0.36, blue: 0.98), Color(red: 0.98, green: 0.47, blue: 0.60)],
+                                     startPoint: .topLeading, endPoint: .bottomTrailing))
+                .frame(width: size * 1.6, height: size)
+                .shadow(color: Color(red: 0.6, green: 0.4, blue: 0.95).opacity(0.35), radius: 12, y: 6)
+            Image(systemName: "sparkles")
+                .font(.system(size: size * 0.42, weight: .semibold))
+                .foregroundStyle(.white)
+        }
+    }
+}
+
+/// One setup step in a card: a coloured icon, a short label, then a pill button or a green check.
 private struct StepRow: View {
+    let icon: String
+    let tint: Color
     let done: Bool
     let title: String
     let help: String
@@ -85,34 +104,72 @@ private struct StepRow: View {
     let action: () -> Void
 
     var body: some View {
-        HStack(spacing: 12) {
-            Image(systemName: done ? "checkmark.circle.fill" : "circle")
-                .font(.system(size: 20))
-                .foregroundStyle(done ? Color.green : Color.secondary)
-            Text(title).font(.title3)
+        HStack(spacing: 14) {
+            ZStack {
+                RoundedRectangle(cornerRadius: 9, style: .continuous).fill(tint.gradient)
+                Image(systemName: icon).font(.system(size: 15, weight: .semibold)).foregroundStyle(.white)
+            }
+            .frame(width: 32, height: 32)
+            Text(title).font(.system(size: 15, weight: .medium))
             Spacer()
             if done {
-                Text("Done").foregroundStyle(.secondary)
+                Image(systemName: "checkmark.circle.fill")
+                    .font(.system(size: 22))
+                    .foregroundStyle(.white, .green)
+                    .transition(.scale.combined(with: .opacity))
             } else {
-                Button(button, action: action).controlSize(.large)
+                Button(action: action) {
+                    Text(button).font(.system(size: 13, weight: .semibold)).padding(.horizontal, 6)
+                }
+                .buttonStyle(.bordered)
+                .buttonBorderShape(.capsule)
+                .tint(Color(red: 0.45, green: 0.36, blue: 0.98))
+                .controlSize(.regular)
             }
         }
-        .padding(.vertical, 4)
+        .padding(.horizontal, 14)
+        .padding(.vertical, 10)
+        .contentShape(Rectangle())
         .help(help)
+        .animation(.spring(duration: 0.35), value: done)
     }
 }
 
-private struct KeyRow: View {
-    let keys: String
-    let text: String
+/// A keyboard key.
+private struct Keycap: View {
+    let label: String
     var body: some View {
-        HStack(spacing: 12) {
-            Text(keys)
-                .font(.system(.title3, design: .rounded).weight(.semibold))
-                .frame(width: 56, height: 32)
-                .background(RoundedRectangle(cornerRadius: 7).fill(Color.secondary.opacity(0.15)))
-            Text(text).font(.title3)
+        Text(label)
+            .font(.system(size: 15, weight: .semibold, design: .rounded))
+            .frame(minWidth: 30, minHeight: 30)
+            .padding(.horizontal, 4)
+            .background(
+                RoundedRectangle(cornerRadius: 7, style: .continuous)
+                    .fill(Color(nsColor: .controlBackgroundColor))
+                    .shadow(color: .black.opacity(0.18), radius: 0, y: 1.5)
+            )
+            .overlay(RoundedRectangle(cornerRadius: 7, style: .continuous).strokeBorder(Color.primary.opacity(0.12)))
+    }
+}
+
+private struct Shortcut: View {
+    let keys: [String]
+    let label: String
+    var body: some View {
+        VStack(spacing: 8) {
+            HStack(spacing: 4) { ForEach(keys, id: \.self) { Keycap(label: $0) } }
+            Text(label).font(.system(size: 13, weight: .medium)).foregroundStyle(.secondary)
         }
+        .frame(maxWidth: .infinity)
+    }
+}
+
+private struct Card<Content: View>: View {
+    @ViewBuilder var content: Content
+    var body: some View {
+        VStack(spacing: 0) { content }
+            .background(RoundedRectangle(cornerRadius: 14, style: .continuous).fill(Color.primary.opacity(0.045)))
+            .overlay(RoundedRectangle(cornerRadius: 14, style: .continuous).strokeBorder(Color.primary.opacity(0.07)))
     }
 }
 
@@ -121,47 +178,90 @@ struct WelcomeView: View {
     var onAccessibility: () -> Void
     var onDone: () -> Void
 
+    private var doneCount: Int {
+        [status.readsText, status.microphone && status.speech, status.dictation, status.claude, status.atLogin]
+            .filter { $0 }.count
+    }
+
     var body: some View {
-        VStack(alignment: .leading, spacing: 18) {
-            VStack(alignment: .leading, spacing: 4) {
-                Text("Context Capsule").font(.largeTitle.bold())
-                Text("Claude sums up your work. It all stays on your Mac.").foregroundStyle(.secondary)
+        VStack(spacing: 22) {
+            VStack(spacing: 14) {
+                CapsuleMark()
+                Text("Context Capsule").font(.system(size: 26, weight: .bold, design: .rounded))
+            }
+            .padding(.top, 8)
+
+            VStack(alignment: .leading, spacing: 8) {
+                HStack {
+                    Text("Set up").font(.system(size: 13, weight: .semibold)).foregroundStyle(.secondary)
+                    Spacer()
+                    Text("\(doneCount) of 5").font(.system(size: 12, weight: .medium)).foregroundStyle(.secondary)
+                }
+                .padding(.horizontal, 4)
+                Card {
+                    StepRow(icon: "text.viewfinder", tint: .blue, done: status.readsText, title: "Read your apps",
+                            help: "Clean text, window names and web addresses, so projects are found by themselves. "
+                                + "Switch on Context Capsule in the list that opens.",
+                            button: "Turn on", action: onAccessibility)
+                    Divider().padding(.leading, 60)
+                    StepRow(icon: "mic.fill", tint: .orange, done: status.microphone && status.speech, title: "Voice notes",
+                            help: "Say what you're doing and why. Turned into text on this Mac; audio is never saved.",
+                            button: "Allow", action: Setup.askVoice)
+                    Divider().padding(.leading, 60)
+                    StepRow(icon: "waveform", tint: .pink, done: status.dictation, title: "Dictation",
+                            help: "Apple needs it for voice notes. Scroll down to Dictation and switch it on.",
+                            button: "Turn on") { Setup.openSettings(Setup.keyboardPane) }
+                    Divider().padding(.leading, 60)
+                    StepRow(icon: "sparkles", tint: Color(red: 0.85, green: 0.47, blue: 0.34), done: status.claude,
+                            title: "Connect Claude",
+                            help: "Lets Claude start recordings and write your capsules. Claude asks you to install it.",
+                            button: "Connect") { ClaudeConnect.connect() }
+                    Divider().padding(.leading, 60)
+                    StepRow(icon: "power", tint: .green, done: status.atLogin, title: "Open at login",
+                            help: "Always ready in the menu bar.",
+                            button: "Turn on") { Setup.setLaunchAtLogin(true); status.refresh() }
+                }
             }
 
-            VStack(spacing: 2) {
-                StepRow(done: status.readsText, title: "Read your apps",
-                        help: "Gives clean text, window names and web addresses, so projects are found by themselves. "
-                            + "Switch on Context Capsule in the list that opens.",
-                        button: "Turn on", action: onAccessibility)
-                StepRow(done: status.microphone && status.speech, title: "Voice notes",
-                        help: "Say what you're doing and why. Turned into text on this Mac; audio is never saved.",
-                        button: "Allow", action: Setup.askVoice)
-                StepRow(done: status.dictation, title: "Dictation",
-                        help: "Apple needs it for voice notes. Scroll down to Dictation and switch it on.",
-                        button: "Turn on") { Setup.openSettings(Setup.keyboardPane) }
-                StepRow(done: status.claude, title: "Connect Claude",
-                        help: "Lets Claude start recordings and write your capsules. Claude asks you to install it.",
-                        button: "Connect") { ClaudeConnect.connect() }
-                StepRow(done: status.atLogin, title: "Open at login",
-                        help: "Always ready in the menu bar.",
-                        button: "Turn on") { Setup.setLaunchAtLogin(true); status.refresh() }
+            HStack(spacing: 0) {
+                Shortcut(keys: ["⌥", "C"], label: "Record")
+                Shortcut(keys: ["⌥", "V"], label: "Talk")
+                Shortcut(keys: ["✦"], label: "Ask Claude")
             }
+            .padding(.vertical, 4)
 
-            Divider()
-
-            VStack(alignment: .leading, spacing: 10) {
-                KeyRow(keys: "⌥ C", text: "Record")
-                KeyRow(keys: "⌥ V", text: "Talk")
-                KeyRow(keys: "✦", text: "Ask Claude: “Make my capsules for today”")
+            Button(action: onDone) {
+                Text(doneCount == 5 ? "Start" : "Done").font(.system(size: 14, weight: .semibold)).frame(maxWidth: .infinity)
+                    .padding(.vertical, 4)
             }
-
-            HStack {
-                Spacer()
-                Button("Done", action: onDone).keyboardShortcut(.defaultAction).controlSize(.large)
-            }
+            .buttonStyle(.borderedProminent)
+            .buttonBorderShape(.capsule)
+            .controlSize(.large)
+            .tint(Color(red: 0.45, green: 0.36, blue: 0.98))
+            .keyboardShortcut(.defaultAction)
         }
-        .padding(28)
-        .frame(width: 440)
+        .padding(.horizontal, 28)
+        .padding(.bottom, 26)
+        .padding(.top, 18)
+        .frame(width: 400)
+    }
+}
+
+/// `--render-welcome <png>`: draw the welcome screen to an image (for checking the design without the app).
+enum WelcomeRender {
+    @MainActor
+    static func run(to path: String, dark: Bool) -> Bool {
+        let status = SetupStatus()
+        status.readsText = true
+        status.claude = false
+        let view = WelcomeView(status: status, onAccessibility: {}, onDone: {})
+            .background(Color(nsColor: .windowBackgroundColor))
+            .environment(\.colorScheme, dark ? .dark : .light)
+        let renderer = ImageRenderer(content: view)
+        renderer.scale = 2
+        guard let image = renderer.nsImage, let tiff = image.tiffRepresentation,
+              let png = NSBitmapImageRep(data: tiff)?.representation(using: .png, properties: [:]) else { return false }
+        return FileManager.default.createFile(atPath: path, contents: png)
     }
 }
 
@@ -181,8 +281,10 @@ final class WelcomeWindow: NSObject, NSWindowDelegate {
         let view = WelcomeView(status: status, onAccessibility: { [weak self] in self?.onAccessibility() },
                                onDone: { [weak self] in self?.window?.close() })
         let window = NSWindow(contentViewController: NSHostingController(rootView: view))
-        window.title = "Context Capsule"
-        window.styleMask = [.titled, .closable]
+        window.title = ""
+        window.styleMask = [.titled, .closable, .fullSizeContentView]
+        window.titlebarAppearsTransparent = true
+        window.isMovableByWindowBackground = true
         window.isReleasedWhenClosed = false
         window.delegate = self
         window.center()
