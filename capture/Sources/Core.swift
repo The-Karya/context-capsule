@@ -1082,7 +1082,8 @@ struct CapsuleSummary: Equatable {
 
 /// Opening Claude with a message already typed (the user still presses Enter).
 enum ClaudeLink {
-    static let dayPrompt = "Make my capsules for today."
+    /// Names the app, so Claude uses Context Capsule's tools rather than guessing (Drive, Gmail…).
+    static let dayPrompt = "Use Context Capsule to make my capsules for today."
 
     static func newChat(prefill text: String) -> URL? {
         var parts = URLComponents(string: "claude://claude.ai/new")

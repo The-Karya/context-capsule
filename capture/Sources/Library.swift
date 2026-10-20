@@ -63,8 +63,8 @@ final class LibraryModel: ObservableObject {
 }
 
 enum Claude {
-    /// Open the Claude app on a new chat with "Make my capsules for today." typed in (also copied, in case
-    /// the app ignores it). No Claude app: say where to get it.
+    /// Open the Claude app on a new chat with the request typed in (also copied, in case the app ignores it).
+    /// Not connected yet: connect first. No Claude app: say where to get it.
     static func makeTodaysCapsules() {
         let pasteboard = NSPasteboard.general
         pasteboard.clearContents()
@@ -72,6 +72,19 @@ enum Claude {
         guard NSWorkspace.shared.urlForApplication(withBundleIdentifier: ClaudeConnect.desktopBundleID) != nil,
               let url = ClaudeLink.newChat(prefill: ClaudeLink.dayPrompt) else {
             ClaudeConnect.connect() // explains how to get the Claude app
+            return
+        }
+        // Without the connection, Claude can't see the recordings: connect first instead of opening an empty chat.
+        guard ClaudeConnect.isConnected else {
+            AppLog.shared.write("make today's capsules: not connected yet, connecting first")
+            let alert = NSAlert()
+            alert.messageText = "Connect Claude first"
+            alert.informativeText = "Claude needs Context Capsule installed to read your day. Click Connect, then Install in Claude. "
+                + "After that, click Make today's capsules again."
+            alert.addButton(withTitle: "Connect")
+            alert.addButton(withTitle: "Cancel")
+            NSApp.activate(ignoringOtherApps: true)
+            if alert.runModal() == .alertFirstButtonReturn { ClaudeConnect.connect() }
             return
         }
         AppLog.shared.write("make today's capsules: opening Claude")

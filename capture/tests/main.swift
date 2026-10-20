@@ -615,6 +615,7 @@ check(listed.map(\.url.lastPathComponent) == ["newer.capsule.md", "website-2026-
       "\(listed.map(\.url.lastPathComponent))")
 check(ClaudeLink.newChat(prefill: "Make my capsules for today.")?.absoluteString
       == "claude://claude.ai/new?q=Make%20my%20capsules%20for%20today.", "Claude link with the message typed in")
+check(ClaudeLink.dayPrompt.contains("Context Capsule"), "the request names the app")
 
 // MARK: reminder and clean-up
 

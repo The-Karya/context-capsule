@@ -131,8 +131,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
             AppLog.shared.write("stop: make today's capsules")
             recorder.stop()
         }
+        let connected = ClaudeConnect.isConnected
         Claude.makeTodaysCapsules()
-        toast.show("In Claude, press Return to make your capsules.", under: statusItem.button, seconds: 5)
+        if connected { toast.show("In Claude, press Return to make your capsules.", under: statusItem.button, seconds: 5) }
     }
 
     func menuWillOpen(_ menu: NSMenu) { refresh() } // the Accessibility check mark may have changed
