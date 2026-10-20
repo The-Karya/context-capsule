@@ -16,6 +16,7 @@ struct Paths {
     /// Diagnostics: counts, durations, error codes and reasons only — never screen text or words.
     var log: URL { root.appendingPathComponent("app.log") }
     var projects: URL { root.appendingPathComponent("projects.json") }
+    var capsules: URL { root.appendingPathComponent("capsules", isDirectory: true) }
 
     static let standard = Paths(root: FileManager.default.homeDirectoryForCurrentUser
         .appendingPathComponent(".context-capsule", isDirectory: true))
@@ -1012,5 +1013,71 @@ enum Location {
         var s = raw
         if let cut = s.firstIndex(where: { $0 == "?" || $0 == "#" }) { s = String(s[..<cut]) }
         return Redactor.clean(s, cap: 500)
+    }
+}
+
+// MARK: - Capsule files (for the "My capsules" window)
+
+/// What the app shows about a saved capsule: from its front matter and its "In short" line.
+struct CapsuleSummary: Equatable {
+    var url: URL
+    var title: String
+    var project: String = ""
+    /// "daily", "project" (the growing one), or "" (a one-off capsule).
+    var kind: String = ""
+    var date: String = ""
+    var created: String = ""
+    var author: String = ""
+    var inShort: String = ""
+    var draft = false
+
+    /// Reads `---` front matter (simple `key: value` lines) and the first lines under `## In short`.
+    static func parse(_ text: String, url: URL) -> CapsuleSummary {
+        var front: [String: String] = [:]
+        var body = text
+        if text.hasPrefix("---\n"), let end = text.range(of: "\n---", range: text.index(text.startIndex, offsetBy: 4)..<text.endIndex) {
+            for line in text[text.index(text.startIndex, offsetBy: 4)..<end.lowerBound].split(separator: "\n") {
+                guard let colon = line.firstIndex(of: ":") else { continue }
+                let key = line[..<colon].trimmingCharacters(in: .whitespaces)
+                var value = line[line.index(after: colon)...].trimmingCharacters(in: .whitespaces)
+                if let hash = value.range(of: " #") { value = String(value[..<hash.lowerBound]).trimmingCharacters(in: .whitespaces) }
+                if value.count >= 2, let q = value.first, (q == "\"" || q == "'"), value.last == q {
+                    value = String(value.dropFirst().dropLast())
+                }
+                front[key] = value
+            }
+            body = String(text[end.upperBound...])
+        }
+        var inShort = ""
+        if let start = body.range(of: "## In short", options: .caseInsensitive) {
+            let rest = body[start.upperBound...]
+            let section = rest.range(of: "\n## ").map { rest[..<$0.lowerBound] } ?? rest
+            inShort = section.split(separator: "\n").map { $0.trimmingCharacters(in: .whitespaces) }
+                .filter { !$0.isEmpty }.joined(separator: " ")
+        }
+        let fallback = url.deletingPathExtension().deletingPathExtension().lastPathComponent
+        return CapsuleSummary(url: url, title: front["title"].flatMap { $0.isEmpty ? nil : $0 } ?? fallback,
+                              project: front["project"] ?? "", kind: front["kind"] ?? "", date: front["date"] ?? "",
+                              created: front["created"] ?? "", author: front["author"] ?? "", inShort: inShort,
+                              draft: front["draft"] == "true")
+    }
+
+    /// Every `*.capsule.md` in the folder (not its .history), newest first.
+    static func all(in folder: URL) -> [CapsuleSummary] {
+        let files = (try? FileManager.default.contentsOfDirectory(at: folder, includingPropertiesForKeys: nil)) ?? []
+        return files.filter { $0.lastPathComponent.hasSuffix(".capsule.md") }
+            .compactMap { url in (try? String(contentsOf: url, encoding: .utf8)).map { parse($0, url: url) } }
+            .sorted { ($0.created, $0.title) > ($1.created, $1.title) }
+    }
+}
+
+/// Opening Claude with a message already typed (the user still presses Enter).
+enum ClaudeLink {
+    static let dayPrompt = "Make my capsules for today."
+
+    static func newChat(prefill text: String) -> URL? {
+        var parts = URLComponents(string: "claude://claude.ai/new")
+        parts?.queryItems = [URLQueryItem(name: "q", value: text)]
+        return parts?.url
     }
 }

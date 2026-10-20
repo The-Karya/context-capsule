@@ -117,7 +117,7 @@ Restart Claude Desktop.
 2. Work. Any time, press **⌥V** (Ctrl+Alt+Shift+V) and say what you're doing and why; press it again
    to finish (see *Voice notes* below).
 3. Press **⌥C** again (or *"stop recording"*).
-4. Ask Claude: *"Make a capsule from my last session."* Claude reads the timeline,
+4. Click **Make today's capsules** in the menu (or ask Claude: *"Make my capsules for today"*). Claude reads the timeline,
    writes the capsule and saves it. Read it; edit anything you don't want to share.
 5. *"Export the capsule"* puts it on your Desktop, ready to email.
 6. Someone sent you one? *"Import ~/Downloads/pricing-redesign.capsule.md"* and ask

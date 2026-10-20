@@ -578,6 +578,44 @@ check(WindowList.topRegularPid(in: sysList, isSystem: { $0 == 10 }) == 20, "a pr
 check(WindowList.topRegularPid(in: Array(sysList.dropFirst(2)), isSystem: { $0 == 10 }) == 30, "top real app found")
 check(WindowList.topRegularPid(in: [sysList[0]], isSystem: { $0 == 10 }) == nil, "only system UI: none")
 
+// MARK: capsule files
+
+let capText = """
+---
+capsule: 1
+title: "Website — 2026-10-19"
+author: Saachi            # from config
+created: 2026-10-19T18:00:00Z
+project: website
+kind: daily
+date: 2026-10-19
+draft: true
+---
+
+## In short
+We redesigned the pricing page.
+Teams is now $12.
+## For Claude
+You're picking up…
+"""
+let capURL = tmp.appendingPathComponent("capsules/website-2026-10-19.capsule.md")
+let cs = CapsuleSummary.parse(capText, url: capURL)
+check(cs.title == "Website — 2026-10-19" && cs.project == "website" && cs.kind == "daily" && cs.date == "2026-10-19",
+      "capsule front matter", "\(cs)")
+check(cs.author == "Saachi" && cs.draft, "comments stripped, draft read")
+check(cs.inShort == "We redesigned the pricing page. Teams is now $12.", "In short line", cs.inShort)
+check(CapsuleSummary.parse("no front matter", url: capURL).title == "website-2026-10-19", "title falls back to the file name")
+try! FileManager.default.createDirectory(at: capURL.deletingLastPathComponent().appendingPathComponent(".history"), withIntermediateDirectories: true)
+try! capText.write(to: capURL, atomically: true, encoding: .utf8)
+try! capText.replacingOccurrences(of: "2026-10-19T18", with: "2026-10-20T09").write(
+    to: capURL.deletingLastPathComponent().appendingPathComponent("newer.capsule.md"), atomically: true, encoding: .utf8)
+try! "x".write(to: capURL.deletingLastPathComponent().appendingPathComponent("notes.md"), atomically: true, encoding: .utf8)
+let listed = CapsuleSummary.all(in: capURL.deletingLastPathComponent())
+check(listed.map(\.url.lastPathComponent) == ["newer.capsule.md", "website-2026-10-19.capsule.md"], "capsules listed newest first",
+      "\(listed.map(\.url.lastPathComponent))")
+check(ClaudeLink.newChat(prefill: "Make my capsules for today.")?.absoluteString
+      == "claude://claude.ai/new?q=Make%20my%20capsules%20for%20today.", "Claude link with the message typed in")
+
 try? FileManager.default.removeItem(at: tmp)
 print("\(passes) passed, \(failures) failed")
 exit(failures == 0 ? 0 : 1)

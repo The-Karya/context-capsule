@@ -19,6 +19,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     private lazy var voice = VoiceNotes(engine: SpeechEngine())
     private let toast = Toast()
     private let welcome = WelcomeWindow()
+    private lazy var library: LibraryWindow = {
+        let window = LibraryWindow(paths: paths)
+        window.model.onProjectsChanged = { [weak self] in
+            self?.recorder.reloadProjects(force: true)
+            self?.refresh()
+        }
+        return window
+    }()
     /// Stays up the whole time a voice note listens, so it's always clear the mic is on.
     private let listenToast = Toast()
     private var wasRecording = false
@@ -43,9 +51,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         menu.addItem(voiceItem)
         projectItem.submenu = NSMenu()
         menu.addItem(projectItem)
+        menu.addItem(.separator())
+        menu.addItem(NSMenuItem(title: "Make today's capsules", action: #selector(makeCapsules), keyEquivalent: ""))
+        menu.addItem(NSMenuItem(title: "My capsules…", action: #selector(showLibrary), keyEquivalent: ""))
+        menu.addItem(.separator())
         menu.addItem(NSMenuItem(title: "Set up Context Capsule…", action: #selector(showWelcome), keyEquivalent: ""))
-        menu.addItem(axItem)
-        menu.addItem(NSMenuItem(title: "Open sessions folder", action: #selector(openSessions), keyEquivalent: ""))
         menu.addItem(.separator())
         menu.addItem(NSMenuItem(title: "Quit Context Capsule", action: #selector(NSApplication.terminate(_:)), keyEquivalent: "q"))
         for item in menu.items where item.action != nil && item.action != #selector(NSApplication.terminate(_:)) {
@@ -101,9 +111,24 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
 
         welcome.onAccessibility = { [weak self] in self?.askAccessibility() }
         if !WelcomeWindow.seen { welcome.show() }
+        // For testing: open a window at launch.
+        if CommandLine.arguments.contains("--show-library") { library.show() }
+        if CommandLine.arguments.contains("--show-welcome") { welcome.show() }
     }
 
     @objc private func showWelcome() { welcome.show() }
+
+    @objc private func showLibrary() { library.show() }
+
+    /// Opens the Claude app with "Make my capsules for today." typed in; stop recording first if it's on.
+    @objc private func makeCapsules() {
+        if recorder.isRecording && !recorder.listening {
+            AppLog.shared.write("stop: make today's capsules")
+            recorder.stop()
+        }
+        Claude.makeTodaysCapsules()
+        toast.show("In Claude, press Return to make your capsules.", under: statusItem.button, seconds: 5)
+    }
 
     func menuWillOpen(_ menu: NSMenu) { refresh() } // the Accessibility check mark may have changed
 

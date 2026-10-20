@@ -16,6 +16,11 @@ paints out any private app window (below) or notification banner that sits on to
 Frames stay in memory and are never written to disk. The file format is in
 [`../SPEC.md`](../SPEC.md).
 
+Menu: **Start recording** (⌥C) · **Add voice note** (⌥V) · **Project** · **Make today's
+capsules** (opens the Claude app with "Make my capsules for today." typed in; stops a running
+recording first) · **My capsules…** (capsules by project with Share / Open, and a Projects tab to
+rename, edit or delete projects) · **Set up Context Capsule…** · Quit.
+
 Menu-bar icon: hollow circle = idle, **red** filled circle = recording, **red** mic = listening
 to a voice note. A short message says "● Recording started" / "■ Recording stopped: N events
 saved", and "🎙 Listening… press ⌥V to finish" stays on screen for as long as the mic is on. While recording the
