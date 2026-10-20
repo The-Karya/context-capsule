@@ -18,7 +18,7 @@ Frames stay in memory and are never written to disk. The file format is in
 
 Menu: **Start recording** (⌥C) · **Add voice note** (⌥V) · **Project** · **Make today's
 capsules** (opens a new Claude chat with the request ready to paste (⌘V, Return); stops a running
-recording first) · **My capsules…** (capsules by project with Share / Open, and a Projects tab to
+recording first) · **My capsules…** (capsules by project with Share (Copy file — paste into WhatsApp, Slack, email…; Copy text; Save a copy…; Show in Finder; More… for AirDrop/Mail/Messages) and Open, and a Projects tab to
 rename, edit or delete projects) · **Set up Context Capsule…** · Quit.
 
 Menu-bar icon: hollow circle = idle; **a red dot and the time** (● 12:34) while recording; **a

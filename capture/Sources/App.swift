@@ -80,6 +80,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
                             under: self.statusItem.button, seconds: 3)
             self.refresh()
         }
+        Share.toast = { [weak self] text in
+            guard let self else { return }
+            self.toast.show(text, under: self.statusItem.button, seconds: 4)
+        }
         recorder.onBusyListening = { [weak self] in
             guard let self else { return }
             self.toast.show("Finish the voice note first: press ⌥V. Then ⌥C stops contextualizing.", under: self.statusItem.button, seconds: 4)

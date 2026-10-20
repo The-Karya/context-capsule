@@ -64,6 +64,43 @@ final class LibraryModel: ObservableObject {
     func delete(_ id: String) { save(projects.filter { $0.id != id }) }
 }
 
+/// Sharing a capsule anywhere: copy the file (paste into WhatsApp, Slack, Gmail…), copy its text, or save a copy.
+enum Share {
+    static var toast: ((String) -> Void)?
+
+    static func copyFile(_ url: URL) {
+        let pb = NSPasteboard.general
+        pb.clearContents()
+        pb.writeObjects([url as NSURL])
+        toast?("Copied. Paste it in WhatsApp, Slack, email or any chat.")
+    }
+
+    static func copyText(_ url: URL) {
+        guard let text = try? String(contentsOf: url, encoding: .utf8) else { return }
+        let pb = NSPasteboard.general
+        pb.clearContents()
+        pb.setString(text, forType: .string)
+        toast?("Text copied. Paste it into a chat, or into Claude.")
+    }
+
+    static func saveCopy(_ url: URL) {
+        let panel = NSSavePanel()
+        panel.nameFieldStringValue = url.lastPathComponent
+        panel.directoryURL = FileManager.default.urls(for: .desktopDirectory, in: .userDomainMask).first
+        panel.canCreateDirectories = true
+        NSApp.activate(ignoringOtherApps: true)
+        guard panel.runModal() == .OK, let dest = panel.url else { return }
+        try? FileManager.default.removeItem(at: dest)
+        do {
+            try FileManager.default.copyItem(at: url, to: dest)
+            toast?("Saved to \(dest.deletingLastPathComponent().lastPathComponent).")
+            NSWorkspace.shared.activateFileViewerSelecting([dest])
+        } catch {
+            toast?("Couldn't save the copy: \(error.localizedDescription)")
+        }
+    }
+}
+
 enum Claude {
     /// Open the Claude app on a new chat, with the request on the clipboard (⌘V, Return).
     /// Not connected yet: connect first. No Claude app: say where to get it.
@@ -135,8 +172,20 @@ private struct CapsuleRow: View {
             Spacer(minLength: 8)
             if !when.isEmpty { Text(when).font(.system(size: 12)).foregroundStyle(.secondary).padding(.top, 2) }
             HStack(spacing: 4) {
-                ShareLink(item: capsule.url) { Image(systemName: "square.and.arrow.up") }
-                    .help("Share")
+                Menu {
+                    Button("Copy file") { Share.copyFile(capsule.url) }
+                    Button("Copy text") { Share.copyText(capsule.url) }
+                    Button("Save a copy…") { Share.saveCopy(capsule.url) }
+                    Button("Show in Finder") { NSWorkspace.shared.activateFileViewerSelecting([capsule.url]) }
+                    Divider()
+                    ShareLink("More…", item: capsule.url)
+                } label: {
+                    Image(systemName: "square.and.arrow.up")
+                }
+                .menuStyle(.borderlessButton)
+                .menuIndicator(.hidden)
+                .fixedSize()
+                .help("Share")
                 Button { NSWorkspace.shared.open(capsule.url) } label: { Image(systemName: "eye") }
                     .help("Open")
             }
@@ -150,11 +199,10 @@ private struct CapsuleRow: View {
         .onTapGesture(count: 2) { NSWorkspace.shared.open(capsule.url) }
         .contextMenu {
             Button("Open") { NSWorkspace.shared.open(capsule.url) }
+            Button("Copy file") { Share.copyFile(capsule.url) }
+            Button("Copy text") { Share.copyText(capsule.url) }
+            Button("Save a copy…") { Share.saveCopy(capsule.url) }
             Button("Show in Finder") { NSWorkspace.shared.activateFileViewerSelecting([capsule.url]) }
-            Button("Copy file") {
-                NSPasteboard.general.clearContents()
-                NSPasteboard.general.writeObjects([capsule.url as NSURL])
-            }
         }
     }
 }
