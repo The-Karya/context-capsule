@@ -76,27 +76,9 @@ enum Setup {
     }
 }
 
-/// The capsule mark: a soft gradient pill with a sparkle.
-struct CapsuleMark: View {
-    var size: CGFloat = 56
-    var body: some View {
-        ZStack {
-            Capsule()
-                .fill(LinearGradient(colors: [Color(red: 0.45, green: 0.36, blue: 0.98), Color(red: 0.98, green: 0.47, blue: 0.60)],
-                                     startPoint: .topLeading, endPoint: .bottomTrailing))
-                .frame(width: size * 1.6, height: size)
-                .shadow(color: Color(red: 0.6, green: 0.4, blue: 0.95).opacity(0.35), radius: 12, y: 6)
-            Image(systemName: "sparkles")
-                .font(.system(size: size * 0.42, weight: .semibold))
-                .foregroundStyle(.white)
-        }
-    }
-}
-
-/// One setup step in a card: a coloured icon, a short label, then a pill button or a green check.
+/// One setup step: a quiet icon, a short label, then a plain button or a check.
 private struct StepRow: View {
     let icon: String
-    let tint: Color
     let done: Bool
     let title: String
     let help: String
@@ -104,72 +86,45 @@ private struct StepRow: View {
     let action: () -> Void
 
     var body: some View {
-        HStack(spacing: 14) {
-            ZStack {
-                RoundedRectangle(cornerRadius: 9, style: .continuous).fill(tint.gradient)
-                Image(systemName: icon).font(.system(size: 15, weight: .semibold)).foregroundStyle(.white)
-            }
-            .frame(width: 32, height: 32)
-            Text(title).font(.system(size: 15, weight: .medium))
+        HStack(spacing: 12) {
+            Image(systemName: icon)
+                .font(.system(size: 15))
+                .foregroundStyle(.secondary)
+                .frame(width: 22)
+            Text(title).font(.system(size: 14))
             Spacer()
             if done {
-                Image(systemName: "checkmark.circle.fill")
-                    .font(.system(size: 22))
-                    .foregroundStyle(.white, .green)
-                    .transition(.scale.combined(with: .opacity))
+                Image(systemName: "checkmark").font(.system(size: 13, weight: .semibold)).foregroundStyle(.secondary)
             } else {
-                Button(action: action) {
-                    Text(button).font(.system(size: 13, weight: .semibold)).padding(.horizontal, 6)
-                }
-                .buttonStyle(.bordered)
-                .buttonBorderShape(.capsule)
-                .tint(Color(red: 0.45, green: 0.36, blue: 0.98))
-                .controlSize(.regular)
+                Button(button, action: action).controlSize(.regular)
             }
         }
         .padding(.horizontal, 14)
-        .padding(.vertical, 10)
-        .contentShape(Rectangle())
+        .frame(height: 44)
         .help(help)
-        .animation(.spring(duration: 0.35), value: done)
-    }
-}
-
-/// A keyboard key.
-private struct Keycap: View {
-    let label: String
-    var body: some View {
-        Text(label)
-            .font(.system(size: 15, weight: .semibold, design: .rounded))
-            .frame(minWidth: 30, minHeight: 30)
-            .padding(.horizontal, 4)
-            .background(
-                RoundedRectangle(cornerRadius: 7, style: .continuous)
-                    .fill(Color(nsColor: .controlBackgroundColor))
-                    .shadow(color: .black.opacity(0.18), radius: 0, y: 1.5)
-            )
-            .overlay(RoundedRectangle(cornerRadius: 7, style: .continuous).strokeBorder(Color.primary.opacity(0.12)))
     }
 }
 
 private struct Shortcut: View {
-    let keys: [String]
+    let keys: String
     let label: String
     var body: some View {
-        VStack(spacing: 8) {
-            HStack(spacing: 4) { ForEach(keys, id: \.self) { Keycap(label: $0) } }
-            Text(label).font(.system(size: 13, weight: .medium)).foregroundStyle(.secondary)
+        HStack {
+            Text(label).font(.system(size: 14))
+            Spacer()
+            Text(keys).font(.system(size: 14)).foregroundStyle(.secondary)
         }
-        .frame(maxWidth: .infinity)
+        .padding(.horizontal, 14)
+        .frame(height: 40)
     }
 }
 
-private struct Card<Content: View>: View {
+private struct Group<Content: View>: View {
     @ViewBuilder var content: Content
     var body: some View {
         VStack(spacing: 0) { content }
-            .background(RoundedRectangle(cornerRadius: 14, style: .continuous).fill(Color.primary.opacity(0.045)))
-            .overlay(RoundedRectangle(cornerRadius: 14, style: .continuous).strokeBorder(Color.primary.opacity(0.07)))
+            .background(RoundedRectangle(cornerRadius: 10, style: .continuous).fill(Color(nsColor: .controlBackgroundColor)))
+            .overlay(RoundedRectangle(cornerRadius: 10, style: .continuous).strokeBorder(Color.primary.opacity(0.08)))
     }
 }
 
@@ -178,72 +133,54 @@ struct WelcomeView: View {
     var onAccessibility: () -> Void
     var onDone: () -> Void
 
-    private var doneCount: Int {
-        [status.readsText, status.microphone && status.speech, status.dictation, status.claude, status.atLogin]
-            .filter { $0 }.count
-    }
-
     var body: some View {
-        VStack(spacing: 22) {
-            VStack(spacing: 14) {
-                CapsuleMark()
-                Text("Context Capsule").font(.system(size: 26, weight: .bold, design: .rounded))
-            }
-            .padding(.top, 8)
+        VStack(alignment: .leading, spacing: 20) {
+            Text("Context Capsule").font(.system(size: 22, weight: .semibold))
 
-            VStack(alignment: .leading, spacing: 8) {
-                HStack {
-                    Text("Set up").font(.system(size: 13, weight: .semibold)).foregroundStyle(.secondary)
-                    Spacer()
-                    Text("\(doneCount) of 5").font(.system(size: 12, weight: .medium)).foregroundStyle(.secondary)
-                }
-                .padding(.horizontal, 4)
-                Card {
-                    StepRow(icon: "text.viewfinder", tint: .blue, done: status.readsText, title: "Read your apps",
+            VStack(alignment: .leading, spacing: 6) {
+                Text("Set up").font(.system(size: 12, weight: .medium)).foregroundStyle(.secondary).padding(.leading, 4)
+                Group {
+                    StepRow(icon: "text.viewfinder", done: status.readsText, title: "Read your apps",
                             help: "Clean text, window names and web addresses, so projects are found by themselves. "
                                 + "Switch on Context Capsule in the list that opens.",
-                            button: "Turn on", action: onAccessibility)
-                    Divider().padding(.leading, 60)
-                    StepRow(icon: "mic.fill", tint: .orange, done: status.microphone && status.speech, title: "Voice notes",
+                            button: "Turn On", action: onAccessibility)
+                    Divider().padding(.leading, 48)
+                    StepRow(icon: "mic", done: status.microphone && status.speech, title: "Voice notes",
                             help: "Say what you're doing and why. Turned into text on this Mac; audio is never saved.",
                             button: "Allow", action: Setup.askVoice)
-                    Divider().padding(.leading, 60)
-                    StepRow(icon: "waveform", tint: .pink, done: status.dictation, title: "Dictation",
+                    Divider().padding(.leading, 48)
+                    StepRow(icon: "waveform", done: status.dictation, title: "Dictation",
                             help: "Apple needs it for voice notes. Scroll down to Dictation and switch it on.",
-                            button: "Turn on") { Setup.openSettings(Setup.keyboardPane) }
-                    Divider().padding(.leading, 60)
-                    StepRow(icon: "sparkles", tint: Color(red: 0.85, green: 0.47, blue: 0.34), done: status.claude,
-                            title: "Connect Claude",
+                            button: "Turn On") { Setup.openSettings(Setup.keyboardPane) }
+                    Divider().padding(.leading, 48)
+                    StepRow(icon: "link", done: status.claude, title: "Connect Claude",
                             help: "Lets Claude start recordings and write your capsules. Claude asks you to install it.",
                             button: "Connect") { ClaudeConnect.connect() }
-                    Divider().padding(.leading, 60)
-                    StepRow(icon: "power", tint: .green, done: status.atLogin, title: "Open at login",
+                    Divider().padding(.leading, 48)
+                    StepRow(icon: "power", done: status.atLogin, title: "Open at login",
                             help: "Always ready in the menu bar.",
-                            button: "Turn on") { Setup.setLaunchAtLogin(true); status.refresh() }
+                            button: "Turn On") { Setup.setLaunchAtLogin(true); status.refresh() }
                 }
             }
 
-            HStack(spacing: 0) {
-                Shortcut(keys: ["⌥", "C"], label: "Record")
-                Shortcut(keys: ["⌥", "V"], label: "Talk")
-                Shortcut(keys: ["✦"], label: "Ask Claude")
+            VStack(alignment: .leading, spacing: 6) {
+                Text("Use").font(.system(size: 12, weight: .medium)).foregroundStyle(.secondary).padding(.leading, 4)
+                Group {
+                    Shortcut(keys: "⌥ C", label: "Record")
+                    Divider().padding(.leading, 14)
+                    Shortcut(keys: "⌥ V", label: "Talk")
+                    Divider().padding(.leading, 14)
+                    Shortcut(keys: "in Claude", label: "Make my capsules")
+                }
             }
-            .padding(.vertical, 4)
 
-            Button(action: onDone) {
-                Text(doneCount == 5 ? "Start" : "Done").font(.system(size: 14, weight: .semibold)).frame(maxWidth: .infinity)
-                    .padding(.vertical, 4)
+            HStack {
+                Spacer()
+                Button("Done", action: onDone).keyboardShortcut(.defaultAction).controlSize(.large)
             }
-            .buttonStyle(.borderedProminent)
-            .buttonBorderShape(.capsule)
-            .controlSize(.large)
-            .tint(Color(red: 0.45, green: 0.36, blue: 0.98))
-            .keyboardShortcut(.defaultAction)
         }
-        .padding(.horizontal, 28)
-        .padding(.bottom, 26)
-        .padding(.top, 18)
-        .frame(width: 400)
+        .padding(24)
+        .frame(width: 380)
     }
 }
 
@@ -285,6 +222,7 @@ final class WelcomeWindow: NSObject, NSWindowDelegate {
         window.styleMask = [.titled, .closable, .fullSizeContentView]
         window.titlebarAppearsTransparent = true
         window.isMovableByWindowBackground = true
+        window.backgroundColor = .windowBackgroundColor
         window.isReleasedWhenClosed = false
         window.delegate = self
         window.center()
