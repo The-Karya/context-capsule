@@ -433,6 +433,7 @@ impl Win {
             setup: self.setup,
             several_screens: self.several,
             voice: cfg!(feature = "voice"),
+            auto_update: Some(crate::update::auto_update()),
             keys: &WINDOWS_KEYS,
         };
         // SAFETY: the screen DC, only for measuring text; released below.
@@ -960,6 +961,13 @@ fn perform(action: Action, at: POINT) {
             let list = settings::remove_excluded(&config.exclude_apps, &app);
             with_win(|w| w.set(settings::KEY_EXCLUDE_APPS, Some(settings::strings(&list))));
         }
+        Action::AutoUpdate => {
+            if !crate::update::set_auto_update(!crate::update::auto_update()) {
+                win::alert(Some(hwnd), w::UPDATES, w::UPDATES_NOT_SAVED);
+            }
+            with_win(|w| w.rebuild());
+        }
+        Action::CheckUpdates => crate::update::check_now(),
         Action::AddApp => {
             let apps = open_apps(&config.exclude_apps);
             let mut labels: Vec<String> = apps.iter().map(|(_, n)| n.clone()).collect();

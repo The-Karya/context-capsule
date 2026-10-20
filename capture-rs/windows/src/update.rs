@@ -10,11 +10,7 @@ pub fn staging_for(exe: &std::path::Path) -> std::path::PathBuf {
 }
 
 #[cfg(windows)]
-pub use win::{check_now, set_busy, start};
-/// For the Settings window's "Update automatically" checkbox.
-#[cfg(windows)]
-#[allow(unused_imports)]
-pub use win::{auto_update, set_auto_update};
+pub use win::{auto_update, check_now, set_auto_update, set_busy, start};
 
 #[cfg(windows)]
 mod win {
@@ -68,13 +64,11 @@ mod win {
     }
 
     /// "Update automatically" (config.json "auto_update", on by default).
-    #[allow(dead_code)]
     pub fn auto_update() -> bool {
         update::Settings::load(&Paths::standard().config()).auto
     }
 
     /// Turn "Update automatically" on or off. false: config.json could not be written (it is left as it was).
-    #[allow(dead_code)]
     pub fn set_auto_update(on: bool) -> bool {
         update::set_auto_update(&Paths::standard().config(), on).is_ok()
     }

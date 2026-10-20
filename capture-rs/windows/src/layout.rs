@@ -152,6 +152,9 @@ pub enum Action {
     Appearance,
     RemoveApp(String),
     AddApp,
+    /// Settings → Updates.
+    AutoUpdate,
+    CheckUpdates,
 }
 
 #[derive(Clone, Debug, PartialEq)]
@@ -267,6 +270,8 @@ pub struct View<'a> {
     pub several_screens: bool,
     /// Built with voice notes.
     pub voice: bool,
+    /// "Update automatically" is on; None: no Updates section.
+    pub auto_update: Option<bool>,
     pub keys: &'a Keys,
 }
 
@@ -878,8 +883,23 @@ fn project_editor(out: &mut Vec<Node>, m: &dyn Measure, x: f64, w: f64, top: f64
 
 // MARK: Settings
 
-/// Settings → Updates: added by the updater (another change); nothing to show yet.
-fn updates_section(_col: &mut Col, _v: &View) {}
+/// Settings → Updates: "Update automatically", the version, and "Check for updates".
+fn updates_section(col: &mut Col, v: &View) {
+    use context_capsule_core::update::{AUTO_LABEL, CHECK_LABEL};
+    let Some(auto) = v.auto_update else { return };
+    col.gap(GAP);
+    col.caption(w::UPDATES);
+    let version = w::version_line(env!("CARGO_PKG_VERSION"));
+    col.card(|out, x, w, top, m| {
+        let (y, h) = row(out, m, x, w, top, None, AUTO_LABEL, None, TOGGLE_W);
+        right_toggle(out, x, w, top, h, auto, Action::AutoUpdate);
+        divider(out, x, w, y);
+        let bw = button_width(m, CHECK_LABEL, Style::Standard);
+        let (bottom, h) = row(out, m, x, w, y, None, &version, None, bw);
+        right_button(out, m, x, w, y, h, CHECK_LABEL, Action::CheckUpdates, Style::Standard);
+        bottom
+    });
+}
 
 fn settings_page(col: &mut Col, v: &View) {
     let c = &v.data.config;
@@ -995,7 +1015,7 @@ fn settings_page(col: &mut Col, v: &View) {
         bottom
     });
 
-    updates_section(col, v); // updates: wired after merge
+    updates_section(col, v);
 }
 
 /// The row label next to System / Light / Dark.
@@ -1141,6 +1161,7 @@ mod tests {
             setup: Done { voice: true, claude: false, login: true },
             several_screens: true,
             voice: true,
+            auto_update: Some(true),
             keys: &WINDOWS_KEYS,
         }
     }
@@ -1269,7 +1290,7 @@ mod tests {
         assert_eq!(fields, [Field::ProjectName, Field::ProjectClues]);
         let t = texts(&layout(&view(Section::Settings, &status, &data), 1000.0, 700.0, &Fake));
         for word in ["You", "Your name", "Set up", "Voice notes", "Connect Claude", "Connect", "Open at login", "Every day", "Remind me to make capsules",
-            "18:00", "30 days", "Sounds", "Capsules are never deleted.", "Language", "Same as my computer", "Appearance", "System", "Never record", "Slack", "Remove", "Choose…"] {
+            "18:00", "30 days", "Sounds", "Capsules are never deleted.", "Language", "Same as my computer", "Appearance", "System", "Never record", "Slack", "Remove", "Choose…", "Updates", "Update automatically", "Check for updates"] {
             assert!(t.iter().any(|x| x == word), "{word} in Settings: {t:?}");
         }
         assert!(!t.iter().any(|x| x == "Allow" || x == "Turn On"), "done rows show a check instead");

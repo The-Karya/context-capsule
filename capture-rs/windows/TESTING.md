@@ -41,7 +41,8 @@ and shows a ✓ instead once that step is done.
    Settings → Apps → Startup.)
 4. **Your name**: type your first name. ✅ Go to **Home**: it says *Good morning,
    <your name>.* (or afternoon / evening).
-5. Under **Every day**, **Appearance** and **Never record**, try each control once:
+5. Under **Every day**, **Appearance**, **Never record** and **Updates**, try each control once
+   (**Updates** shows the version; **Check for updates** says what it found):
    ✅ every change sticks after you close and reopen the window. **Appearance → Dark**
    turns the window dark at once; set it back to **System**.
 6. Close the window (✕). Right-click the tray icon → **Open Context Capsule**
