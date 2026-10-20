@@ -48,16 +48,17 @@ signed and checked, and install when you click **Restart now**.
 
 ## The Context Capsule window
 
-Everything in one place (menu → **Open Context Capsule**). Mac for now; on Windows and Linux
-the same actions are in the tray menu and a small setup window.
+Everything in one place (menu or tray → **Open Context Capsule**), the same on Mac, Windows and
+Linux. Light, dark, or the same as your system.
 
 - **Home**: a hello with your name, Start / Stop contextualizing with a live timer, Speak a
-  note, Add a screen, your projects as one-click buttons, time per project today and this
-  week, your latest capsule, and Make today's capsules. It fits any window size.
+  note, Add a screen; today, this week and your streak; time per project today; your recent
+  capsules; your shortcuts, the project you're on, and Make today's capsules. It fits any
+  window size.
 - **Capsules**: your capsules by project, with Share (Copy file, Copy text, Save a copy,
   Show in Finder, AirDrop/Mail/Messages) and Open.
 - **Projects**: rename them, change how they're found, delete them.
-- **Settings**: your name (it goes on your capsules), set up, the evening reminder and its time, when to delete old recordings,
+- **Settings**: your name (it goes on your capsules), set up, appearance, updates, the evening reminder and its time, when to delete old recordings,
   sounds, the voice-note language, apps never to record, and updates.
 - **Help**: shortcuts, how it works, privacy.
 
