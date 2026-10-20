@@ -1,0 +1,77 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Context Capsule</title>
+<meta name="description" content="Context Capsule notes what you work on, so Claude can write it up and anyone can carry on.">
+<style>
+  :root { color-scheme: light dark; --text: #1d1d1f; --muted: #6e6e73; --line: #d2d2d7; --bg: #fff; --soft: #f5f5f7; --blue: #0071e3; }
+  @media (prefers-color-scheme: dark) {
+    :root { --text: #f5f5f7; --muted: #a1a1a6; --line: #424245; --bg: #000; --soft: #1d1d1f; --blue: #2997ff; }
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: var(--bg); color: var(--text);
+         font: 17px/1.5 -apple-system, BlinkMacSystemFont, "Segoe UI", system-ui, sans-serif; }
+  main { max-width: 680px; margin: 0 auto; padding: 72px 24px 48px; }
+  h1 { font-size: 40px; line-height: 1.1; margin: 0 0 12px; font-weight: 600; letter-spacing: -0.01em; }
+  .lead { font-size: 21px; color: var(--muted); margin: 0 0 40px; }
+  .downloads { display: grid; grid-template-columns: repeat(3, 1fr); gap: 12px; margin-bottom: 8px; }
+  .downloads a { display: block; padding: 16px; border: 1px solid var(--line); border-radius: 12px;
+                 color: var(--text); text-decoration: none; background: var(--soft); }
+  .downloads a:hover { border-color: var(--muted); }
+  .downloads a strong { display: block; font-size: 17px; }
+  .downloads a span { font-size: 14px; color: var(--muted); }
+  .downloads a.yours { background: var(--blue); border-color: var(--blue); color: #fff; }
+  .downloads a.yours span { color: rgba(255,255,255,0.85); }
+  .small { font-size: 14px; color: var(--muted); }
+  h2 { font-size: 22px; font-weight: 600; margin: 48px 0 12px; }
+  ol { padding-left: 1.3em; margin: 0; }
+  ol li { margin-bottom: 10px; }
+  a { color: var(--blue); }
+  footer { margin-top: 56px; padding-top: 16px; border-top: 1px solid var(--line); font-size: 14px; color: var(--muted); }
+  @media (max-width: 560px) { .downloads { grid-template-columns: 1fr; } h1 { font-size: 32px; } }
+</style>
+</head>
+<body>
+<main>
+  <h1>Context Capsule</h1>
+  <p class="lead">It notes what you work on. Claude writes it up, so anyone can carry on.</p>
+
+  <div class="downloads">
+    <a id="mac" href="https://github.com/The-Karya/context-capsule/releases/latest/download/Context-Capsule-mac.dmg">
+      <strong>Mac</strong><span>macOS 14 or later</span></a>
+    <a id="windows" href="https://github.com/The-Karya/context-capsule/releases/latest/download/Context-Capsule-windows.exe">
+      <strong>Windows</strong><span>Windows 10 or 11</span></a>
+    <a id="linux" href="https://github.com/The-Karya/context-capsule/releases/latest/download/Context-Capsule-x86_64.AppImage">
+      <strong>Linux</strong><span>AppImage</span></a>
+  </div>
+  <p class="small">Free. No account. It updates itself.</p>
+
+  <h2>Get started</h2>
+  <ol>
+    <li><strong>Install it.</strong> Mac: open the file and drag Context Capsule to Applications.
+      Windows: open the file. Linux: make the file executable, then open it.</li>
+    <li><strong>Open it and follow Settings.</strong> Turn on each step, and connect Claude in one click.</li>
+    <li><strong>Press Option-C (Alt+C) when you start work.</strong> At the end of the day, click
+      <em>Make today's capsules</em>. Claude writes them for you.</li>
+  </ol>
+
+  <h2>Your privacy</h2>
+  <p>Only text is kept, on your computer. No screenshots, no audio, no cloud.
+    <a href="https://github.com/The-Karya/context-capsule/blob/main/PRIVACY.md">Read exactly what goes where.</a></p>
+
+  <footer>Context Capsule by Karya</footer>
+</main>
+<script>
+  // Highlight the download for this computer.
+  (function () {
+    var ua = (navigator.userAgentData && navigator.userAgentData.platform) || navigator.platform || navigator.userAgent || "";
+    ua = ua.toLowerCase();
+    var os = ua.indexOf("mac") >= 0 ? "mac" : ua.indexOf("win") >= 0 ? "windows" : ua.indexOf("linux") >= 0 && ua.indexOf("android") < 0 ? "linux" : "";
+    if (/iphone|ipad|ipod|android/.test((navigator.userAgent || "").toLowerCase())) os = "";
+    if (os) document.getElementById(os).classList.add("yours");
+  })();
+</script>
+</body>
+</html>
