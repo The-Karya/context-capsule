@@ -673,6 +673,21 @@ check(!(try! extLog.extendIfSameWindow(w2)), "another window: not extended")
 let extLines = (try! String(contentsOf: extURL, encoding: .utf8)).split(separator: "\n")
 check(extLines.count == 1 && extLines[0].contains(#""end":"2026-10-19T10:00:03Z""#), "end moved in place", "\(extLines)")
 
+// MARK: settings written by the app
+
+let setURL = tmp.appendingPathComponent("settings/config.json")
+try! ConfigFile.set("sounds", false, in: setURL)
+try! ConfigFile.set("remind_at", "19:30", in: setURL)
+try! ConfigFile.set("exclude_apps", ["com.example.app"], in: setURL)
+var setCfg = Config.load(from: setURL)
+check(!setCfg.sounds && setCfg.remindAt == "19:30" && setCfg.excludeApps == ["com.example.app"], "settings saved from the app")
+try! #"{"author": "Saachi", "future_key": 7}"#.write(to: setURL, atomically: true, encoding: .utf8)
+try! ConfigFile.set("remind_at", false, in: setURL)
+let setText = try! String(contentsOf: setURL, encoding: .utf8)
+check(setText.contains("\"author\" : \"Saachi\"") && setText.contains("future_key"), "other keys kept", setText)
+setCfg = Config.load(from: setURL)
+check(setCfg.remindAt == nil, "reminder turned off")
+
 try? FileManager.default.removeItem(at: tmp)
 print("\(passes) passed, \(failures) failed")
 exit(failures == 0 ? 0 : 1)

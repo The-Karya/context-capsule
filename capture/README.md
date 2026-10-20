@@ -16,10 +16,20 @@ paints out any private app window (below) or notification banner that sits on to
 Frames stay in memory and are never written to disk. The file format is in
 [`../SPEC.md`](../SPEC.md).
 
-Menu: **Start recording** (⌥C) · **Speak a note** (⌥V) · **Project** · **Make today's
-capsules** (opens a new Claude chat with the request ready to paste (⌘V, Return); stops a running
-recording first) · **My capsules** (capsules by project with Share (Copy file — paste into WhatsApp, Slack, email…; Copy text; Save a copy…; Show in Finder; More… for AirDrop/Mail/Messages) and Open, and a Projects tab to
-rename, edit or delete projects) · **Settings** · Quit.
+**The Context Capsule window** (menu → *Open Context Capsule*, ⌘O; opens on Settings the first
+time) has everything in one place, with a sidebar:
+- **Home** — Start / Stop contextualizing with a live timer, Speak a note, Add a screen, the
+  current project (change it or make a new one), Make today's capsules.
+- **Capsules** — by project, with Share (Copy file — paste into WhatsApp, Slack, email…; Copy
+  text; Save a copy…; Show in Finder; More… for AirDrop/Mail/Messages) and Open.
+- **Projects** — rename, edit how they're found, delete.
+- **Settings** — set up (read your apps, voice notes, Dictation, connect Claude, open at login),
+  the evening reminder and its time, when to delete old recordings, sounds, the voice-note
+  language, and apps never to record.
+- **Help** — shortcuts, how it works, privacy.
+
+The menu-bar menu is the quick version: Start contextualizing (⌥C) · Speak a note (⌥V) · Add a
+screen · Project · Open Context Capsule · Make today's capsules · Quit.
 
 Menu-bar icon: hollow circle = idle; **a red dot and the time** (● 12:34) while recording; **a
 red mic with bars that move with your voice** while listening. Nothing appears on the screen

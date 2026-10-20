@@ -26,10 +26,6 @@ if let i = CommandLine.arguments.firstIndex(of: "--render-icons"), i + 1 < Comma
     save(MenuBarLook.dot(), "recording-dot.png")
     exit(0)
 }
-if let i = CommandLine.arguments.firstIndex(of: "--render-welcome"), i + 1 < CommandLine.arguments.count {
-    let dark = CommandLine.arguments.contains("--dark")
-    exit(MainActor.assumeIsolated { WelcomeRender.run(to: CommandLine.arguments[i + 1], dark: dark) } ? 0 : 1)
-}
 
 let app = NSApplication.shared
 let delegate = AppDelegate()

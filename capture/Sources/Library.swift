@@ -130,7 +130,7 @@ enum Claude {
     }
 }
 
-private struct CapsuleRow: View {
+struct CapsuleRow: View {
     let capsule: CapsuleSummary
     @State private var hover = false
 
@@ -207,7 +207,7 @@ private struct CapsuleRow: View {
     }
 }
 
-private struct ProjectRow: View {
+struct ProjectRow: View {
     let project: Project
     @ObservedObject var model: LibraryModel
     @State private var editing = false
@@ -258,7 +258,7 @@ private struct ProjectRow: View {
     }
 }
 
-private struct Panel<Content: View>: View {
+struct Panel<Content: View>: View {
     @ViewBuilder var content: Content
     var body: some View {
         let shape = RoundedRectangle(cornerRadius: 14, style: .continuous)
@@ -268,110 +268,4 @@ private struct Panel<Content: View>: View {
             VStack(spacing: 0) { content }.background(shape.fill(.regularMaterial))
         }
     }
-}
-
-struct LibraryView: View {
-    @ObservedObject var model: LibraryModel
-
-    var body: some View {
-        VStack(alignment: .leading, spacing: 16) {
-            HStack {
-                Picker("", selection: $model.tab) {
-                    Text("Capsules").tag(0)
-                    Text("Projects").tag(1)
-                }
-                .pickerStyle(.segmented)
-                .labelsHidden()
-                .frame(width: 220)
-                Spacer()
-                Button("Make today's capsules") { Claude.makeTodaysCapsules() }
-                    .controlSize(.large)
-            }
-
-            ScrollView {
-                VStack(alignment: .leading, spacing: 18) {
-                    if model.tab == 0 { capsules } else { projectList }
-                }
-                .padding(.bottom, 8)
-            }
-        }
-        .padding(.horizontal, 22)
-        .padding(.bottom, 22)
-        .padding(.top, 2)
-        .frame(width: 520, height: 560)
-        .onAppear { model.reload() }
-    }
-
-    @ViewBuilder private var capsules: some View {
-        if model.capsules.isEmpty {
-            empty("No capsules yet", "Press ⌥C to start contextualizing, then click Make today's capsules.")
-        } else {
-            ForEach(model.groups, id: \.title) { group in
-                VStack(alignment: .leading, spacing: 6) {
-                    Text(group.title).font(.system(size: 12, weight: .medium)).foregroundStyle(.secondary).padding(.leading, 4)
-                    Panel {
-                        ForEach(Array(group.items.enumerated()), id: \.element.url) { i, c in
-                            if i > 0 { Divider().padding(.leading, 46) }
-                            CapsuleRow(capsule: c)
-                        }
-                    }
-                }
-            }
-        }
-    }
-
-    @ViewBuilder private var projectList: some View {
-        if model.projects.isEmpty {
-            empty("No projects yet", "They're made for you when Claude sorts your day, or from the menu: Project → New project from this window.")
-        } else {
-            Panel {
-                ForEach(Array(model.projects.enumerated()), id: \.element.id) { i, p in
-                    if i > 0 { Divider().padding(.leading, 14) }
-                    ProjectRow(project: p, model: model)
-                }
-            }
-        }
-    }
-
-    private func empty(_ title: String, _ detail: String) -> some View {
-        VStack(spacing: 6) {
-            Text(title).font(.system(size: 15, weight: .medium))
-            Text(detail).font(.system(size: 13)).foregroundStyle(.secondary).multilineTextAlignment(.center)
-        }
-        .frame(maxWidth: .infinity)
-        .padding(.top, 120)
-    }
-}
-
-/// The "My capsules" window. One at a time; refreshed each time it's shown.
-final class LibraryWindow: NSObject, NSWindowDelegate {
-    private var window: NSWindow?
-    let model: LibraryModel
-
-    init(paths: Paths) { model = LibraryModel(paths: paths) }
-
-    func show() {
-        model.reload()
-        if let window {
-            NSApp.activate(ignoringOtherApps: true)
-            window.makeKeyAndOrderFront(nil)
-            return
-        }
-        let host = NSHostingController(rootView: LibraryView(model: model).background(WindowGlass().ignoresSafeArea()))
-        let window = NSWindow(contentViewController: host)
-        window.title = "My capsules"
-        window.styleMask = [.titled, .closable, .fullSizeContentView]
-        window.titlebarAppearsTransparent = true
-        window.isMovableByWindowBackground = true
-        window.isOpaque = false
-        window.backgroundColor = .clear
-        window.isReleasedWhenClosed = false
-        window.delegate = self
-        window.center()
-        self.window = window
-        NSApp.activate(ignoringOtherApps: true)
-        window.makeKeyAndOrderFront(nil)
-    }
-
-    func windowWillClose(_ notification: Notification) { window = nil }
 }

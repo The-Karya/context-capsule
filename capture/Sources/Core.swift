@@ -1186,3 +1186,18 @@ final class NewLines {
     }
 }
 
+
+// MARK: - Changing settings (config.json) from the app
+
+/// Writes one setting into config.json, keeping every other key (and any the app doesn't know) as it was.
+enum ConfigFile {
+    static func set(_ key: String, _ value: Any?, in url: URL) throws {
+        var obj: [String: Any] = [:]
+        if let data = try? Data(contentsOf: url), let read = try? JSONSerialization.jsonObject(with: data) as? [String: Any] {
+            obj = read
+        }
+        obj[key] = value ?? NSNull()
+        let data = try JSONSerialization.data(withJSONObject: obj, options: [.prettyPrinted, .sortedKeys])
+        try writeAtomically(String(decoding: data, as: UTF8.self) + "\n", to: url)
+    }
+}

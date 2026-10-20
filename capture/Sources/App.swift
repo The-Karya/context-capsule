@@ -22,11 +22,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     /// Redraws the menu-bar icon while recording (the timer) or listening (the voice bars).
     private var iconTimer: Timer?
     private let toast = Toast()
-    private let welcome = WelcomeWindow()
     private lazy var daily = DailyJobs(paths: paths) { [weak self] in self?.recorder.isRecording ?? false }
-    private lazy var library: LibraryWindow = {
-        let window = LibraryWindow(paths: paths)
-        window.model.onProjectsChanged = { [weak self] in
+    private let appModel = AppModel()
+    private lazy var main: MainWindow = {
+        let window = MainWindow(app: appModel, paths: paths)
+        window.library.onProjectsChanged = { [weak self] in
             self?.recorder.reloadProjects(force: true)
             self?.refresh()
         }
@@ -54,10 +54,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         projectItem.submenu = NSMenu()
         menu.addItem(projectItem)
         menu.addItem(.separator())
+        menu.addItem(NSMenuItem(title: "Open Context Capsule", action: #selector(showMain), keyEquivalent: "o"))
         menu.addItem(NSMenuItem(title: "Make today's capsules", action: #selector(makeCapsules), keyEquivalent: ""))
-        menu.addItem(NSMenuItem(title: "My capsules", action: #selector(showLibrary), keyEquivalent: ""))
-        menu.addItem(.separator())
-        menu.addItem(NSMenuItem(title: "Settings", action: #selector(showWelcome), keyEquivalent: ""))
         menu.addItem(.separator())
         menu.addItem(NSMenuItem(title: "Quit", action: #selector(NSApplication.terminate(_:)), keyEquivalent: "q"))
         for item in menu.items where item.action != nil && item.action != #selector(NSApplication.terminate(_:)) {
@@ -128,8 +126,18 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
             Setup.setLaunchAtLogin(true)
         }
 
-        welcome.onAccessibility = { [weak self] in self?.askAccessibility() }
-        if !WelcomeWindow.seen { welcome.show() }
+        appModel.toggleRecord = { [weak self] in self?.toggle() }
+        appModel.toggleVoice = { [weak self] in self?.toggleVoice() }
+        appModel.addScreen = { [weak self] in self?.addScreen() }
+        appModel.makeCapsules = { [weak self] in self?.makeCapsules() }
+        appModel.pickProject = { [weak self] id in self?.recorder.pinProject(id); self?.refresh() }
+        appModel.newProject = { [weak self] in self?.newProject() }
+        appModel.askAccessibility = { [weak self] in self?.askAccessibility() }
+        // First launch: the window opens on Settings, to set things up.
+        if !MainWindow.seen {
+            UserDefaults.standard.set(true, forKey: MainWindow.seenKey)
+            main.show(.settings)
+        }
         daily.onMake = { [weak self] in self?.makeCapsules() }
         daily.start()
 
@@ -139,8 +147,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         trustWatch = repeating(2) { [weak self] in self?.checkTrust() }
 
         // For testing: open a window at launch.
-        if CommandLine.arguments.contains("--show-library") { library.show() }
-        if CommandLine.arguments.contains("--show-welcome") { welcome.show() }
+        if CommandLine.arguments.contains("--show-main") { main.show(.home) }
+        if CommandLine.arguments.contains("--show-library") { main.show(.capsules) }
+        if CommandLine.arguments.contains("--show-welcome") { main.show(.settings) }
         if CommandLine.arguments.contains("--show-reminder") { daily.show() }
     }
 
@@ -156,11 +165,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         refresh()
     }
 
-    @objc private func showWelcome() { welcome.show() }
+    @objc private func showMain() { main.show(.home) }
 
     @objc private func addScreen() { recorder.addScreen() }
 
-    @objc private func showLibrary() { library.show() }
+
 
     /// Opens the Claude app with "Make my capsules for today." typed in; stop recording first if it's on.
     @objc private func makeCapsules() {
@@ -200,6 +209,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         addScreenItem.isEnabled = recorder.canAddScreen
         addScreenItem.title = recorder.sharedScreens > 1 ? "Add a screen (\(recorder.sharedScreens) shared)" : "Add a screen"
         buildProjectMenu()
+        updateModel(recording: recording, listening: listening)
 
         if recorder.sessionID != nil, let started = recorder.startedAt {
             let time = DateFormatter.localizedString(from: started, dateStyle: .none, timeStyle: .short)
@@ -214,6 +224,22 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         skipItem.title = "Skipping: \(recorder.lastSkip?.message ?? "")"
         toggleItem.title = recording ? "Stop contextualizing" : recorder.isPicking ? "Cancel" : "Start contextualizing"
         axItem.state = AXReader.trusted ? .on : .off
+    }
+
+    /// What the window shows (it updates live while open).
+    private func updateModel(recording: Bool, listening: Bool) {
+        let m = appModel
+        m.recording = recording
+        m.listening = listening
+        m.picking = recorder.isPicking
+        m.startedAt = recorder.startedAt
+        m.moments = recorder.eventCount
+        m.projects = recorder.projects
+        m.projectID = recorder.projectChoice.pinned ?? recorder.currentProject?.id
+        m.projectPinned = recorder.projectChoice.pinned != nil
+        m.screens = recorder.sharedScreens
+        m.canAddScreen = recorder.canAddScreen
+        m.hasSeveralScreens = NSScreen.screens.count > 1
     }
 
     /// "Project: <name>" with Auto-detect, every project, and "New project from this window".
