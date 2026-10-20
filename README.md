@@ -42,7 +42,8 @@ signed and checked, and install when you click **Restart now**.
 3. **Start contextualizing** (⌥C) and pick your screen. The menu bar shows a red dot and a timer.
 4. Work. Any time, **Speak a note** (⌥V): say what you're doing and why. The menu bar shows a
    mic with bars that move with your voice. Press ⌥V again when done.
-5. At the end of the day, click **Make today's capsules**. Claude opens; press ⌘V, then Return.
+5. At the end of the day, click **Make today's capsules**. Claude opens with the request typed
+   in; press Return.
    Claude sorts your day into projects and writes the capsules.
 6. **Share** a capsule from **Capsules**: copy it into WhatsApp, Slack or email, or AirDrop it.
 

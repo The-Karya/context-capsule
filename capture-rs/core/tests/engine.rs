@@ -554,7 +554,7 @@ fn voice_note_saved_and_indicator_resets() {
     r.engine.toggle_voice();
     assert!(!r.engine.is_listening() && !r.voice.borrow().mic_open);
     assert_eq!(r.engine.platform().indicators.last(), Some(&Indicator::Recording));
-    assert_eq!(r.engine.platform().toasts, ["Voice note saved"]);
+    assert!(r.engine.platform().toasts.is_empty(), "a saved note is a sound, not a message");
     let s = r.state();
     assert!(s["listening"] == false && s["events"] == 1);
     let ev = r.events(&id);
@@ -930,7 +930,7 @@ fn several_screens_each_sample_uses_the_one_in_front() {
     g.engine.on_pick(PickOutcome::Added(2));
     assert_eq!(g.engine.status().sources, 2);
     assert_eq!(g.engine.status().add_screen_label(), "Add a screen (2 shared)");
-    assert_eq!(g.engine.platform().toasts.last().unwrap(), "Screen added: 2 screens shared.");
+    assert!(g.engine.platform().toasts.is_empty(), "adding a screen shows no text");
 
     // The window in front moves to the second screen: that screen's frame is read.
     let w = g.p().front.as_mut().unwrap();
@@ -953,7 +953,7 @@ fn several_screens_each_sample_uses_the_one_in_front() {
     g.engine.on_pick(PickOutcome::Removed(1));
     assert!(g.engine.is_recording());
     assert_eq!(g.engine.status().sources, 1);
-    assert_eq!(g.engine.platform().toasts.last().unwrap(), "A screen stopped sharing: 1 left.");
+    assert!(g.engine.platform().toasts.is_empty(), "a screen leaving shows no text");
     g.engine.on_pick(PickOutcome::AddCancelled);
     assert!(g.engine.is_recording(), "closing the picker when adding changes nothing");
     // The last one stopping ends the recording.

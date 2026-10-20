@@ -16,7 +16,7 @@ mod widgets;
 use crate::link::{UiMsg, WindowLink};
 use crate::ui;
 use adw::prelude::*;
-use context_capsule_core::reminder::{CLAUDE_NEW_CHAT, DAY_PROMPT, PASTE_HINT};
+use context_capsule_core::reminder::{CLAUDE_NEW_CHAT, DAY_PROMPT};
 use context_capsule_core::settings::{Appearance, ConfigFile};
 use context_capsule_core::stats::sunday_first;
 use context_capsule_core::window::{self as words, HomeNumbers, Keys, Section, LINUX_KEYS};
@@ -261,12 +261,10 @@ impl Ctx {
         gio::AppInfo::launch_default_for_uri(uri, Some(&self.launch_context())).is_ok()
     }
 
-    /// "Make today's capsules": the request on the clipboard, Claude on a new chat, then "Ctrl+V, then Enter".
+    /// "Make today's capsules": Claude on a new chat with the request typed in (also on the clipboard).
     pub fn make_capsules(&self) {
         self.copy_text(DAY_PROMPT);
-        if self.open_uri(CLAUDE_NEW_CHAT) {
-            self.toast(PASTE_HINT);
-        } else {
+        if !self.open_uri(CLAUDE_NEW_CHAT) {
             widgets::message(&self.win, ui::CANT_OPEN_CLAUDE, &ui::cant_open_claude_body(DAY_PROMPT));
         }
     }

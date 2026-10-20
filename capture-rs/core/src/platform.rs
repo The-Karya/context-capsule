@@ -319,10 +319,9 @@ pub trait Platform {
         None
     }
 
-    /// While recording, the current project changed (None: auto-detect found nothing yet).
-    fn project_changed(&mut self, project: Option<&Project>) {
-        self.toast(&project_message(project));
-    }
+    /// While recording, the current project changed (None: auto-detect found nothing yet). Shown in the tray
+    /// menu and the window; no text on screen.
+    fn project_changed(&mut self, _project: Option<&Project>) {}
 
     /// A session ended with nothing written; `why` is the most common skip.
     fn empty_session(&mut self, why: Option<Skip>) {

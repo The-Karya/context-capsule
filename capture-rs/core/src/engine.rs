@@ -20,14 +20,14 @@ use crate::membership::{Freshness, Membership, OcrDecision, PickStyle, Skip};
 use crate::newlines::NewLines;
 use crate::paths::Paths;
 use crate::membership::{ListedWindow, PickedContent, WindowList};
-use crate::platform::{screens_message, Front, Indicator, Msg, PickOutcome, Platform, Status, ALREADY_SHARED, MAX_SOURCES};
+use crate::platform::{Front, Indicator, Msg, PickOutcome, Platform, Status, ALREADY_SHARED, MAX_SOURCES};
 use crate::pointer::PointerRule;
 use crate::projects::{Location, Project, ProjectChoice, Projects};
 use crate::redact::Redactor;
 use crate::reminder::DailyJobs;
 use crate::state::{session_json, ControlCommand, ControlKind, StateJson};
 use crate::text::{TextSource, UiText};
-use crate::voice::{busy_listening_message, PlatformText, Voice, VoiceEngine, VoiceNotes, VoicePhase, VoiceSignal, VoiceTarget};
+use crate::voice::{busy_listening_message, PlatformText, Voice, VoiceEngine, VoiceNotes, VoiceOutcome, VoicePhase, VoiceSignal, VoiceTarget};
 use std::path::PathBuf;
 use std::sync::mpsc::{Receiver, RecvTimeoutError};
 use std::sync::Arc;
@@ -460,7 +460,7 @@ impl<P: Platform> Engine<P> {
             PickOutcome::Added(count) if self.is_recording() => {
                 self.sources = count;
                 self.log.write(&format!("screen added: {count} shared"));
-                self.platform.toast(&screens_message(count, true));
+                self.changed(); // shown in the tray menu and the window, not as text on screen
             }
             PickOutcome::Added(_) => self.platform.stop_capture(), // recording ended meanwhile
             PickOutcome::AddCancelled => self.log.write("add a screen: cancelled"),
@@ -474,7 +474,7 @@ impl<P: Platform> Engine<P> {
                 if self.is_recording() {
                     self.sources = count;
                     self.log.write(&format!("a shared screen stopped: {count} left"));
-                    self.platform.toast(&screens_message(count, false));
+                    self.changed();
                 }
             }
         }
@@ -802,8 +802,11 @@ impl<P: Platform> Engine<P> {
                 }
                 VoiceSignal::Outcome(outcome) => {
                     self.log.write(&outcome.log_summary());
-                    let message = outcome.message(&self.opts.text);
-                    self.platform.toast(&message);
+                    // A saved note is a sound; only problems and notices are shown.
+                    if !matches!(outcome, VoiceOutcome::Saved { .. }) {
+                        let message = outcome.message(&self.opts.text);
+                        self.platform.toast(&message);
+                    }
                 }
                 VoiceSignal::Save { session, event } => self.save_note(&session, &event),
             }

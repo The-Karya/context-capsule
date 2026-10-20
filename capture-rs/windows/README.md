@@ -27,9 +27,8 @@ is used instead (a private app on top still means nothing is read).
 
 Tray icon: hollow circle = idle, **red** filled circle = recording (the running time is in its
 tooltip and the menu's first line: the tray can't show text), **red** microphone with bars that
-move with your voice = listening. Nothing else stays on screen. A short message and a soft sound
-mark "● Recording started…" / "■ Recording stopped: N events saved."; the mic opening and
-closing has a soft sound too (`"sounds": false` in config.json turns them off). The menu shows
+move with your voice = listening. Nothing appears on screen: soft sounds mark start and stop, and
+the mic opening and closing (only problems are shown as text) (`"sounds": false` in config.json turns them off). The menu shows
 the time, the event count and, when a sample is skipped, why. If a recording ends with nothing
 written, a message says why. Menu: Start / Stop recording, Add / Finish voice note, Add another
 screen… (while recording: the picker again, up to 4 screens or windows; each sample uses the
@@ -42,8 +41,7 @@ documents are kept whole as you scroll (no size limit; a 100,000-character safet
 
 Evening reminder: at 18:00 (`"remind_at": "19:30"`, or `false` to turn it off), if something was
 recorded today and no capsule exists for today, a box asks "Make today's capsules?" once a day.
-**Make** puts the request on the clipboard and opens the Claude app on a new chat; press Ctrl+V,
-then Enter. Raw recordings older than 30 days are deleted (`"keep_recordings_days"`, 0 = keep);
+**Make** opens the Claude app on a new chat with the request typed in; press Enter. Raw recordings older than 30 days are deleted (`"keep_recordings_days"`, 0 = keep);
 capsules are never deleted.
 
 ## Install, uninstall, updates

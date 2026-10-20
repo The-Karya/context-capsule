@@ -378,7 +378,7 @@ private struct HomeView: View {
         Panel {
             VStack(alignment: .leading, spacing: 10) {
                 Text("Make today's capsules").font(.system(size: 14, weight: .semibold))
-                Text("Claude opens. Press ⌘V, then Return.").font(.system(size: 12)).foregroundStyle(.secondary)
+                Text("Claude opens with the request typed in. Press Return.").font(.system(size: 12)).foregroundStyle(.secondary)
                 Button(action: app.makeCapsules) { Text("Make capsules").frame(maxWidth: .infinity) }
                     .controlSize(.large)
                     .buttonStyle(.borderedProminent)

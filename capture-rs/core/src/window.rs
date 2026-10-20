@@ -253,9 +253,10 @@ pub const NONE_YET: &str = "None yet.";
 pub const MAKE_TITLE: &str = "Make today's capsules";
 pub const MAKE_BUTTON: &str = "Make";
 
-/// "Opens Claude: Ctrl+V, then Enter"
+/// The line under "Make today's capsules" (the request is typed in Claude for you).
 pub fn make_hint(keys: &Keys) -> String {
-    format!("Opens Claude: {}", keys.paste)
+    let _ = keys;
+    "Opens Claude with the request typed in".to_string()
 }
 
 /// Everything Home shows, computed off the UI thread from the files.
@@ -436,7 +437,7 @@ mod tests {
         assert_eq!(voice_button(&s), "Speak a note");
         s.listening = true;
         assert_eq!(voice_button(&s), "Done speaking");
-        assert_eq!(make_hint(&LINUX_KEYS), "Opens Claude: Ctrl+V, then Enter");
+        assert_eq!(make_hint(&LINUX_KEYS), "Opens Claude with the request typed in");
     }
 
     #[test]

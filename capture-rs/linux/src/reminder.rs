@@ -3,7 +3,7 @@
 // its claude: link), then "In Claude, press Ctrl+V, then Enter." Also plays the soft start/stop sounds.
 
 use crate::notify::{on_path, Notifier};
-use context_capsule_core::reminder::{CLAUDE_NEW_CHAT, DAY_PROMPT, LATER_BUTTON, MAKE_BUTTON, PASTE_HINT, REMIND_QUESTION};
+use context_capsule_core::reminder::{CLAUDE_NEW_CHAT, DAY_PROMPT, LATER_BUTTON, MAKE_BUTTON, REMIND_QUESTION};
 use context_capsule_core::Cue;
 use std::io::Write;
 use std::path::PathBuf;
@@ -69,9 +69,7 @@ pub fn ask_and_make(notifier: Notifier) {
                 "Couldn't open Claude",
                 &format!("Open the Claude app (or claude.ai), start a new chat and type:\n\n{DAY_PROMPT}"),
             );
-        } else if copied {
-            notifier.toast(PASTE_HINT);
-        } else {
+        } else if !copied {
             notifier.alert("Make today's capsules", &format!("In Claude, type:\n\n{DAY_PROMPT}"));
         }
     });
@@ -108,8 +106,7 @@ mod tests {
         let names = |w| clipboard_tools(w).into_iter().map(|(t, _)| t).collect::<Vec<_>>();
         assert_eq!(names(true), ["wl-copy", "xclip", "xsel"]);
         assert_eq!(names(false), ["xclip", "xsel"], "no wl-copy without Wayland");
-        assert_eq!(CLAUDE_NEW_CHAT, "claude://claude.ai/new");
-        assert_eq!(PASTE_HINT, "In Claude, press Ctrl+V, then Enter.");
+        assert!(CLAUDE_NEW_CHAT.starts_with("claude://claude.ai/new?q=Use%20Context%20Capsule"));
     }
 
     #[test]

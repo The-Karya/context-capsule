@@ -33,8 +33,8 @@ screen · Project · Open Context Capsule · Make today's capsules · Check for 
 
 Menu-bar icon: hollow circle = idle; **a red dot and the time** (● 12:34) while recording; **a
 red mic with bars that move with your voice** while listening. Nothing appears on the screen
-itself; soft sounds mark start and stop (`"sounds": false` to turn them off). A short message says "● Recording started" / "■ Recording stopped: N events
-saved", and "🎙 Listening… press ⌥V to finish" stays on screen for as long as the mic is on. While recording the
+itself; soft sounds mark start and stop (`"sounds": false` to turn them off). No text pops up for
+starting, stopping, a saved voice note, a project change or an added screen: only problems are shown. While recording the
 menu shows how many events were written and, when a sample is skipped, why ("the front
 window is not in what you picked", "Mission Control is open"…). If a recording ends
 with nothing written, an alert says why.

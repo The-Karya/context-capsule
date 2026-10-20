@@ -65,9 +65,8 @@ and shows a ✓ instead once that step is done.
 
 1. In the picker, choose **one window**, e.g. a browser window with a long web page.
 2. ✅ A yellow border appears around that window (Windows shows what is shared), the
-   tray circle turns **red and filled**, you hear a soft sound, and a message says
-   *● Recording started. Press Alt+C to stop, Alt+V to talk.*
-   Nothing else stays on screen.
+   tray circle turns **red and filled**, and you hear a soft sound. ✅ No text appears on
+   screen.
 3. Hold the mouse over the tray icon. ✅ The tooltip says *● Recording 0:12 — …*, and the
    time goes up while you watch (move the mouse off and back to refresh it).
 4. Use that window for 1–2 minutes: scroll down a long page, open a few pages.
@@ -75,8 +74,8 @@ and shows a ✓ instead once that step is done.
 6. Right-click the tray icon. ✅ The first line says *● Recording 2:05 — since … — N events*.
    While you were in the other app it should have said *Skipping: the front window is not
    in what you picked*.
-7. Press **Alt + C** again to stop. ✅ A soft sound, a message says
-   *■ Recording stopped: N events saved.* and the circle is hollow again.
+7. Press **Alt + C** again to stop. ✅ A soft sound, no text on screen, and the circle is
+   hollow again.
 
 ## 4. Record a whole screen
 
@@ -98,8 +97,8 @@ and shows a ✓ instead once that step is done.
 1. Start a recording and pick your **main screen**. ✅ The message ends with *More screens?
    Menu → Add a screen.*
 2. Right-click the tray icon → **Add a screen** ✅ The Windows picker opens again.
-   Pick the **other screen**. ✅ A message says *Screen added: 2 screens shared.* and the
-   menu item now reads *Add a screen (2 shared)*.
+   Pick the **other screen**. ✅ No text on screen; the menu item now reads *Add a screen
+   (2 shared)*.
 3. Work in a window on one screen for 20 seconds, then in a window on the other screen for
    20 seconds. Leave the mouse pointer on the *first* screen while you type on the second.
    ✅ The tray menu shows no *Skipping* line: the screen with the window you type in is the
@@ -137,7 +136,7 @@ Context Capsule sorts your work into projects by itself. You can also name one.
    menu *Test project* has a check mark.
 3. **Project** → **Auto-detect** to go back to automatic.
 4. Start a recording of the whole screen, and go back to that same window.
-   ✅ Within a few seconds a message says *Project: Test project*.
+   ✅ Within a few seconds the tray menu shows *Project: Test project* (no text on screen).
 5. Stop the recording.
 6. Open the window → **Home**. ✅ *Working on* lists *Find by itself* and *Test project*;
    clicking one puts the check mark on it (the tray's **Project** menu agrees).
@@ -160,8 +159,8 @@ Context Capsule sorts your work into projects by itself. You can also name one.
 4. While it is listening, press **Alt + C**.
    ✅ A message says *Finish the voice note first: press Alt+V. Then
    Alt+C stops recording.* Recording goes on.
-5. Press **Alt + V**. ✅ A soft sound, the icon is a red circle again, and a
-   message says *Voice note saved*.
+5. Press **Alt + V**. ✅ A soft sound, the icon is a red circle again, and no text on
+   screen.
 6. Press it again, say **nothing** for 3 seconds, press again.
    ✅ *Didn't catch that…*
 7. Optional: in Settings → Privacy & security → Microphone, turn **off** *Let desktop apps
@@ -182,9 +181,9 @@ asks once: *Make today's capsules?* To try it now instead of waiting:
    today yet (that comes in part 10).
 3. Start `.\context-capsule.exe` again. ✅ Within a minute a small box asks *Make today's
    capsules?* with **Make** and **Not now**.
-4. Click **Make**. ✅ The Claude app opens on a new chat, and a message says *In Claude,
-   press Ctrl+V, then Enter.* Press Ctrl+V: ✅ the text *Use Context Capsule to make my
-   capsules for today.* appears. Don't send it yet: part 10 does.
+4. Click **Make**. ✅ The Claude app opens on a new chat with *Use Context Capsule to make
+   my capsules for today.* already typed in (Claude may show a small caution note; that's
+   expected). Don't send it yet: part 10 does.
 5. Quit and start the app again. ✅ It does **not** ask again today.
 6. Put `config.json` back as it was (remove the `remind_at` line).
 

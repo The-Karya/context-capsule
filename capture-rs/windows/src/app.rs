@@ -11,7 +11,7 @@ use crate::tray::{self, menu_text, Tray};
 use crate::uia::Uia;
 use crate::{changes, input, main_window, reminder, setup, voice, win, windows_list};
 use context_capsule_core::{
-    hotkeys_taken_message, look, recording_started_message, recording_stopped_message, AppLog, Config, Cue, Engine, Exclusion, Front, Indicator, Location,
+    hotkeys_taken_message, look, AppLog, Config, Cue, Engine, Exclusion, Front, Indicator, Location,
     Msg, Options, Paths, PlatformText, ProjectItem, Projects, Redactor, Status, Voice,
 };
 use std::cell::{Cell, RefCell};
@@ -399,17 +399,11 @@ fn handle(hwnd: HWND, cmd: UiCmd) {
 }
 
 /// Clear cues when recording or listening starts or stops (Mac parity): a soft sound ("sounds": false turns
-/// them off) and, for recording, a short message. Listening shows in the tray icon only: nothing on screen.
+/// them off) and the tray icon. No text on screen.
 fn cues(a: &App, next: &Status) {
     let changes = Cue::changes(&a.status, next);
     if !changes.is_empty() && Config::load(&a.paths.config()).sounds {
         changes.into_iter().for_each(win::play_cue);
-    }
-    let Some(toast) = &a.toast else { return };
-    if next.recording != a.status.recording {
-        let several = windows_list::monitors().len() > 1;
-        let text = if next.recording { recording_started_message(&TEXT, several) } else { recording_stopped_message(next.events) };
-        toast.show(&text, a.tray.rect());
     }
 }
 

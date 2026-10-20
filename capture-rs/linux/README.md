@@ -45,7 +45,7 @@ system accent color.
   contextualizing / Stop / Cancel, and while recording Speak a note and Add a screen, with the running
   time); today's time per project; the three newest capsules. On the side (under it when the window is
   narrow): the shortcuts, **Working on** (Find by itself, each project, New project), and
-  **Make today's capsules** (copies the request, opens Claude: Ctrl+V, then Enter).
+  **Make today's capsules** (opens Claude with the request typed in).
 - **Capsules** — by project; Open, and Copy file / Copy text / Save a copy… / Show in folder.
 - **Projects** — each project and what finds it; Edit (name, clues) and Delete (asked first).
   Saved to projects.json; the recorder reads it again by itself.
@@ -79,7 +79,7 @@ Xvfb, where there is no window manager to resize it).
 Evening reminder: at 18:00 (`"remind_at"`, `false` = off), if something was recorded today and
 no capsule exists for today, it asks "Make today's capsules?" once a day (zenity / kdialog, else a
 notification with buttons). **Make** copies the request (`wl-copy`, `xclip` or `xsel`) and opens
-`claude://claude.ai/new` with `xdg-open`; press Ctrl+V, then Enter. Recordings older than
+Claude on a new chat with the request typed in (`xdg-open`); press Enter. Recordings older than
 `"keep_recordings_days"` (30; 0 = keep) are deleted; capsules never are.
 
 ## The AppImage

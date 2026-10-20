@@ -102,7 +102,7 @@ enum Share {
 }
 
 enum Claude {
-    /// Open the Claude app on a new chat, with the request on the clipboard (⌘V, Return).
+    /// Open the Claude app on a new chat with the request typed in (also on the clipboard, just in case).
     /// Not connected yet: connect first. No Claude app: say where to get it.
     static func makeTodaysCapsules() {
         let pasteboard = NSPasteboard.general
@@ -126,7 +126,7 @@ enum Claude {
             return
         }
         AppLog.shared.write("make today's capsules: opening Claude")
-        NSWorkspace.shared.open(ClaudeLink.newChat) // a clean chat; the request is on the clipboard
+        NSWorkspace.shared.open(ClaudeLink.newChat(prefill: ClaudeLink.dayPrompt) ?? ClaudeLink.newChat)
     }
 }
 

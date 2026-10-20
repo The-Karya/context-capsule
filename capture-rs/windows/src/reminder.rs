@@ -70,6 +70,7 @@ mod win {
             return;
         }
         let copied = win::copy_text(DAY_PROMPT);
+        let typed_in = how == ClaudeOpener::Link;
         let opened = match &how {
             ClaudeOpener::Link => win::open(CLAUDE_NEW_CHAT),
             ClaudeOpener::App(exe) => win::open(&exe.to_string_lossy()),
@@ -78,6 +79,8 @@ mod win {
         log.write(&format!("make capsules: clipboard {}, Claude {}", if copied { "ok" } else { "failed" }, if opened { "opened" } else { "not opened" }));
         if !opened {
             win::alert(None, "Couldn't open Claude", &format!("Open the Claude app, start a new chat and type:\n\n{DAY_PROMPT}"));
+        } else if typed_in {
+            // The request is already typed in Claude: nothing to say.
         } else if copied {
             ui.post(UiCmd::Toast(PASTE_HINT.into()));
         } else {
@@ -97,6 +100,6 @@ mod tests {
         assert_eq!(opener(true, None), ClaudeOpener::Link);
         assert_eq!(opener(false, Some(exe)), ClaudeOpener::App(exe.to_path_buf()));
         assert_eq!(opener(false, None), ClaudeOpener::Missing);
-        assert_eq!(context_capsule_core::reminder::CLAUDE_NEW_CHAT, "claude://claude.ai/new");
+        assert!(context_capsule_core::reminder::CLAUDE_NEW_CHAT.starts_with("claude://claude.ai/new?q=Use%20Context%20Capsule"));
     }
 }

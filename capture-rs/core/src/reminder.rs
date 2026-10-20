@@ -16,9 +16,9 @@ pub const MAKE_BUTTON: &str = "Make";
 pub const LATER_BUTTON: &str = "Not now";
 /// Names the app, so Claude uses Context Capsule's tools rather than guessing (Drive, Gmail…).
 pub const DAY_PROMPT: &str = "Use Context Capsule to make my capsules for today.";
-/// A clean new chat. (A link with the message pre-filled makes Claude show a caution banner, so the
-/// request goes on the clipboard instead.)
-pub const CLAUDE_NEW_CHAT: &str = "claude://claude.ai/new";
+/// A new chat with DAY_PROMPT typed in (Claude may show a small caution note above it; that's fine).
+pub const CLAUDE_NEW_CHAT: &str = "claude://claude.ai/new?q=Use%20Context%20Capsule%20to%20make%20my%20capsules%20for%20today.";
+/// Only when Claude was opened without the link (the request is on the clipboard).
 pub const PASTE_HINT: &str = "In Claude, press Ctrl+V, then Enter.";
 
 pub struct Reminder;

@@ -76,15 +76,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         recorder.onChange = { [weak self] in self?.refresh() }
         recorder.onEmptySession = { [weak self] in self?.warnEmpty($0) }
         recorder.willStop = { [weak self] in self?.voice.recordingWillStop() }
-        recorder.onProjectChange = { [weak self] project in
-            guard let self else { return }
-            self.toast.show("Project: \(project?.name ?? "not sure yet")", under: self.statusItem.button, seconds: 3)
-        }
+        // Routine changes (project, screens) show in the menu and the window, never as text on screen.
+        recorder.onProjectChange = { [weak self] _ in self?.refresh() }
         recorder.reloadProjects(force: true)
         recorder.onScreens = { [weak self] count, added in
             guard let self else { return }
-            self.toast.show(added ? "Screen added: \(count) screens shared." : "A screen stopped sharing: \(count) left.",
-                            under: self.statusItem.button, seconds: 3)
             self.refresh()
         }
         Share.toast = { [weak self] text in
@@ -107,10 +103,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         voice.onOutcome = { [weak self] outcome in
             guard let self else { return }
             self.refresh()
-            self.toast.show(outcome.message, under: self.statusItem.button, seconds: {
-                if case .saved = outcome { return 2 }
-                return 6
-            }())
+            if case .saved = outcome { return } // the sound says it; only problems are shown
+            self.toast.show(outcome.message, under: self.statusItem.button, seconds: 6)
         }
 
         hotKey = HotKey(keyCode: kVK_ANSI_C, modifiers: optionKey, id: 1) { [weak self] in self?.toggle() }
@@ -184,8 +178,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         guard now != lastTrusted else { return }
         lastTrusted = now
         AppLog.shared.write("accessibility: turned \(now ? "on" : "off")")
-        toast.show(now ? "✓ Reading your apps is on" : "Reading your apps is off", under: statusItem.button, seconds: 4)
-        refresh()
+        refresh() // Settings shows the ✓
     }
 
     @objc private func showMain() { main.show(.home) }
@@ -213,9 +206,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
             AppLog.shared.write("stop: make today's capsules")
             recorder.stop()
         }
-        let connected = ClaudeConnect.isConnected
         Claude.makeTodaysCapsules()
-        if connected { toast.show("In Claude, press ⌘V, then Return.", under: statusItem.button, seconds: 6) }
     }
 
     func menuWillOpen(_ menu: NSMenu) { refresh() } // the Accessibility check mark may have changed
@@ -397,22 +388,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         }
     }
 
-    /// A clear message whenever recording or listening starts or stops.
+    /// Starting and stopping is a soft sound and the menu-bar icon: no text on screen.
     private func announce(recording: Bool, listening: Bool) {
         if listening != wasListening { listening ? Cue.micOpened() : Cue.micClosed() }
         if recording != wasRecording { recording ? Cue.recordingStarted() : Cue.recordingStopped() }
-
-        if recording != wasRecording {
-            wasRecording = recording
-            if recording {
-                let more = NSScreen.screens.count > 1 ? " More screens? Menu → Add a screen." : ""
-                toast.show("● Contextualizing. ⌥C stops, ⌥V to talk.\(more)", under: statusItem.button, seconds: 5)
-            } else {
-                let n = recorder.eventCount
-                toast.show("■ Stopped contextualizing: \(n) moment\(n == 1 ? "" : "s") saved.", under: statusItem.button, seconds: 4)
-            }
-        }
-        wasListening = listening // the menu-bar icon shows listening; no banner
+        wasRecording = recording
+        wasListening = listening
     }
 
     @objc private func toggle() { recorder.toggle() }
@@ -533,9 +514,13 @@ final class Toast {
         box.addSubview(label)
         panel.contentView = box
 
-        // Under the status item, kept on screen.
+        // Under the status item, kept on screen. When the icon is hidden (a full menu bar, or behind the notch),
+        // at the top of the screen, in the middle.
         var origin = NSPoint(x: 100, y: 100)
-        if let button, let window = button.window, let screen = window.screen {
+        if let screen = NSScreen.main {
+            origin = NSPoint(x: screen.visibleFrame.midX - frame.width / 2, y: screen.visibleFrame.maxY - frame.height - 8)
+        }
+        if let button, let window = button.window, let screen = window.screen, window.isVisible {
             let icon = window.convertToScreen(button.convert(button.bounds, to: nil))
             origin = NSPoint(x: min(max(icon.midX - frame.width / 2, screen.visibleFrame.minX + 8),
                                     screen.visibleFrame.maxX - frame.width - 8),
