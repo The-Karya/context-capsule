@@ -76,6 +76,8 @@ claude mcp add context-capsule -- node /Users/you/context-capsule/mcp/dist/index
 | `create_project` `{name, match?}` | adds a project (or clues to one); clues also sort past recordings |
 | `set_project` `{project}` | the recorder sticks to this project (`"auto"`: detect again) |
 | `assign_project` `{session_id, project, from?, to?}` | corrects which project a stretch of work belongs to |
+| `prepare_day` `{date?}` | start of "make my capsules": checklist + everything needed in one call |
+| `finish_day` `{date?}` | end: checks every project got its capsules, lists what's missing |
 | `get_day_activity` `{date?, project?, max_chars?}` | a whole day split by project, with time per project |
 | `list_sessions` | sessions, newest first: start, end, duration, text source (Accessibility / OCR), notes, top apps |
 | `get_session_activity` `{session_id, max_chars?}` | a short timeline of a session for Claude to read (`"latest"` works) |
@@ -88,6 +90,7 @@ claude mcp add context-capsule -- node /Users/you/context-capsule/mcp/dist/index
 Also:
 
 - Prompt **`make_capsule`** `{session_id}`: how to write a good capsule.
+- Prompt **`continue_from_capsule`** `{capsule}`: load a capsule (yours or received) and carry on the work.
 - Prompt **`make_day_capsules`** `{date?}`: split a day by project, sort unsorted work with
   you, write a daily capsule per project and update each project's growing capsule.
 - Resources **`capsule://<slug>`**: every capsule, so Claude can read them directly.

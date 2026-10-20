@@ -7,7 +7,7 @@ import { InMemoryTransport } from "@modelcontextprotocol/sdk/inMemory.js";
 import { appRunning, describeSkip, readState, writeControl } from "../src/control.ts";
 import { words } from "../src/platform.ts";
 import { createServer } from "../src/server.ts";
-import { ev, tempHome, writeFixtureSession, writeSession } from "./helpers.ts";
+import { VALID_BODY, ev, tempHome, writeFixtureSession, writeSession } from "./helpers.ts";
 
 let home: string;
 let client: Client;
@@ -225,7 +225,7 @@ describe("tools", () => {
     expect(msg.text).toContain("context for another Claude");
     expect(msg.text).toContain("are the user's own words: the primary source for decisions, reasons and intent");
 
-    await call("save_capsule", { title: "Res test", markdown: "## Summary\nhi" });
+    await call("save_capsule", { title: "Res test", markdown: VALID_BODY });
     const list = await client.listResources();
     expect(list.resources.map((r) => r.uri)).toContain("capsule://res-test");
     const read = await client.readResource({ uri: "capsule://res-test" });

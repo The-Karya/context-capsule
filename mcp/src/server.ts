@@ -5,9 +5,10 @@ import type { CallToolResult } from "@modelcontextprotocol/sdk/types.js";
 import { z } from "zod";
 import { DEFAULT_MAX_CHARS, condenseActivity, condenseDay, localDay } from "./activity.js";
 import { addAssignment, createProject, loadProjects } from "./projects.js";
+import { checkDay, finishDay, loadDay, prepareDay, today } from "./day.js";
+import { SERVER_INSTRUCTIONS, continueFromCapsulePrompt, makeCapsulePrompt, makeDayCapsulesPrompt } from "./playbook.js";
 import {
   CAPSULE_EXT,
-  CAPSULE_GUIDE,
   REQUIRED_SECTIONS,
   exportCapsule,
   findCapsule,
@@ -70,13 +71,7 @@ export function createServer(opts: ServerOptions = {}): McpServer {
   const server = new McpServer(
     { name: "context-capsule", version: VERSION },
     {
-      instructions:
-        "Context Capsule records what the user does on screen and says about it (text only, on their computer), split by project, " +
-        "and lets you turn it into capsules: Markdown files that are context for another Claude — what was done, where things stand, " +
-        "the decisions and why, and what's next. People can read them but don't have to. " +
-        "Making capsules: the make_day_capsules prompt (a day, per project) or make_capsule (one recording). " +
-        "Receiving one: import_capsule, then get_capsule — read its \"For Claude\" section first and follow it, then help the user carry on " +
-        "from Next steps without asking them to explain what's already in the capsule.",
+      instructions: SERVER_INSTRUCTIONS,
     },
   );
 
@@ -230,12 +225,7 @@ export function createServer(opts: ServerOptions = {}): McpServer {
     },
     safe(() => {
       const projects = loadProjects();
-      const today = localDay(new Date().toISOString());
-      const todayEvents = listSessionIds()
-        .filter((id) => id.startsWith(today.replace(/-/g, "")) || id.startsWith(prevDayId(today)))
-        .flatMap((id) => readEvents(id))
-        .filter((e) => localDay(e.t) === today);
-      const times = new Map(projectTimes(todayEvents).map((t) => [t.project, t.ms]));
+      const times = new Map(projectTimes(loadDay(today()).events).map((t) => [t.project, t.ms]));
       const capsules = listCapsules();
       if (!projects.length)
         return text(
@@ -345,20 +335,38 @@ export function createServer(opts: ServerOptions = {}): McpServer {
       annotations: { readOnlyHint: true },
     },
     safe(({ date, project, max_chars }: { date?: string; project?: string; max_chars?: number }) => {
-      const day = date?.trim() || localDay(new Date().toISOString());
-      if (!/^\d{4}-\d{2}-\d{2}$/.test(day)) return fail(`"${day}" is not a date like 2026-10-19.`);
-      // Sessions are named by their local start time; one from the day before may run past midnight.
-      const ids = listSessionIds()
-        .filter((id) => id.startsWith(day.replace(/-/g, "")) || id.startsWith(prevDayId(day)))
-        .reverse();
-      const used: string[] = [];
-      const events = ids.flatMap((id) => {
-        const ev = readEvents(id).filter((e) => localDay(e.t) === day);
-        if (ev.length) used.push(id);
-        return ev;
-      });
-      return text(condenseDay(day, events, used, { project, maxChars: max_chars }));
+      const d = loadDay(checkDay(date));
+      return text(condenseDay(d.day, d.events, d.sessionIds, { project, maxChars: max_chars }));
     }),
+  );
+
+  server.registerTool(
+    "prepare_day",
+    {
+      title: "Prepare a day's capsules",
+      description:
+        "Start here to make a day's capsules: the steps to follow, the projects to write up (with their sessions and which capsules " +
+        "exist), the current project capsules to merge into, and the day's activity split by project — all in one call.",
+      inputSchema: {
+        date: z.string().optional().describe("YYYY-MM-DD, local (default today)"),
+        max_chars: z.number().int().min(2000).max(1_000_000).optional().describe(`Maximum length (default ${DEFAULT_MAX_CHARS})`),
+      },
+      annotations: { readOnlyHint: true },
+    },
+    safe(({ date, max_chars }: { date?: string; max_chars?: number }) => text(prepareDay(checkDay(date), max_chars))),
+  );
+
+  server.registerTool(
+    "finish_day",
+    {
+      title: "Check a day's capsules are done",
+      description:
+        "End here: checks that every project worked on that day has its daily capsule and an updated project capsule, and nothing " +
+        "is left unsorted. Lists exactly what's missing, or a table of what was made.",
+      inputSchema: { date: z.string().optional().describe("YYYY-MM-DD, local (default today)") },
+      annotations: { readOnlyHint: true },
+    },
+    safe(({ date }: { date?: string }) => text(finishDay(checkDay(date)).text)),
   );
 
   // ---------- sessions ----------
@@ -533,6 +541,18 @@ export function createServer(opts: ServerOptions = {}): McpServer {
     }),
   );
 
+  server.registerPrompt(
+    "continue_from_capsule",
+    {
+      title: "Continue from a capsule",
+      description: "Load a capsule someone sent (or one of yours) and carry on the work from where it stands.",
+      argsSchema: { capsule: z.string().describe("Capsule name, title, or the path of a received .capsule.md file") },
+    },
+    ({ capsule }) => ({
+      messages: [{ role: "user", content: { type: "text", text: continueFromCapsulePrompt(capsule) } }],
+    }),
+  );
+
   // ---------- resources ----------
 
   server.registerResource(
@@ -579,25 +599,7 @@ function latestHint(): string {
   return id ? ` Latest session: ${id}.` : "";
 }
 
-export function makeCapsulePrompt(sessionId: string): string {
-  const id = sessionId?.trim() || "latest";
-  return `Write a capsule from my recorded work session "${id}".
 
-1. Call get_session_activity with session_id "${id}". It is a timeline of what was on my screen: segments by app and window (with the project in [brackets] when known), local HH:MM times and the screen text (from the app itself, or OCR — expect some noise). Lines starting with ">> You said" or ">> You typed" are my voice and typed notes.
-2. Write the capsule:
-
-${CAPSULE_GUIDE}
-
-3. Save it with save_capsule (a short title, the Markdown, session_ids ["${id}"]) and tell me its name in one line. Don't paste the whole capsule unless I ask — it's for Claude. Then offer export_capsule so I can send it.`;
-}
-
-/** "20261018" for day "2026-10-19": the session-id prefix of the day before. */
-function prevDayId(day: string): string {
-  const [y, m, d] = day.split("-").map(Number);
-  const prev = new Date(y!, m! - 1, d! - 1);
-  const pad = (n: number) => String(n).padStart(2, "0");
-  return `${prev.getFullYear()}${pad(prev.getMonth() + 1)}${pad(prev.getDate())}`;
-}
 
 /** ISO as is, or local "HH:MM" on the local day of `dayIso`. */
 function toIso(v: string, dayIso: string): string {
@@ -612,27 +614,3 @@ function toIso(v: string, dayIso: string): string {
   return new Date(s).toISOString().replace(/\.\d{3}Z$/, "Z");
 }
 
-export function makeDayCapsulesPrompt(date?: string): string {
-  const day = date?.trim() || "today";
-  return `Turn my work on ${day} into project capsules.
-
-1. Call list_projects, then get_day_activity${date?.trim() ? ` with date "${date.trim()}"` : ""}. It splits the day by project, with the time spent on each. Lines starting with ">> You said" / ">> You typed" are my own words.
-2. If some work is "Not sorted yet", sort it yourself — don't stop to ask:
-   - decide which project each part belongs to (an existing one, or a new one with a short clear name) from its apps, window titles, addresses, screen text and my notes;
-   - create_project for new ones, with clues (folder, site, file or document names from those windows) so it's found automatically next time;
-   - add clues to existing projects the same way (create_project with the same name);
-   - assign_project for stretches that clues can't catch (session id, from/to as HH:MM);
-   - leave out only what is clearly not work (personal browsing, private chats).
-   Call get_day_activity again to see the sorted day.
-3. For each project worked on that day, write a daily capsule from that project's part only (format below). Save it with save_capsule: title "<Project> — <day>", project, kind "daily", date, and the session ids used.
-4. Then update each project's growing capsule — the one a teammate's Claude loads to know the whole project: get_capsule with the project id (if it exists), merge in what's new from today (keep every decision and its reason, update Where things stand, Open questions and Next steps, move finished items into What was done), and save_capsule with project, kind "project", title "<Project>". If there's none yet, make it from today's capsule. Its "For Claude" covers the whole project, not one day.
-5. Finish with a short table: project, time, capsule names — and list what you sorted yourself (new projects, clues added, stretches assigned) so I can correct anything. Don't paste the capsules; they're for Claude.
-
-Capsule format:
-
-${CAPSULE_GUIDE}
-
-Also:
-- Keep each project's capsule about that project only. Shared apps (chat, email) go where their content belongs, else leave them out.
-- When unsure where a stretch belongs, pick the most likely project and say so in the final list (*(guess)*), rather than asking in the middle.`;
-}

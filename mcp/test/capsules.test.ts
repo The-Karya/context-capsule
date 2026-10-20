@@ -15,25 +15,9 @@ import {
   stringifyFrontMatter,
   validateCapsuleText,
 } from "../src/capsules.ts";
-import { tempHome, writeFixtureSession } from "./helpers.ts";
+import { VALID_BODY, tempHome, writeFixtureSession } from "./helpers.ts";
 
-const BODY = `## In short
-We redesigned the pricing page; Teams is $12 per seat.
-## For Claude
-You're picking up the pricing page redesign from Saachi. Treat the decisions as settled; continue from Next steps.
-## Where things stand
-Figma design done, not shipped.
-## What was done
-- 10:01 Pricing page in Figma
-## Decisions
-- **Teams at $12/seat** — matches competitors. *(seen in Linear, 10:08)*
-## Open questions
-- Annual discount?
-## Next steps
-1. Ship it
-## People, links and files
-- PRI-12 in Linear
-`;
+const BODY = VALID_BODY;
 
 let home: string;
 beforeEach(() => {
@@ -102,10 +86,11 @@ describe("save_capsule", () => {
     expect(b.warnings.join(" ")).toContain("already existed");
   });
 
-  test("warns (not fails) on missing sections and unknown sessions", () => {
-    const r = saveCapsule({ title: "Short", markdown: "## Summary\nJust a note", session_ids: ["20990101-000000"] });
+  test("refuses an incomplete capsule with precise fixes; warns on unknown sessions", () => {
+    expect(() => saveCapsule({ title: "Short", markdown: "## Summary\nJust a note" })).toThrow('Add the section "## For Claude"');
+    expect(fs.existsSync(path.join(home, "capsules", "short.capsule.md"))).toBe(false);
+    const r = saveCapsule({ title: "Short", markdown: BODY, session_ids: ["20990101-000000"] });
     expect(fs.existsSync(r.path)).toBe(true);
-    expect(r.warnings.join("\n")).toContain("## Decisions");
     expect(r.warnings.join("\n")).toContain("20990101-000000");
     expect(missingSections(BODY)).toEqual([]);
   });

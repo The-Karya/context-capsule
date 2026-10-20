@@ -5,41 +5,129 @@
   "version": "0.1.0",
   "description": "Turn what you worked on into a capsule: a short summary per project, with your decisions and why.",
   "long_description": "Context Capsule records the text of the screen you choose (and your voice notes) on your own computer. Claude uses this extension to start and stop recordings, read a short timeline of your day, sort it into projects, and write capsules you can keep or share. Nothing is uploaded by the extension; it only reads and writes files in your Context Capsule folder. Needs the Context Capsule app.",
-  "author": { "name": "Karya" },
+  "author": {
+    "name": "Karya"
+  },
   "license": "MIT",
-  "keywords": ["capsule", "projects", "notes", "summary", "screen"],
+  "keywords": [
+    "capsule",
+    "projects",
+    "notes",
+    "summary",
+    "screen"
+  ],
   "server": {
     "type": "node",
     "entry_point": "server/index.js",
     "mcp_config": {
       "command": "node",
-      "args": ["${__dirname}/server/index.js"]
+      "args": [
+        "${__dirname}/server/index.js"
+      ]
     }
   },
   "tools": [
-    { "name": "start_recording", "description": "Start a recording (the app shows its screen picker)" },
-    { "name": "stop_recording", "description": "Stop the recording" },
-    { "name": "recording_status", "description": "Is it recording, and on which project" },
-    { "name": "add_note", "description": "Add a typed note to the recording" },
-    { "name": "list_sessions", "description": "Your recordings" },
-    { "name": "get_session_activity", "description": "A short timeline of one recording" },
-    { "name": "get_day_activity", "description": "A day's work, split by project" },
-    { "name": "list_projects", "description": "Your projects" },
-    { "name": "create_project", "description": "Add a project" },
-    { "name": "set_project", "description": "Choose the current project" },
-    { "name": "assign_project", "description": "Move work to another project" },
-    { "name": "save_capsule", "description": "Save a capsule" },
-    { "name": "list_capsules", "description": "Your capsules" },
-    { "name": "get_capsule", "description": "Read a capsule" },
-    { "name": "import_capsule", "description": "Add a capsule someone sent you" },
-    { "name": "export_capsule", "description": "Copy a capsule to share it" }
+    {
+      "name": "start_recording",
+      "description": "Start a recording (the app shows its screen picker)"
+    },
+    {
+      "name": "stop_recording",
+      "description": "Stop the recording"
+    },
+    {
+      "name": "recording_status",
+      "description": "Is it recording, and on which project"
+    },
+    {
+      "name": "add_note",
+      "description": "Add a typed note to the recording"
+    },
+    {
+      "name": "list_sessions",
+      "description": "Your recordings"
+    },
+    {
+      "name": "get_session_activity",
+      "description": "A short timeline of one recording"
+    },
+    {
+      "name": "prepare_day",
+      "description": "Everything needed to make a day's capsules, with a checklist"
+    },
+    {
+      "name": "finish_day",
+      "description": "Check every project got its capsules"
+    },
+    {
+      "name": "get_day_activity",
+      "description": "A day's work, split by project"
+    },
+    {
+      "name": "list_projects",
+      "description": "Your projects"
+    },
+    {
+      "name": "create_project",
+      "description": "Add a project"
+    },
+    {
+      "name": "set_project",
+      "description": "Choose the current project"
+    },
+    {
+      "name": "assign_project",
+      "description": "Move work to another project"
+    },
+    {
+      "name": "save_capsule",
+      "description": "Save a capsule"
+    },
+    {
+      "name": "list_capsules",
+      "description": "Your capsules"
+    },
+    {
+      "name": "get_capsule",
+      "description": "Read a capsule"
+    },
+    {
+      "name": "import_capsule",
+      "description": "Add a capsule someone sent you"
+    },
+    {
+      "name": "export_capsule",
+      "description": "Copy a capsule to share it"
+    }
   ],
   "prompts": [
-    { "name": "make_day_capsules", "description": "Make my capsules for today", "text": "Make my capsules for today." },
-    { "name": "make_capsule", "description": "Make a capsule from one recording", "text": "Make a capsule from my last recording." }
+    {
+      "name": "make_day_capsules",
+      "description": "Make my capsules for today",
+      "text": "Make my capsules for today."
+    },
+    {
+      "name": "make_capsule",
+      "description": "Make a capsule from one recording",
+      "text": "Make a capsule from my last recording."
+    },
+    {
+      "name": "continue_from_capsule",
+      "description": "Pick up the work in a capsule",
+      "arguments": [
+        "capsule"
+      ],
+      "text": "Pick up the work in this capsule: ${arguments.capsule}"
+    }
   ],
   "compatibility": {
-    "platforms": ["darwin", "win32", "linux"],
-    "runtimes": { "node": ">=18.0.0" }
+    "platforms": [
+      "darwin",
+      "win32",
+      "linux"
+    ],
+    "runtimes": {
+      "node": ">=18.0.0"
+    }
   }
 }

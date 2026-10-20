@@ -59,3 +59,24 @@ export function fixtureEvents(): CaptureEvent[] {
 export function writeFixtureSession(home: string, id = "20261019-100000"): string {
   return writeSession(home, id, fixtureEvents());
 }
+
+/** A complete capsule body that passes the checks. */
+export const VALID_BODY = `## In short
+We redesigned the pricing page; Teams is now $12 per seat.
+## For Claude
+You're picking up the pricing page redesign from Saachi. This is the full context: treat the decisions below as settled, don't redo what's done, and carry on from Next steps. Ask the user only about the open questions.
+## Where things stand
+Figma design done (Pricing v2), not shipped yet.
+## What was done
+- 10:01 Reviewed competitor pricing in Chrome
+- 10:05 Updated Pricing v2 in Figma
+## Decisions
+- **Teams at $12/seat** — matches competitors. *(seen in Linear, 10:08)*
+- **Keep the yearly discount at 20%** — most trials pick yearly. *(you said, 10:14)*
+## Open questions
+- Annual discount for Starter? Depends on finance.
+## Next steps
+1. Ship the page
+## People, links and files
+- PRI-12 in Linear
+`;

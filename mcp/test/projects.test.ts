@@ -9,7 +9,7 @@ import { listCapsules, saveCapsule } from "../src/capsules.ts";
 import { addAssignment, assignedAt, createProject, detectProject, loadProjects, projectSlug } from "../src/projects.ts";
 import { readEvents, summarizeSession, type CaptureEvent } from "../src/sessions.ts";
 import { createServer } from "../src/server.ts";
-import { at, ev, tempHome, writeSession } from "./helpers.ts";
+import { VALID_BODY, at, ev, tempHome, writeSession } from "./helpers.ts";
 
 let home: string;
 let client: Client;
@@ -128,8 +128,7 @@ describe("the day view", () => {
 });
 
 describe("project capsules", () => {
-  const md =
-    "## In short\nx\n## For Claude\n## Where things stand\n## What was done\n## Decisions\n## Open questions\n## Next steps\n## People, links and files";
+  const md = VALID_BODY;
 
   test("daily capsules are named <project>-<date>; the project capsule is replaced, with history", () => {
     createProject("Website", ["acme-site"]);
@@ -138,9 +137,9 @@ describe("project capsules", () => {
     expect(fs.readFileSync(d.path, "utf8")).toContain("kind: daily");
     const p1 = saveCapsule({ title: "Website", markdown: md, project: "website", kind: "project" });
     expect(p1.slug).toBe("website");
-    const p2 = saveCapsule({ title: "Website", markdown: md.replace("x", "y"), project: "website", kind: "project" });
+    const p2 = saveCapsule({ title: "Website", markdown: md, project: "website", kind: "project" });
     expect(p2.path).toBe(p1.path);
-    expect(fs.readFileSync(p2.path, "utf8")).toContain("\ny\n");
+    expect(fs.readFileSync(p2.path, "utf8")).toContain("Teams is now $12 per seat");
     expect(p2.warnings.join(" ")).toContain(".history");
     expect(fs.readdirSync(path.join(home, "capsules", ".history"))).toHaveLength(1);
     const list = listCapsules();
@@ -188,13 +187,64 @@ describe("tools", () => {
     expect(r.text).toContain("Now recording into project website");
   });
 
-  test("the day prompt", async () => {
+  test("the day prompt uses the guided tools", async () => {
     const p = await client.getPrompt({ name: "make_day_capsules", arguments: { date: "2026-10-19" } });
     const t = (p.messages[0]!.content as { text: string }).text;
-    expect(t).toContain('get_day_activity with date "2026-10-19"');
-    expect(t).toContain('kind "daily"');
-    expect(t).toContain('kind "project"');
-    expect(t).toContain("sort it yourself");
-    expect(t).toContain("so I can correct anything");
+    expect(t).toContain('Call prepare_day with date "2026-10-19"');
+    expect(t).toContain("Call finish_day");
+    expect(t).toContain("sort anything".slice(1)); // "ort anything"
+    expect(t).toContain("## For Claude");
+    expect(t).toContain("so I can correct it");
+  });
+
+  test("prepare_day and finish_day guide a whole day", async () => {
+    const id = writeDay();
+    createProject("Website", ["acme-site"]);
+    createProject("Client report", ["docs.google.com/document/d/1abc"]);
+    let prep = (await call("prepare_day", { date: day })).text;
+    expect(prep).toContain("## Checklist");
+    expect(prep).toContain('Sort the 30m and 1 note that are "Not sorted yet"');
+    expect(prep).toContain("- Website (id website) · 1h 00m");
+    expect(prep).toContain("daily capsule: not yet");
+    expect(prep).toContain("project capsule: none yet, create it");
+    expect(prep).toContain("## The day");
+    expect(prep).toContain(id);
+
+    let fin = (await call("finish_day", { date: day })).text;
+    expect(fin).toContain("Not done yet");
+    expect(fin).toContain('daily capsule for Website: save_capsule with project "website", kind "daily"');
+    expect(fin).toContain('still "Not sorted yet"');
+
+    // sort the chat and the loose voice note, write every capsule
+    createProject("Team chat", ["slack"]);
+    expect((await call("prepare_day", { date: day })).text).toContain('Sort the 1 note that is "Not sorted yet"');
+    expect((await call("assign_project", { session_id: id, project: "client-report", from: at(90), to: at(91) })).isError).toBe(false);
+    for (const p of ["website", "client-report", "team-chat"]) {
+      expect((await call("save_capsule", { title: `${p} — ${day}`, markdown: VALID_BODY, project: p, kind: "daily", date: day })).isError).toBe(false);
+      expect((await call("save_capsule", { title: p, markdown: VALID_BODY, project: p, kind: "project" })).isError).toBe(false);
+    }
+    prep = (await call("prepare_day", { date: day })).text;
+    expect(prep).toContain("Nothing to sort");
+    expect(prep).toContain("## Current project capsules (merge today into these)");
+    fin = (await call("finish_day", { date: day })).text;
+    expect(fin).toContain(`Done for ${day} ✓`);
+    expect(fin).toContain("| Website | 1h 00m | website-" + day + " | website |");
+  });
+
+  test("save_capsule refuses an incomplete capsule with what to fix", async () => {
+    const r = await call("save_capsule", { title: "x", markdown: "## In short\nHi." });
+    expect(r.isError).toBe(true);
+    expect(r.text).toContain("Not saved yet");
+    expect(r.text).toContain('Add the section "## For Claude"');
+  });
+
+  test("continue_from_capsule: by name, or import a file first", async () => {
+    const byName = await client.getPrompt({ name: "continue_from_capsule", arguments: { capsule: "website" } });
+    const t1 = (byName.messages[0]!.content as { text: string }).text;
+    expect(t1).toContain('Call get_capsule with name "website"');
+    expect(t1).toContain('Read its "For Claude" section first');
+    expect(t1).toContain("at most three short lines");
+    const byFile = await client.getPrompt({ name: "continue_from_capsule", arguments: { capsule: "~/Downloads/plan.capsule.md" } });
+    expect((byFile.messages[0]!.content as { text: string }).text).toContain('Call import_capsule with path "~/Downloads/plan.capsule.md"');
   });
 });

@@ -232,6 +232,8 @@ Tools:
 | `create_project` `{name, match?}` | adds a project to `projects.json` |
 | `set_project` `{project}` | pins the recorder to a project (`"auto"` to detect again); waits for `state.json` |
 | `assign_project` `{session_id, project, from?, to?}` | records a correction in that session's `assign.json` |
+| `prepare_day` `{date?, max_chars?}` | the start of a day's job: a checklist, the projects to write up (time, sessions, which capsules exist), the current project capsules to merge into, and the day split by project — one call |
+| `finish_day` `{date?}` | the end: checks every project (≥ 2 min or a note) has its daily capsule and an updated project capsule and nothing is unsorted; lists exactly what's missing |
 | `get_day_activity` `{date?, project?, max_chars?}` | all sessions of a local day, split by project with time per project; unassigned work listed for Claude to sort |
 
 Prompt `make_capsule` `{session_id}`: tells the AI how to write a capsule from
@@ -248,7 +250,17 @@ projects itself (`create_project` with clues so it's found automatically next ti
 growing capsule (`get_capsule` → merge → `save_capsule` `kind: "project"`); end with
 the time per project.
 
-`save_capsule` gains `{project?, kind?: "daily"|"project", date?}`.
+`save_capsule` gains `{project?, kind?: "daily"|"project", date?}`, and **checks** the capsule
+before saving: every section present, "In short" and "Next steps" not empty, "For Claude"
+really addressed to Claude, every decision citing its source (*(you said …)*, *(seen in …)*,
+*(guess)*). If not, nothing is saved and Claude gets the exact list of fixes ("Not saved
+yet…"); it fixes them and saves again.
+
+Prompt `continue_from_capsule` `{capsule}`: import if it's a file, `get_capsule`, follow
+"For Claude", reply in three lines (whose work, where it stands, next step), then carry on.
+
+All of Claude's instructions (server instructions, capsule format, prompts) live in
+`mcp/src/playbook.ts`.
 
 Resource: each capsule as `capsule://<slug>` so Claude can read them directly.
 
