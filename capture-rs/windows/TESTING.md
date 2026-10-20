@@ -94,8 +94,7 @@ and shows a ✓ instead once that step is done.
 
 ## 5. Several screens (needs a second monitor)
 
-1. Start a recording and pick your **main screen**. ✅ The message ends with *More screens?
-   Menu → Add a screen.*
+1. Start a recording and pick your **main screen**. ✅ No text on screen.
 2. Right-click the tray icon → **Add a screen** ✅ The Windows picker opens again.
    Pick the **other screen**. ✅ No text on screen; the menu item now reads *Add a screen
    (2 shared)*.
@@ -113,9 +112,26 @@ and shows a ✓ instead once that step is done.
 6. Optional: **Add a screen** again and close the picker without choosing.
    ✅ Recording goes on; nothing changes.
 7. Optional: stop sharing one screen from Windows (the yellow border's sharing button, if your
-   Windows shows one, or unplug that monitor). ✅ *A screen stopped sharing: 1 left.* and the
-   recording goes on.
+   Windows shows one, or unplug that monitor). ✅ No text on screen, the recording goes on, and
+   the menu item reads *Add a screen* again.
 8. Stop the recording.
+
+**All my screens** (all screens together, no picker):
+
+9. Open the window → **Settings** → **Every day** → **When you start** → choose **All my
+   screens**. Go to **Home**. ✅ The status card says *Alt+C to start. Shares all your screens.
+   Private apps are never read.*
+10. Press **Alt + C**. ✅ No picker opens: a yellow border appears around **every** screen at
+    once, the tray circle turns red, a soft sound, no text on screen. ✅ Home says
+    *0 moments saved · 2 screens shared* (or your number of screens, 4 at most), and **Add a
+    screen** is greyed out (in the tray menu too: *Add a screen (2 shared)*).
+11. Work in a window on one screen for 20 seconds, then on the other for 20 seconds.
+    ✅ The tray menu shows no *Skipping* line.
+12. Stop the recording (**Alt + C**). ✅ The borders go away. In `app.log` (part 11) there's a
+    line *all screens: 2 shared*. (If it says *… the picker instead*, the picker opened instead
+    of sharing every screen: please send us that line.)
+13. Set **When you start** back to **Pick a screen or window**. ✅ Home says *Pick the screen or
+    window you work on. Only that is read.* and Alt+C opens the picker again.
 
 ## 6. Private apps are never recorded
 

@@ -2,7 +2,18 @@
 
 A tray app for GNOME and KDE (Wayland first, X11 too). Press **Alt+C**: the
 desktop's screen-sharing dialog opens. Pick a window or a screen and recording starts;
-close the dialog to cancel. Press Alt+C again to stop. It writes exactly the
+close the dialog to cancel. Press Alt+C again to stop.
+
+**All my screens** (Settings → Every day → When you start, `"share_screens": "all"` in config.json):
+Alt+C asks the ScreenCast portal for monitors only, several at once (`SelectSources` with
+`multiple=true`, `types=MONITOR`). The desktop's dialog still opens and you confirm there; every monitor
+you choose is shared (up to 4, one portal session with a stream each), the same recording as adding them
+one by one. How many can be chosen at once is up to the desktop's portal backend: KDE lets you choose
+several; a backend that offers one at a time shares that one, and Add a screen adds the rest. "Add a
+screen" is off while every monitor is shared. On Wayland, with every monitor shared, the window in use is
+read through accessibility (OCR is skipped, as with one shared monitor). On X11 the same portal is used (there is no other way to
+start sharing): without xdg-desktop-portal, starting fails with the same message as picking one screen
+does. The default is `"pick"`. It writes exactly the
 same files as the macOS app (see [`../../SPEC.md`](../../SPEC.md)), driven by the shared
 engine in [`../core`](../core), so the MCP server works unchanged.
 
@@ -43,15 +54,17 @@ system accent color.
 
 - **Home** — hello and the date; Today / This week / Streak; the status card (Start
   contextualizing / Stop / Cancel, and while recording Speak a note and Add a screen, with the running
-  time); today's time per project; the three newest capsules. On the side (under it when the window is
+  time; when idle, *Pick the screen or window you work on. Only that is read.* or, with All my screens,
+  *Shares all your screens. Private apps are never read.*); today's time per project; the three newest capsules. On the side (under it when the window is
   narrow): the shortcuts, **Working on** (Find by itself, each project, New project), and
   **Make today's capsules** (opens Claude with the request typed in).
 - **Capsules** — by project; Open, and Copy file / Copy text / Save a copy… / Show in folder.
 - **Projects** — each project and what finds it; Edit (name, clues) and Delete (asked first).
   Saved to projects.json; the recorder reads it again by itself.
 - **Settings** — your name; Set up (Voice notes: the speech model, downloaded only after you say
-  yes; Connect Claude; Open at login), each with a check mark when done; Every day (reminder and its
-  time, deleting old recordings, sounds); the voice notes' language; Never record (apps, picked from the
+  yes; Connect Claude; Open at login), each with a check mark when done; Every day (When you start:
+  *Pick a screen or window* or *All my screens*, `share_screens`; reminder and its time, deleting old
+  recordings, sounds); the voice notes' language; Never record (apps, picked from the
   installed ones; stored as their desktop id, e.g. `org.gnome.Calculator`); Appearance (System, Light,
   Dark); Updates (Update automatically, the version, Check for updates). Every change is saved at once.
 - **Help** — shortcuts, how it works, privacy.
@@ -182,6 +195,7 @@ once. Either way the tray menu still works.
 | | Wayland (GNOME, KDE) | X11 |
 |---|---|---|
 | Picker | ScreenCast portal dialog | the same portal (GNOME; KDE's portal needs Wayland) |
+| All my screens | the portal dialog, monitors only, several at once; you confirm there | the same (no portal: it can't start, as with picking) |
 | Front app, title, text | AT-SPI | AT-SPI + the real window stack (`_NET_ACTIVE_WINDOW`, stacking order, pids) |
 | Picked a **window** | read when the front window is the one window with the picked size | the same, against real window frames |
 | Picked a **screen** | one monitor: accessibility text is read, **OCR is skipped** (apps cannot say where their windows are, so private windows on top could not be painted out); several monitors: nothing is read — pick a window instead | read and OCR'd, cropped to the front window; private windows and notification bubbles on top are painted out |
@@ -204,7 +218,7 @@ clips are dropped ("Didn't catch that"). Language: your locale, or `"voice_local
 ## Permissions
 
 - **Screen** — nothing to grant: the portal dialog is the consent, and it asks every time
-  (nothing is remembered). Stopping the share from the desktop's own indicator ends the
+  (nothing is remembered), with All my screens too. Stopping the share from the desktop's own indicator ends the
   recording.
 - **Accessibility** — Context Capsule turns the session's accessibility bus on at launch
   (`org.a11y.Status.IsEnabled`), so GTK, Qt, Firefox, Chromium and Electron apps expose

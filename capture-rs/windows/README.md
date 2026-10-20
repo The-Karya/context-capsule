@@ -7,6 +7,14 @@ A small tray app for Windows 10 (2004+) and 11. It drives the shared engine in
 Press **Alt+C**: the Windows capture picker opens. Pick a window or a screen and
 recording starts; close the picker to cancel. Press Alt+C again to stop.
 
+**All my screens** (Settings → Every day → When you start, `"share_screens": "all"` in config.json):
+Alt+C shares every monitor at once (up to 4), with no picker, through Windows.Graphics.Capture
+(`IGraphicsCaptureItemInterop::CreateForMonitor`, Windows 10 1903+; no permission is asked). It is the
+same recording as picking each screen with Add a screen: the yellow border goes around each screen, the
+window you type in is read on whichever screen holds it, and "Add a screen" is off while every screen is
+shared. A monitor that can't be captured that way is left out; if none can, the picker opens instead,
+and `app.log` says why (`all screens: … the picker instead`). The default is `"pick"` (the picker).
+
 While recording, every 3 seconds it notes the front app and, **only if the front window is
 part of what you picked**, its title and text. Text comes from UI Automation (password fields
 are never read); when that gives too little (canvas apps, video, games), from Windows OCR of
@@ -80,7 +88,9 @@ Projects) and *Context Capsule* (Settings, Help); the page title and a small sta
 
 - **Home**: "Good evening, Saachi." and the date; one panel with Today (time contextualized),
   This week (time, capsules made) and Streak (days in a row); the status card (Start
-  contextualizing / Stop, Speak a note, Add a screen); Today's time per project as bars;
+  contextualizing / Stop, Speak a note, Add a screen; when idle it says *Pick the screen or window
+  you work on. Only that is read.* or, with All my screens, *Shares all your screens. Private apps
+  are never read.*); Today's time per project as bars;
   Recent capsules (the 3 newest, See all). Beside it when wide (below when narrow): Shortcuts
   (Alt+C, Alt+V), Working on (Find by itself, your projects, New project), and Make today's
   capsules.
@@ -92,8 +102,8 @@ Projects) and *Context Capsule* (Settings, Help); the page title and a small sta
   microphone allowed? **Allow** opens the Windows microphone settings; Connect Claude: opens
   `context-capsule.mcpb`, written next to the exe from inside it, with the Claude app, which asks to install
   it, or offers the download page; Open at login: a `Run` entry under HKCU — each row shows a
-  check mark when done), Every day (evening reminder and its time, when to delete old
-  recordings, sounds), Voice notes language, Appearance (System / Light / Dark, `appearance`),
+  check mark when done), Every day (When you start: *Pick a screen or window* or *All my screens*,
+  `share_screens`; evening reminder and its time, when to delete old recordings, sounds), Voice notes language, Appearance (System / Light / Dark, `appearance`),
   Never record (pick an open app, or find its .exe), Updates (Update automatically, the version,
   Check for updates). Every change is saved at once.
 - **Help**: shortcuts, how it works, privacy.
@@ -112,7 +122,7 @@ popup menus. Keyboard: Tab / Shift+Tab, Enter or Space, arrows and Page Up / Dow
 
 | keys | does |
 |---|---|
-| Alt+C | start (opens the picker) / cancel the picker / stop recording (waits while a voice note listens) |
+| Alt+C | start (opens the picker, or shares all your screens) / cancel the picker / stop recording (waits while a voice note listens) |
 | Alt+V | start / finish a voice note (only while recording) |
 
 The same keys as the Mac's ⌥C / ⌥V. If another app already uses one of them, Context Capsule
@@ -143,7 +153,9 @@ While recording, press **Alt+V**, talk, press it again.
 
 ## Permissions
 
-- **Screen capture** — none needed. The picker is the consent: only what you pick is captured.
+- **Screen capture** — none needed. The picker is the consent: only what you pick is captured. With
+  **All my screens**, choosing that setting is the consent: every monitor is captured, with the yellow
+  border around each.
 - **UI Automation** — none needed.
 - **Microphone** — only for voice notes. If it is off, the message says where to turn it on:
   Settings → Privacy & security → Microphone (also "Let desktop apps access your microphone").
@@ -194,7 +206,7 @@ cd capture-rs && cargo test -p context-capsule-windows
 | `src/setup.rs` | setting up: voice notes, Connect Claude, open at login (the Settings rows) |
 | `src/connect.rs` | Connect Claude: the extension next to the exe, connected or not |
 | `src/platform.rs` | the core's `Platform` for Windows |
-| `src/picker.rs` | `GraphicsCapturePicker`, which item was picked, the capture and its latest frame |
+| `src/picker.rs` | `GraphicsCapturePicker`, which item was picked, every monitor at once (All my screens), the captures and their latest frames |
 | `src/windows_list.rs` | front app, on-screen windows (EnumWindows + DWM), monitors, toast / overview rules |
 | `src/uia.rs` | UI Automation text |
 | `src/ocr.rs` | Windows.Media.Ocr |

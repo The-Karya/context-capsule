@@ -25,6 +25,7 @@ use crate::pointer::PointerRule;
 use crate::projects::{Location, Project, ProjectChoice, Projects};
 use crate::redact::Redactor;
 use crate::reminder::DailyJobs;
+use crate::settings::ShareScreens;
 use crate::state::{session_json, ControlCommand, ControlKind, StateJson};
 use crate::text::{TextSource, UiText};
 use crate::voice::{busy_listening_message, PlatformText, Voice, VoiceEngine, VoiceNotes, VoiceOutcome, VoicePhase, VoiceSignal, VoiceTarget};
@@ -155,6 +156,8 @@ pub struct Engine<P: Platform> {
     log: AppLog,
     /// How many screens or windows are shared (0 when not recording).
     sources: usize,
+    /// Every monitor is shared ("Add a screen" is off).
+    every_screen_shared: bool,
     /// Lines already saved per window in this recording.
     new_lines: NewLines,
     /// The evening reminder and the clean-up of old recordings.
@@ -194,6 +197,7 @@ impl<P: Platform> Engine<P> {
             current_project: None,
             last_window: None,
             sources: 0,
+            every_screen_shared: false,
             new_lines: NewLines::new(),
             daily: DailyJobs::new(),
             pointer_activity: None,
@@ -278,6 +282,7 @@ impl<P: Platform> Engine<P> {
             project_by: self.current_project.as_ref().map(|p| p.1.clone()),
             new_project_clue: self.new_project_clue(),
             sources: self.sources,
+            every_screen_shared: self.every_screen_shared,
         }
     }
 
@@ -367,20 +372,27 @@ impl<P: Platform> Engine<P> {
         }
     }
 
-    /// Opens the picker (or brings it to the front). Recording begins only once the user picks.
+    /// Opens the picker (or brings it to the front), or with "All my screens" (config.json "share_screens":
+    /// "all") shares every screen at once. Recording begins once the platform reports `Picked`.
     pub fn start(&mut self) {
         if self.is_recording() {
             return;
         }
         self.last_error = None;
         self.picking = true;
-        self.platform.present_picker();
+        if ShareScreens::load(&self.paths.config()) == ShareScreens::All {
+            self.log.write("start: all screens");
+            self.platform.share_all_screens();
+        } else {
+            self.platform.present_picker();
+        }
         self.changed();
     }
 
-    /// While recording: share one more screen or window (the picker again), up to `MAX_SOURCES`.
+    /// While recording: share one more screen or window (the picker again), up to `MAX_SOURCES`, unless every
+    /// screen is shared already.
     pub fn add_screen(&mut self) {
-        if !self.is_recording() || self.sources >= MAX_SOURCES {
+        if !self.is_recording() || self.sources >= MAX_SOURCES || self.every_screen_shared {
             return;
         }
         self.log.write("add a screen: picker");
@@ -459,6 +471,7 @@ impl<P: Platform> Engine<P> {
             }
             PickOutcome::Added(count) if self.is_recording() => {
                 self.sources = count;
+                self.every_screen_shared = self.every_screen_shared_now();
                 self.log.write(&format!("screen added: {count} shared"));
                 self.changed(); // shown in the tray menu and the window, not as text on screen
             }
@@ -473,6 +486,7 @@ impl<P: Platform> Engine<P> {
             PickOutcome::Removed(count) => {
                 if self.is_recording() {
                     self.sources = count;
+                    self.every_screen_shared = self.every_screen_shared_now();
                     self.log.write(&format!("a shared screen stopped: {count} left"));
                     self.changed();
                 }
@@ -511,11 +525,15 @@ impl<P: Platform> Engine<P> {
         self.new_lines.reset();
         self.pointer_activity = None;
         self.last_pointer = None;
-        self.sources = 1;
-        let picked = match self.platform.picked().first().map(|p| p.style) {
-            Some(PickStyle::Display) => "a screen",
-            Some(PickStyle::Window) => "a window",
-            None => "unknown",
+        // One picked, or several at once ("All my screens").
+        let picks = self.platform.picked();
+        self.sources = picks.len().clamp(1, MAX_SOURCES);
+        self.every_screen_shared = self.every_screen_shared_now();
+        let picked = match (picks.len(), picks.first().map(|p| p.style)) {
+            (n, _) if n > 1 => format!("{n} screens"),
+            (_, Some(PickStyle::Display)) => "a screen".into(),
+            (_, Some(PickStyle::Window)) => "a window".into(),
+            _ => "unknown".into(),
         };
         self.log.write(&format!("recording started: {id}, picked {picked}"));
         self.session = Some(Session { id, started_at: now, dir, log, next_tick: Instant::now() + INTERVAL });
@@ -529,6 +547,7 @@ impl<P: Platform> Engine<P> {
         self.platform.stop_capture();
         self.picking = false;
         self.sources = 0;
+        self.every_screen_shared = false;
         let Some(s) = self.session.take() else { return };
         let ended = (self.now)();
         let host = self.platform.host_name();
@@ -552,6 +571,18 @@ impl<P: Platform> Engine<P> {
                 });
             self.platform.empty_session(top);
         }
+    }
+
+    /// Every monitor is shared: as many different placed screens as the platform says there are.
+    fn every_screen_shared_now(&self) -> bool {
+        let Some(count) = self.platform.screen_count().filter(|n| *n > 0) else { return false };
+        let mut screens: Vec<crate::geometry::Rect> = vec![];
+        for p in self.platform.picked() {
+            if p.style == PickStyle::Display && !p.rect.is_empty() && !screens.iter().any(|s| Membership::same_frame(s, &p.rect)) {
+                screens.push(p.rect);
+            }
+        }
+        screens.len() >= count
     }
 
     /// state.json, the tray icon and the menu, after anything changed.

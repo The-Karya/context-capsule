@@ -7,6 +7,7 @@ use crate::capsules::{project_name, CapsuleSummary};
 use crate::look;
 use crate::platform::Status;
 use crate::projects::Project;
+use crate::settings::ShareScreens;
 use crate::stats::{Totals, WorkStats};
 use std::time::SystemTime;
 
@@ -159,14 +160,23 @@ pub fn toggle_button(status: &Status) -> &'static str {
     }
 }
 
-/// Under the big line: "12 moments saved · 2 screens shared" while recording; else how to start.
-pub fn status_detail(status: &Status, keys: &Keys) -> String {
+/// Under the big line: "12 moments saved · 2 screens shared" while recording; else how to start, following
+/// Settings → When you start.
+pub fn status_detail(status: &Status, keys: &Keys, share: ShareScreens) -> String {
     if status.recording {
         let n = status.events;
         let screens = if status.sources > 1 { format!(" · {} screens shared", status.sources) } else { String::new() };
         format!("{n} moment{} saved{screens}", if n == 1 { "" } else { "s" })
     } else {
-        format!("{} to start. Pick the screen or window you work on.", keys.record)
+        format!("{} to start. {}", keys.record, idle_line(share))
+    }
+}
+
+/// The status card's line while not contextualizing (the Mac's, word for word).
+pub fn idle_line(share: ShareScreens) -> &'static str {
+    match share {
+        ShareScreens::Pick => "Pick the screen or window you work on. Only that is read.",
+        ShareScreens::All => "Shares all your screens. Private apps are never read.",
     }
 }
 
@@ -355,6 +365,10 @@ pub const CHOOSE: &str = "Choose…";
 pub const REMOVE: &str = "Remove";
 pub const UPDATES: &str = "Updates";
 pub const APPEARANCE: &str = "Appearance";
+/// Settings → Every day: what starting shares (config.json "share_screens").
+pub const WHEN_YOU_START: &str = "When you start";
+pub const SHARE_PICK: &str = "Pick a screen or window";
+pub const SHARE_ALL: &str = "All my screens";
 /// Shown when "Update automatically" can't be saved (config.json not writable).
 pub const UPDATES_NOT_SAVED: &str = "Couldn't save this setting. Try again.";
 
@@ -424,16 +438,17 @@ mod tests {
         let mut s = Status::default();
         assert_eq!(status_title(&s, now), "Not contextualizing");
         assert_eq!(toggle_button(&s), "Start contextualizing");
-        assert_eq!(status_detail(&s, &WINDOWS_KEYS), "Alt+C to start. Pick the screen or window you work on.");
+        assert_eq!(status_detail(&s, &WINDOWS_KEYS, ShareScreens::Pick), "Alt+C to start. Pick the screen or window you work on. Only that is read.");
+        assert_eq!(status_detail(&s, &WINDOWS_KEYS, ShareScreens::All), "Alt+C to start. Shares all your screens. Private apps are never read.");
         s.picking = true;
         assert_eq!((status_title(&s, now).as_str(), toggle_button(&s)), ("Pick a window or screen", "Cancel"));
         s = Status { recording: true, session_id: Some("x".into()), started_at: Some(now), events: 1, sources: 1, ..Default::default() };
         assert_eq!(status_title(&s, now + Duration::from_secs(12)), "Contextualizing  0:12");
         assert_eq!(toggle_button(&s), "Stop");
-        assert_eq!(status_detail(&s, &WINDOWS_KEYS), "1 moment saved");
+        assert_eq!(status_detail(&s, &WINDOWS_KEYS, ShareScreens::Pick), "1 moment saved");
         s.events = 12;
         s.sources = 2;
-        assert_eq!(status_detail(&s, &WINDOWS_KEYS), "12 moments saved · 2 screens shared");
+        assert_eq!(status_detail(&s, &WINDOWS_KEYS, ShareScreens::All), "12 moments saved · 2 screens shared");
         assert_eq!(voice_button(&s), "Speak a note");
         s.listening = true;
         assert_eq!(voice_button(&s), "Done speaking");

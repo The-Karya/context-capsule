@@ -33,7 +33,7 @@ pub mod window;
 
 pub use applog::AppLog;
 pub use capsules::{CapsuleSummary, Group};
-pub use settings::ConfigFile;
+pub use settings::{ConfigFile, ShareScreens};
 pub use stats::{Assignments, Fix, Totals, WorkStats};
 pub use engine::{Engine, Options};
 pub use events::{Event, EventLog, Recorded};

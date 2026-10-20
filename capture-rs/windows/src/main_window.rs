@@ -12,7 +12,7 @@ use crate::layout::{self, Action, Data, Field, Node, View, HEADER, SIDEBAR};
 use crate::paint::{self, Faces, Feel, Fonts, GdiMeasure, Theme};
 use crate::setup::{self, Done};
 use crate::{input, reminder, tray, win, windows_list};
-use context_capsule_core::settings::{self, Appearance, ConfigFile};
+use context_capsule_core::settings::{self, Appearance, ConfigFile, ShareScreens};
 use context_capsule_core::window::{self as w, HomeNumbers, Section, WINDOWS_KEYS};
 use context_capsule_core::{AppLog, CapsuleSummary, Config, Msg, Paths, Projects, Status, WorkStats};
 use std::cell::RefCell;
@@ -939,6 +939,13 @@ fn perform(action: Action, at: POINT) {
         }
         Action::Sounds => {
             with_win(|w| w.set(settings::KEY_SOUNDS, Some((!config.sounds).into())));
+        }
+        Action::ShareScreens => {
+            let labels: Vec<String> = ShareScreens::ALL.iter().map(|s| s.label().to_string()).collect();
+            let checked = ShareScreens::ALL.iter().position(|s| *s == config.share_screens);
+            if let Some(i) = menu(hwnd, &labels, checked, at) {
+                with_win(|w| w.set(settings::KEY_SHARE_SCREENS, Some(ShareScreens::ALL[i].value().into())));
+            }
         }
         Action::Language => {
             let options = settings::language_options(config.voice_locale.as_deref());

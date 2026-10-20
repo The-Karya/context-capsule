@@ -48,6 +48,9 @@ struct Fake {
     pointer_text: Option<String>,
     /// What ui_text was asked for: true = the window under the mouse.
     ui_asked: Vec<bool>,
+    /// "All my screens" was asked for, and how many monitors there are (None: unknown).
+    shared_all: usize,
+    screens: Option<usize>,
 }
 
 impl Platform for Fake {
@@ -65,6 +68,12 @@ impl Platform for Fake {
     }
     fn add_source(&mut self) {
         self.added += 1;
+    }
+    fn share_all_screens(&mut self) {
+        self.shared_all += 1;
+    }
+    fn screen_count(&self) -> Option<usize> {
+        self.screens
     }
     fn remind(&mut self) {
         self.reminded += 1;
@@ -1178,4 +1187,113 @@ fn adding_a_screen_already_shared_is_refused() {
     assert!(g.engine.is_recording());
     assert_eq!(g.engine.status().sources, 1);
     assert_eq!(g.engine.platform().toasts.last().unwrap(), "That screen is already shared. Pick a different one.");
+}
+
+// MARK: all my screens
+
+impl Rig {
+    /// `two_screens`, with "share_screens": "all" in config.json and two monitors.
+    fn all_screens(&mut self) {
+        self.two_screens();
+        self.p().screens = Some(2);
+        std::fs::write(self.root.join("config.json"), r#"{"share_screens": "all"}"#).unwrap();
+    }
+}
+
+#[test]
+fn starting_shares_all_screens_without_the_picker() {
+    let mut g = Rig::new("all-screens");
+    g.all_screens();
+    g.engine.toggle_record();
+    assert_eq!((g.engine.platform().shared_all, g.engine.platform().presented), (1, 0), "no picker");
+    assert_eq!(g.state()["picking"], true, "until the captures run");
+    // Both screens start together: one recording, like two picked screens.
+    g.engine.on_pick(PickOutcome::Picked);
+    assert!(g.engine.is_recording());
+    let id = g.engine.session_id().unwrap().to_string();
+    let s = g.engine.status();
+    assert_eq!(s.sources, 2);
+    assert!(s.every_screen_shared && !s.can_add_screen(), "nothing left to add");
+    assert_eq!(s.add_screen_label(), "Add a screen (2 shared)");
+    assert_eq!(window::status_detail(&s, &window::WINDOWS_KEYS, ShareScreens::All), "0 moments saved · 2 screens shared");
+    g.engine.handle(Msg::AddScreen);
+    assert_eq!(g.engine.platform().added, 0, "every screen is shared already");
+    assert!(g.engine.platform().toasts.is_empty() && g.engine.platform().alerts.is_empty(), "no text on screen");
+
+    // The window in use moves to the second screen: that screen's frame is read.
+    g.p().ui_text = None;
+    let w = g.p().front.as_mut().unwrap();
+    w.window.as_mut().unwrap().frame = r(120.0, 0.0, 50.0, 50.0);
+    w.list[1].frame = r(120.0, 0.0, 50.0, 50.0);
+    g.p().ocr_text = "On the right".into();
+    g.advance(Duration::from_secs(3));
+    g.engine.tick();
+    let img = g.engine.platform().ocr_images.last().unwrap().clone();
+    assert_eq!(img.pixel(25, 25), [90, 90, 90, 90], "the second screen's frame");
+    assert_eq!(g.events(&id).last().unwrap()["text"], "On the right");
+
+    // One screen stops sharing: recording goes on, and it can be added back with the picker.
+    g.p().more_picks.clear();
+    g.engine.on_pick(PickOutcome::Removed(1));
+    let s = g.engine.status();
+    assert!(g.engine.is_recording() && s.sources == 1 && !s.every_screen_shared && s.can_add_screen());
+    g.engine.handle(Msg::AddScreen);
+    assert_eq!(g.engine.platform().added, 1, "the picker, for one screen");
+    g.engine.toggle_record();
+    assert!(!g.engine.is_recording());
+    assert!(!g.engine.status().every_screen_shared);
+}
+
+#[test]
+fn all_screens_with_more_monitors_than_shared_can_still_add() {
+    let mut g = Rig::new("all-screens-three");
+    g.all_screens();
+    g.p().screens = Some(3);
+    g.engine.toggle_record();
+    g.engine.on_pick(PickOutcome::Picked);
+    let s = g.engine.status();
+    assert_eq!(s.sources, 2);
+    assert!(!s.every_screen_shared && s.can_add_screen(), "a third monitor isn't shared");
+    // Unknown monitor count: never claimed to be all.
+    g.engine.toggle_record();
+    g.p().screens = None;
+    g.engine.toggle_record();
+    g.engine.on_pick(PickOutcome::Picked);
+    assert!(g.engine.status().can_add_screen());
+}
+
+#[test]
+fn all_screens_cancelled_or_failed_is_like_the_picker() {
+    let mut g = Rig::new("all-screens-cancel");
+    g.all_screens();
+    g.engine.toggle_record();
+    g.engine.on_pick(PickOutcome::Cancelled); // e.g. the Linux dialog closed
+    assert!(!g.engine.is_recording());
+    assert_eq!(g.state()["last_error"], "cancelled");
+    g.engine.toggle_record();
+    g.engine.on_pick(PickOutcome::Failed("capture: no monitors".into()));
+    assert!(!g.engine.is_recording());
+    assert_eq!(g.state()["last_error"], "capture: no monitors");
+    assert_eq!(g.engine.platform().shared_all, 2);
+}
+
+#[test]
+fn pick_is_the_default_and_a_single_pick_counts_one() {
+    let mut g = Rig::new("pick-default");
+    g.scene();
+    g.p().screens = Some(2);
+    g.record();
+    assert_eq!((g.engine.platform().presented, g.engine.platform().shared_all), (1, 0));
+    let s = g.engine.status();
+    assert!(s.sources == 1 && !s.every_screen_shared && s.can_add_screen());
+    // "pick" written by Settings: the picker too.
+    g.engine.toggle_record();
+    std::fs::write(g.root.join("config.json"), r#"{"share_screens": "pick"}"#).unwrap();
+    g.engine.toggle_record();
+    assert_eq!((g.engine.platform().presented, g.engine.platform().shared_all), (2, 0));
+    // Every monitor picked one by one: nothing left to add either.
+    g.engine.on_pick(PickOutcome::Picked);
+    g.p().screens = Some(1);
+    g.engine.on_pick(PickOutcome::Removed(1));
+    assert!(g.engine.status().every_screen_shared);
 }

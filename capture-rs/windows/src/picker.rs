@@ -3,6 +3,9 @@
 // screen or window). The user's choice is the consent; we capture only that, keep only the latest frame of
 // each, in memory, and never write it to disk. A screen or window that's already shared is refused (the
 // picker can't hide it).
+// "All my screens" (the user's choice in Settings) captures every monitor at once, up to 4, with no picker:
+// `IGraphicsCaptureItemInterop::CreateForMonitor` (Windows 10 1903+). If no monitor can be captured that
+// way, the picker opens instead and the log says why.
 //! Windows draws its yellow border around what is shared; we keep it (it tells the user what is read).
 
 use context_capsule_core::{Membership, PickedContent, Rect};
@@ -79,7 +82,9 @@ mod win {
         D3D11_TEXTURE2D_DESC, D3D11_USAGE_STAGING,
     };
     use windows::Win32::Graphics::Dxgi::IDXGIDevice;
+    use context_capsule_core::AppLog;
     use windows::Win32::System::WinRT::Direct3D11::{CreateDirect3D11DeviceFromDXGIDevice, IDirect3DDxgiInterfaceAccess};
+    use windows::Win32::System::WinRT::Graphics::Capture::IGraphicsCaptureItemInterop;
     use windows::Win32::UI::Shell::IInitializeWithWindow;
     use windows::Win32::UI::WindowsAndMessaging::SetForegroundWindow;
     use windows_future::IAsyncOperation;
@@ -154,6 +159,60 @@ mod win {
         /// While capturing: the picker again, for one more screen or window (up to `MAX_SOURCES`).
         pub fn present_add(self: &Arc<Self>, owner: HWND) {
             self.open(owner, true);
+        }
+
+        /// "All my screens" (UI thread): capture every monitor at once (up to `MAX_SOURCES`), no picker, and
+        /// report `Picked`. Monitors that can't be captured are logged and left out; if none can, the picker
+        /// opens instead. Nothing happens if something is already being captured or picked.
+        pub fn present_all(self: &Arc<Self>, owner: HWND, log: &AppLog) {
+            let started = {
+                let mut inner = self.lock();
+                if inner.picking || !inner.sources.is_empty() {
+                    return;
+                }
+                let generation = inner.generation;
+                self.start_all(&mut inner, generation)
+            };
+            match started {
+                Ok((n, failed)) => {
+                    let failed = if failed.is_empty() { String::new() } else { format!(" (not shared: {})", failed.join("; ")) };
+                    log.write(&format!("all screens: {n} shared{failed}"));
+                    self.report(PickOutcome::Picked);
+                }
+                Err(why) => {
+                    log.write(&format!("all screens: {why}; the picker instead"));
+                    self.open(owner, false);
+                }
+            }
+        }
+
+        /// Start a capture of each monitor. Ok: how many run, and the ones that failed (and why).
+        fn start_all(self: &Arc<Self>, inner: &mut Inner, generation: u64) -> Result<(usize, Vec<String>), String> {
+            if !GraphicsCaptureSession::IsSupported().unwrap_or(false) {
+                return Err("screen capture is not supported on this PC".into());
+            }
+            let interop = windows::core::factory::<GraphicsCaptureItem, IGraphicsCaptureItemInterop>()
+                .map_err(|e| format!("CreateForMonitor is not available: {}", e.message()))?;
+            let monitors = windows_list::monitor_handles();
+            if monitors.is_empty() {
+                return Err("no monitors found".into());
+            }
+            let mut failed = vec![];
+            for (handle, monitor) in monitors.into_iter().take(MAX_SOURCES) {
+                // SAFETY: a monitor handle from EnumDisplayMonitors, just now.
+                let made = unsafe { interop.CreateForMonitor::<GraphicsCaptureItem>(handle) }.and_then(|item| {
+                    let size = item.Size()?;
+                    self.start(inner, generation, item, PickedContent::display(monitor.rect), size)
+                });
+                if let Err(e) = made {
+                    failed.push(format!("{}: CreateForMonitor failed: {}", monitor.device, e.message()));
+                }
+            }
+            if inner.sources.is_empty() {
+                return Err(failed.join("; "));
+            }
+            eprintln!("Context Capsule: all screens: {} shared", inner.sources.len());
+            Ok((inner.sources.len(), failed))
         }
 
         fn open(self: &Arc<Self>, owner: HWND, adding: bool) {

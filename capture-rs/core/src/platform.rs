@@ -100,6 +100,8 @@ pub struct Status {
     pub new_project_clue: Option<String>,
     /// How many screens or windows are shared right now.
     pub sources: usize,
+    /// Every screen of this computer is shared (e.g. "All my screens"): nothing left to add.
+    pub every_screen_shared: bool,
 }
 
 impl Status {
@@ -144,9 +146,9 @@ impl Status {
         }
     }
 
-    /// While recording, and fewer than `MAX_SOURCES` are shared.
+    /// While recording, fewer than `MAX_SOURCES` are shared, and some screen isn't shared yet.
     pub fn can_add_screen(&self) -> bool {
-        self.recording && self.sources < MAX_SOURCES
+        self.recording && self.sources < MAX_SOURCES && !self.every_screen_shared
     }
 
     /// The words above the name field of "New project from this window".
@@ -244,6 +246,18 @@ pub trait Platform {
     /// Stop capturing and close the picker if it is open. Safe in any state. Do not report a
     /// `PickOutcome` for this; drop the latest frame.
     fn stop_capture(&mut self);
+
+    /// "All my screens" (config.json "share_screens": "all"): share every monitor at once, up to `MAX_SOURCES`,
+    /// with no picker; report `Picked` once they all run (the engine counts them with `picked`). When that is
+    /// not possible, show the picker instead (the default) and report as it does.
+    fn share_all_screens(&mut self) {
+        self.present_picker()
+    }
+
+    /// How many monitors this computer has (None: unknown). With every one shared, "Add a screen" is off.
+    fn screen_count(&self) -> Option<usize> {
+        None
+    }
 
     /// While recording: show the picker for one more screen or window (up to `MAX_SOURCES`). Report
     /// `Added(n)`, `AddCancelled`, and later `Removed(n)` when one of several stops on its own (the last

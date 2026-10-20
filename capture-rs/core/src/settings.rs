@@ -33,6 +33,47 @@ pub const KEY_SOUNDS: &str = "sounds";
 pub const KEY_VOICE_LOCALE: &str = "voice_locale";
 pub const KEY_EXCLUDE_APPS: &str = "exclude_apps";
 pub const KEY_APPEARANCE: &str = "appearance";
+pub const KEY_SHARE_SCREENS: &str = "share_screens";
+
+/// What starting shares (config.json "share_screens"): the picker, for one screen or window ("pick"), or
+/// every screen at once ("all"). The same contract as the Mac.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub enum ShareScreens {
+    #[default]
+    Pick,
+    All,
+}
+
+impl ShareScreens {
+    pub const ALL: [ShareScreens; 2] = [ShareScreens::Pick, ShareScreens::All];
+
+    /// "pick" | "all"
+    pub fn value(self) -> &'static str {
+        match self {
+            ShareScreens::Pick => "pick",
+            ShareScreens::All => "all",
+        }
+    }
+
+    /// The words in Settings → When you start.
+    pub fn label(self) -> &'static str {
+        match self {
+            ShareScreens::Pick => crate::window::SHARE_PICK,
+            ShareScreens::All => crate::window::SHARE_ALL,
+        }
+    }
+
+    /// Missing or unknown: pick.
+    pub fn parse(s: &str) -> ShareScreens {
+        let s = s.trim().to_lowercase();
+        ShareScreens::ALL.into_iter().find(|a| a.value() == s).unwrap_or_default()
+    }
+
+    /// From config.json.
+    pub fn load(config: &Path) -> ShareScreens {
+        crate::exclusion::Config::load(config).share_screens
+    }
+}
 
 /// Light or dark: like the computer, or always one of them (config.json "appearance").
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
@@ -286,6 +327,24 @@ mod tests {
         assert_eq!(language_index(None), 0);
         assert_eq!(language_options(Some("eu-ES")).last().unwrap().0, "eu-ES", "unknown: kept");
         assert_eq!(language_options(Some("eu-ES"))[language_index(Some("eu-ES"))].0, "eu-ES");
+    }
+
+    #[test]
+    fn share_screens() {
+        assert_eq!(ShareScreens::parse("all"), ShareScreens::All);
+        assert_eq!(ShareScreens::parse(" ALL "), ShareScreens::All);
+        assert_eq!(ShareScreens::parse("pick"), ShareScreens::Pick);
+        assert_eq!(ShareScreens::parse("every"), ShareScreens::Pick, "unknown: pick");
+        assert_eq!(ShareScreens::ALL.map(|s| s.label()), ["Pick a screen or window", "All my screens"]);
+        let dir = std::env::temp_dir().join(format!("cc-share-{}", std::process::id()));
+        let path = dir.join("config.json");
+        assert_eq!(ShareScreens::load(&path), ShareScreens::Pick, "default");
+        ConfigFile::set(&path, KEY_SHARE_SCREENS, Some(ShareScreens::All.value().into())).unwrap();
+        assert_eq!(ShareScreens::load(&path), ShareScreens::All);
+        assert!(std::fs::read_to_string(&path).unwrap().contains(r#""share_screens": "all""#));
+        ConfigFile::set(&path, KEY_SHARE_SCREENS, Some(ShareScreens::Pick.value().into())).unwrap();
+        assert_eq!(ShareScreens::load(&path), ShareScreens::Pick);
+        std::fs::remove_dir_all(&dir).unwrap();
     }
 
     #[test]

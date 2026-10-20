@@ -66,6 +66,7 @@ features = [
     "Win32_System_Variant",
     "Win32_System_WinRT",
     "Win32_System_WinRT_Direct3D11",
+    "Win32_System_WinRT_Graphics_Capture",
     "Win32_UI_Accessibility",
     "Win32_UI_Controls",
     "Win32_UI_Controls_Dialogs",

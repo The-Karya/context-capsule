@@ -1,6 +1,7 @@
 // context-capsule — core: the never-record list and config.json (exclude_apps, voice_locale, author, remind_at,
-// keep_recordings_days, sounds).
+// keep_recordings_days, sounds, share_screens).
 
+use crate::settings::ShareScreens;
 use std::path::Path;
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -16,6 +17,8 @@ pub struct Config {
     pub keep_days: u32,
     /// Soft sounds when recording or the mic starts and stops.
     pub sounds: bool,
+    /// What starting shares: the picker (one screen or window) or every screen at once.
+    pub share_screens: ShareScreens,
 }
 
 impl Default for Config {
@@ -27,6 +30,7 @@ impl Default for Config {
             remind_at: Some(Self::REMIND_AT.into()),
             keep_days: 30,
             sounds: true,
+            share_screens: ShareScreens::Pick,
         }
     }
 }
@@ -35,7 +39,7 @@ impl Config {
     pub const REMIND_AT: &'static str = "18:00";
 
     /// Reads `{"exclude_apps": [...], "voice_locale": "en-GB", "author": "…", "remind_at": "18:00" | false,
-    /// "keep_recordings_days": 30, "sounds": true}`; a missing or broken file means defaults.
+    /// "keep_recordings_days": 30, "sounds": true, "share_screens": "pick" | "all"}`; a missing or broken file means defaults.
     pub fn load(path: &Path) -> Config {
         std::fs::read(path).map(|d| Config::parse(&d)).unwrap_or_default()
     }
@@ -67,7 +71,8 @@ impl Config {
         }
         .clamp(0, u32::MAX as i64) as u32;
         let sounds = obj.get("sounds").and_then(|v| v.as_bool()).unwrap_or(true);
-        Config { exclude_apps, voice_locale: text("voice_locale"), author: text("author"), remind_at, keep_days, sounds }
+        let share_screens = obj.get("share_screens").and_then(|v| v.as_str()).map_or(ShareScreens::Pick, ShareScreens::parse);
+        Config { exclude_apps, voice_locale: text("voice_locale"), author: text("author"), remind_at, keep_days, sounds, share_screens }
     }
 }
 
@@ -114,5 +119,8 @@ mod tests {
         let c = Config::parse(br#"{"author": " Saachi ", "exclude_apps": ["a", 1]}"#);
         assert_eq!(c.author.as_deref(), Some("Saachi"));
         assert!(c.exclude_apps.is_empty(), "a non-string entry drops the list, like Swift");
+        assert_eq!(c.share_screens, ShareScreens::Pick, "missing: pick");
+        assert_eq!(Config::parse(br#"{"share_screens": "all"}"#).share_screens, ShareScreens::All);
+        assert_eq!(Config::parse(br#"{"share_screens": true}"#).share_screens, ShareScreens::Pick, "not a string: pick");
     }
 }

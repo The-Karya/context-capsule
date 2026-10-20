@@ -9,7 +9,7 @@ use adw::prelude::*;
 use context_capsule_core::capsules::today;
 use context_capsule_core::stats::WorkStats;
 use context_capsule_core::window::{self as words, Chip, Section};
-use context_capsule_core::Msg;
+use context_capsule_core::{Msg, ShareScreens};
 use std::cell::RefCell;
 use std::rc::Rc;
 use std::time::SystemTime;
@@ -295,7 +295,8 @@ impl Home {
             self.dot.remove_css_class("rec-dot");
             self.dot.add_css_class("idle-dot");
         }
-        self.status_detail.set_text(&words::status_detail(&s, &self.ctx.keys));
+        let share = if s.recording { ShareScreens::Pick } else { ShareScreens::load(&self.ctx.paths.config()) };
+        self.status_detail.set_text(&words::status_detail(&s, &self.ctx.keys, share));
         let now = words::now_line(&s);
         self.now_line.set_visible(now.is_some());
         self.now_line.set_text(now.as_deref().unwrap_or(""));

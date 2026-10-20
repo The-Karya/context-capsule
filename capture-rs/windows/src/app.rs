@@ -66,6 +66,8 @@ pub enum UiCmd {
     Toast(String),
     Alert(String, String),
     PresentPicker,
+    /// "All my screens": every monitor at once, no picker (the picker if that fails).
+    ShareAll,
     /// "Add a screen": the picker for one more screen or window.
     AddSource,
     /// Evening: "Make today's capsules?"
@@ -379,6 +381,11 @@ fn handle(hwnd: HWND, cmd: UiCmd) {
         UiCmd::PresentPicker => {
             if let Some(capture) = with_app(|a| a.capture.clone()) {
                 capture.present(hwnd);
+            }
+        }
+        UiCmd::ShareAll => {
+            if let Some((capture, log)) = with_app(|a| (a.capture.clone(), a.log.clone())) {
+                capture.present_all(hwnd, &log);
             }
         }
         UiCmd::AddSource => {

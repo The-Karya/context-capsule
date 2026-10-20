@@ -228,6 +228,16 @@ impl Platform for LinuxPlatform {
         self.matched.clear();
     }
 
+    /// The portal's dialog, for monitors, several at once (it always asks; the person confirms there).
+    fn share_all_screens(&mut self) {
+        self.capture.present_all();
+    }
+
+    /// From the X server (on Wayland: Xwayland's); None when it can't tell.
+    fn screen_count(&self) -> Option<usize> {
+        Some(self.monitors().len()).filter(|n| *n > 0)
+    }
+
     fn add_source(&mut self) {
         self.capture.present_add();
     }

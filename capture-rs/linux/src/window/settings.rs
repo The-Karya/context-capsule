@@ -6,7 +6,7 @@ use super::widgets::{self, label, row, vbox};
 use super::Ctx;
 use crate::{autostart, connect, ui};
 use adw::prelude::*;
-use context_capsule_core::settings::{self as cfg, Appearance};
+use context_capsule_core::settings::{self as cfg, Appearance, ShareScreens};
 use context_capsule_core::window::{self as words, SetupRow, ROW_CLAUDE, ROW_LOGIN};
 use context_capsule_core::Config;
 use gtk::gio;
@@ -178,6 +178,19 @@ impl Settings {
         let group = adw::PreferencesGroup::new();
         group.set_title(words::EVERY_DAY);
 
+        let shares: Vec<String> = ShareScreens::ALL.iter().map(|s| s.label().to_string()).collect();
+        let share_row = combo_row(
+            words::WHEN_YOU_START,
+            &shares,
+            ShareScreens::ALL.iter().position(|s| *s == config.share_screens).unwrap_or(0),
+        );
+        let ctx = self.ctx.clone();
+        share_row.connect_selected_notify(move |r| {
+            if let Some(share) = ShareScreens::ALL.get(r.selected() as usize) {
+                ctx.set(cfg::KEY_SHARE_SCREENS, Some(share.value().into()));
+            }
+        });
+
         let remind = switch_row(words::REMIND, config.remind_at.is_some());
         let times = cfg::remind_options(config.remind_at.as_deref());
         let current = cfg::normalize_time(config.remind_at.as_deref().unwrap_or(Config::REMIND_AT));
@@ -212,6 +225,7 @@ impl Settings {
         let ctx = self.ctx.clone();
         sounds.1.connect_active_notify(move |sw| ctx.set(cfg::KEY_SOUNDS, Some(sw.is_active().into())));
 
+        group.add(&share_row);
         group.add(&remind.0);
         group.add(&at);
         group.add(&keep_row);

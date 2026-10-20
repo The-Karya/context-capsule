@@ -148,6 +148,8 @@ pub enum Action {
     RemindAt,
     Keep,
     Sounds,
+    /// Settings → Every day → When you start: pick a screen or window, or all my screens.
+    ShareScreens,
     Language,
     Appearance,
     RemoveApp(String),
@@ -571,7 +573,7 @@ fn home(col: &mut Col, v: &View, wide: bool) {
 fn status_card(col: &mut Col, v: &View) {
     let s = v.status;
     let title = w::status_title(s, v.now);
-    let detail = w::status_detail(s, v.keys);
+    let detail = w::status_detail(s, v.keys, v.data.config.share_screens);
     let toggle = w::toggle_button(s);
     let now_line = w::now_line(s);
     let several = v.several_screens;
@@ -943,9 +945,15 @@ fn settings_page(col: &mut Col, v: &View) {
     let remind_at = c.remind_at.clone();
     let keep = c.keep_days;
     let sounds = c.sounds;
+    let share = c.share_screens.label();
     col.card(|out, x, w, top, m| {
-        let (mut y, h) = row(out, m, x, w, top, None, w::REMIND, None, TOGGLE_W);
-        right_toggle(out, x, w, top, h, remind_at.is_some(), Action::Remind);
+        let bw = button_width(m, share, Style::Dropdown);
+        let (mut y, h) = row(out, m, x, w, top, None, w::WHEN_YOU_START, None, bw);
+        right_button(out, m, x, w, top, h, share, Action::ShareScreens, Style::Dropdown);
+        divider(out, x, w, y);
+        let (bottom, h) = row(out, m, x, w, y, None, w::REMIND, None, TOGGLE_W);
+        right_toggle(out, x, w, y, h, remind_at.is_some(), Action::Remind);
+        y = bottom;
         if let Some(at) = &remind_at {
             divider(out, x, w, y);
             let label = settings::normalize_time(at);
@@ -1289,7 +1297,7 @@ mod tests {
         let fields: Vec<Field> = l.content.iter().filter_map(|n| if let Node::Field { field, .. } = n { Some(*field) } else { None }).collect();
         assert_eq!(fields, [Field::ProjectName, Field::ProjectClues]);
         let t = texts(&layout(&view(Section::Settings, &status, &data), 1000.0, 700.0, &Fake));
-        for word in ["You", "Your name", "Set up", "Voice notes", "Connect Claude", "Connect", "Open at login", "Every day", "Remind me to make capsules",
+        for word in ["You", "Your name", "Set up", "Voice notes", "Connect Claude", "Connect", "Open at login", "Every day", "When you start", "Pick a screen or window", "Remind me to make capsules",
             "18:00", "30 days", "Sounds", "Capsules are never deleted.", "Language", "Same as my computer", "Appearance", "System", "Never record", "Slack", "Remove", "Choose…", "Updates", "Update automatically", "Check for updates"] {
             assert!(t.iter().any(|x| x == word), "{word} in Settings: {t:?}");
         }

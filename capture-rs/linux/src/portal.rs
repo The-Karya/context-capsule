@@ -2,10 +2,14 @@
 // or window, cursor hidden, nothing remembered), its PipeWire stream, and what was picked, placed on screen.
 // "Add a screen" opens the dialog again: one portal session and one stream per shared source, up to 4. A
 // monitor that's already shared is refused (the dialog can't hide it).
+// "All my screens" asks the portal for monitors, several at once (SelectSources multiple=true, types=MONITOR):
+// one session, a stream per monitor chosen (up to 4). The desktop's dialog still shows; the person confirms
+// there (and its backend decides how many monitors can be chosen).
 
 use crate::pipewire::{self, FrameSlot};
 use ashpd::desktop::screencast::{CursorMode, Screencast, SelectSourcesOptions, SourceType, Stream};
 use ashpd::desktop::{PersistMode, ResponseError};
+use ashpd::enumflags2::BitFlags;
 use context_capsule_core::{Frame, Membership, Msg, PickOutcome, PickedContent, Rect, MAX_SOURCES};
 use futures_util::StreamExt;
 use std::sync::atomic::{AtomicBool, Ordering};
@@ -122,12 +126,14 @@ pub fn picker_error(e: &ashpd::Error) -> String {
     }
 }
 
-/// One shared monitor or window: its own portal session (ended through `cancel`), stream and latest frame.
+/// One shared monitor or window: its portal session (ended when the last `session` handle of it is
+/// dropped: "All my screens" shares one session between its monitors), stream and latest frame.
 struct Live {
     id: u32,
     source: Source,
     frames: Arc<FrameSlot>,
-    cancel: oneshot::Sender<()>,
+    /// Dropping the last one ends the portal session (its job is waiting on the other end).
+    session: Arc<oneshot::Sender<()>>,
     stream: pipewire::Stream,
 }
 
@@ -142,11 +148,38 @@ struct Inner {
 }
 
 impl Inner {
-    /// Take one source out (it ended on its own) and end its session. None if it was already gone.
-    fn remove(&mut self, id: u32) -> Option<Live> {
-        let at = self.sources.iter().position(|l| l.id == id)?;
-        let live = self.sources.remove(at);
-        Some(live)
+    /// A new source id.
+    fn new_id(&mut self) -> u32 {
+        self.next_id += 1;
+        self.next_id
+    }
+}
+
+/// What the dialog is for.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Ask {
+    /// Start: one monitor or window.
+    One,
+    /// While capturing: one more monitor or window (its own session).
+    Add,
+    /// "All my screens": monitors only, several at once (the desktop's dialog still asks to confirm).
+    AllScreens,
+}
+
+/// The portal's SelectSources request for each ask: (source types, several at once).
+pub fn selection(ask: Ask) -> (BitFlags<SourceType>, bool) {
+    match ask {
+        Ask::AllScreens => (SourceType::Monitor.into(), true),
+        Ask::One | Ask::Add => (SourceType::Monitor | SourceType::Window, false),
+    }
+}
+
+/// Which of the portal's streams to capture: every one (up to `MAX_SOURCES`) for "All my screens", else the
+/// first.
+pub fn streams_to_share(ask: Ask, count: usize) -> usize {
+    match ask {
+        Ask::AllScreens => count.min(MAX_SOURCES),
+        Ask::One | Ask::Add => count.min(1),
     }
 }
 
@@ -163,20 +196,27 @@ impl Capture {
 
     /// Open the portal dialog. Its result comes back as `Msg::Pick`.
     pub fn present(&self) {
-        self.open(false);
+        self.open(Ask::One);
+    }
+
+    /// "All my screens": the dialog asks for monitors, several at once, and every one chosen is shared
+    /// (up to `MAX_SOURCES`). The portal always shows its dialog: the person confirms there.
+    pub fn present_all(&self) {
+        self.open(Ask::AllScreens);
     }
 
     /// While capturing: the dialog again, for one more monitor or window (its own session).
     pub fn present_add(&self) {
-        self.open(true);
+        self.open(Ask::Add);
     }
 
-    fn open(&self, adding: bool) {
+    fn open(&self, ask: Ask) {
         let mut inner = self.inner.lock().unwrap();
         if inner.dialog.is_some() {
             eprintln!("Context Capsule: the screen-sharing dialog is already open");
             return;
         }
+        let adding = ask == Ask::Add;
         let ready = if adding { !inner.sources.is_empty() && inner.sources.len() < MAX_SOURCES } else { inner.sources.is_empty() };
         if !ready {
             return;
@@ -186,8 +226,7 @@ impl Capture {
         }
         let (cancel, cancelled) = oneshot::channel();
         inner.dialog = Some(cancel);
-        inner.next_id += 1;
-        let job = Job { generation: inner.generation, id: inner.next_id, adding, inner: self.inner.clone(), tx: self.tx.clone() };
+        let job = Job { generation: inner.generation, ask, inner: self.inner.clone(), tx: self.tx.clone() };
         self.rt.spawn(job.run(cancelled));
     }
 
@@ -202,7 +241,7 @@ impl Capture {
             std::mem::take(&mut inner.sources)
         };
         for live in sources {
-            let _ = live.cancel.send(());
+            drop(live.session); // the last one ends its portal session
             drop(live.stream); // stops its PipeWire thread
         }
     }
@@ -219,17 +258,28 @@ impl Capture {
     }
 }
 
+/// One stream started by a job, not yet handed over.
+struct Started {
+    id: u32,
+    source: Source,
+    frames: Arc<FrameSlot>,
+    stream: pipewire::Stream,
+    /// Set once its end was reported (by the stream, or by the session closing).
+    ended: Arc<AtomicBool>,
+}
+
 struct Job {
     generation: u64,
-    /// This source's id.
-    id: u32,
-    /// Adding to a running recording (outcomes are Added / AddCancelled).
-    adding: bool,
+    ask: Ask,
     inner: Arc<Mutex<Inner>>,
     tx: Sender<Msg>,
 }
 
 impl Job {
+    fn adding(&self) -> bool {
+        self.ask == Ask::Add
+    }
+
     /// The dialog ended without a new source: say so, unless everything was stopped meanwhile.
     fn send(&self, outcome: PickOutcome) {
         let mut inner = self.inner.lock().unwrap();
@@ -238,7 +288,7 @@ impl Job {
         }
         inner.dialog = None;
         let outcome = match outcome {
-            PickOutcome::Cancelled | PickOutcome::Failed(_) if self.adding => {
+            PickOutcome::Cancelled | PickOutcome::Failed(_) if self.adding() => {
                 if let PickOutcome::Failed(why) = &outcome {
                     eprintln!("Context Capsule: add a screen failed: {why}");
                 }
@@ -249,19 +299,22 @@ impl Job {
         let _ = self.tx.send(Msg::Pick(outcome));
     }
 
-    /// This source ended on its own: the others go on; the last one ends the recording.
-    fn ended(inner: &Mutex<Inner>, tx: &Sender<Msg>, generation: u64, id: u32, why: Option<String>) {
-        let (live, left) = {
+    /// These sources ended on their own: the others go on; the last one ends the recording.
+    fn ended(inner: &Mutex<Inner>, tx: &Sender<Msg>, generation: u64, ids: &[u32], why: Option<String>) {
+        let (gone, left) = {
             let mut inner = inner.lock().unwrap();
             if inner.generation != generation {
                 return;
             }
-            let Some(live) = inner.remove(id) else { return };
-            (live, inner.sources.len())
+            let (gone, kept): (Vec<Live>, Vec<Live>) = std::mem::take(&mut inner.sources).into_iter().partition(|l| ids.contains(&l.id));
+            inner.sources = kept;
+            (gone, inner.sources.len())
         };
-        let _ = live.cancel.send(());
-        // This may run on the stream's own thread: stop it from another one.
-        std::thread::spawn(move || drop(live.stream));
+        if gone.is_empty() {
+            return;
+        }
+        // This may run on a stream's own thread: stop them from another one.
+        std::thread::spawn(move || drop(gone));
         let _ = tx.send(Msg::Pick(if left > 0 { PickOutcome::Removed(left) } else { PickOutcome::Stopped(why) }));
     }
 
@@ -274,11 +327,11 @@ impl Job {
             Ok(s) => s,
             Err(e) => return self.send(PickOutcome::Failed(picker_error(&e))),
         };
-        let wanted = SourceType::Monitor | SourceType::Window;
+        let (wanted, multiple) = selection(self.ask);
         let types =
             proxy.available_source_types().await.map(|t| t & wanted).ok().filter(|t| !t.is_empty()).unwrap_or(wanted);
         let mut options =
-            SelectSourcesOptions::default().set_sources(types).set_multiple(false).set_persist_mode(PersistMode::DoNot);
+            SelectSourcesOptions::default().set_sources(types).set_multiple(multiple).set_persist_mode(PersistMode::DoNot);
         if proxy.available_cursor_modes().await.is_ok_and(|m| m.contains(CursorMode::Hidden)) {
             options = options.set_cursor_mode(CursorMode::Hidden);
         }
@@ -298,61 +351,60 @@ impl Job {
             Err(ashpd::Error::Response(ResponseError::Cancelled)) => return self.send(PickOutcome::Cancelled),
             Err(e) => return self.send(PickOutcome::Failed(picker_error(&e))),
         };
-        let Some(stream) = streams.streams().first() else {
+        let chosen = &streams.streams()[..streams_to_share(self.ask, streams.streams().len())];
+        if chosen.is_empty() {
             let _ = session.close().await;
             return self.send(PickOutcome::Failed("picker: nothing was shared".into()));
-        };
-        let source = Source::of(stream);
-        if self.adding {
+        }
+        if self.adding() {
+            let source = Source::of(&chosen[0]);
             let shared: Vec<Source> = self.inner.lock().unwrap().sources.iter().map(|l| l.source.clone()).collect();
             if already_shared(&source, &shared) {
                 let _ = session.close().await;
                 return self.send(PickOutcome::AlreadyShared);
             }
         }
-        let node = stream.pipe_wire_node_id();
-        let fd = match proxy.open_pipe_wire_remote(&session, Default::default()).await {
-            Ok(fd) => fd,
-            Err(e) => {
-                let _ = session.close().await;
-                return self.send(PickOutcome::Failed(format!("capture: {e}")));
-            }
-        };
 
-        // The capture can end two ways (the stream, or the session); report it once.
-        let ended = Arc::new(AtomicBool::new(false));
-        let on_end = {
-            let (ended, inner, tx, generation, id) = (ended.clone(), self.inner.clone(), self.tx.clone(), self.generation, self.id);
-            Box::new(move |why: Option<String>| {
-                if !ended.swap(true, Ordering::SeqCst) {
-                    Job::ended(&inner, &tx, generation, id, why);
+        // A PipeWire stream per chosen source. With several, one that can't start is left out (logged).
+        let mut live: Vec<Started> = vec![];
+        let mut failure = None;
+        for stream in chosen {
+            match self.start_stream(&proxy, &session, stream).await {
+                Ok(s) => live.push(s),
+                Err(e) => {
+                    eprintln!("Context Capsule: a shared screen couldn't start: {e}");
+                    failure = Some(e);
                 }
-            })
-        };
-        let frames = Arc::new(FrameSlot::default());
-        let pw = match pipewire::start(fd, node, frames.clone(), on_end) {
-            Ok(pw) => pw,
-            Err(e) => {
-                let _ = session.close().await;
-                return self.send(PickOutcome::Failed(format!("capture: {e}")));
             }
-        };
-        // None: kept. Some: stopped meanwhile, so the stream is dropped (outside the lock).
+        }
+        if live.is_empty() {
+            let _ = session.close().await;
+            return self.send(PickOutcome::Failed(failure.unwrap_or_else(|| "capture: nothing was shared".into())));
+        }
+        if live.len() > 1 {
+            eprintln!("Context Capsule: all screens: {} shared", live.len());
+        }
+        let watch: Vec<(u32, Arc<AtomicBool>)> = live.iter().map(|s| (s.id, s.ended.clone())).collect();
+
+        // None: kept. Some: stopped meanwhile, so the streams are dropped (outside the lock).
         let stale = {
             let mut inner = self.inner.lock().unwrap();
             let cancel = if inner.generation == self.generation { inner.dialog.take() } else { None };
             match cancel {
                 Some(cancel) => {
-                    inner.sources.push(Live { id: self.id, source, frames, cancel, stream: pw });
+                    let session = Arc::new(cancel);
+                    for s in live {
+                        inner.sources.push(Live { id: s.id, source: s.source, frames: s.frames, session: session.clone(), stream: s.stream });
+                    }
                     let n = inner.sources.len();
-                    let _ = self.tx.send(Msg::Pick(if self.adding { PickOutcome::Added(n) } else { PickOutcome::Picked }));
+                    let _ = self.tx.send(Msg::Pick(if self.adding() { PickOutcome::Added(n) } else { PickOutcome::Picked }));
                     None
                 }
-                None => Some(pw),
+                None => Some(live),
             }
         };
-        if let Some(pw) = stale {
-            drop(pw);
+        if let Some(live) = stale {
+            drop(live);
             let _ = session.close().await;
             return;
         }
@@ -363,9 +415,8 @@ impl Job {
             Ok(mut closed) => {
                 tokio::select! {
                     _ = closed.next() => {
-                        if !ended.swap(true, Ordering::SeqCst) {
-                            Job::ended(&self.inner, &self.tx, self.generation, self.id, None);
-                        }
+                        let ids: Vec<u32> = watch.iter().filter(|(_, e)| !e.swap(true, Ordering::SeqCst)).map(|(id, _)| *id).collect();
+                        Job::ended(&self.inner, &self.tx, self.generation, &ids, None);
                     }
                     _ = &mut cancelled => {}
                 }
@@ -376,12 +427,49 @@ impl Job {
         }
         let _ = session.close().await;
     }
+
+    /// One chosen stream: its PipeWire remote and stream, with a new source id.
+    async fn start_stream(
+        &self,
+        proxy: &Screencast,
+        session: &ashpd::desktop::Session<Screencast>,
+        stream: &Stream,
+    ) -> Result<Started, String> {
+        let source = Source::of(stream);
+        let node = stream.pipe_wire_node_id();
+        let fd = proxy.open_pipe_wire_remote(session, Default::default()).await.map_err(|e| format!("capture: {e}"))?;
+        let id = self.inner.lock().unwrap().new_id();
+        // The capture can end two ways (the stream, or the session); report it once.
+        let ended = Arc::new(AtomicBool::new(false));
+        let on_end = {
+            let (ended, inner, tx, generation) = (ended.clone(), self.inner.clone(), self.tx.clone(), self.generation);
+            Box::new(move |why: Option<String>| {
+                if !ended.swap(true, Ordering::SeqCst) {
+                    Job::ended(&inner, &tx, generation, &[id], why);
+                }
+            })
+        };
+        let frames = Arc::new(FrameSlot::default());
+        let stream = pipewire::start(fd, node, frames.clone(), on_end).map_err(|e| format!("capture: {e}"))?;
+        Ok(Started { id, source, frames, stream, ended })
+    }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
     use context_capsule_core::{ListedWindow, OcrDecision, PickStyle};
+
+    #[test]
+    fn all_screens_asks_for_several_monitors() {
+        assert_eq!(selection(Ask::AllScreens), (BitFlags::from(SourceType::Monitor), true));
+        assert_eq!(selection(Ask::One), (SourceType::Monitor | SourceType::Window, false));
+        assert_eq!(selection(Ask::Add), (SourceType::Monitor | SourceType::Window, false));
+        assert_eq!(streams_to_share(Ask::AllScreens, 3), 3);
+        assert_eq!(streams_to_share(Ask::AllScreens, 6), MAX_SOURCES, "4 at most");
+        assert_eq!(streams_to_share(Ask::One, 2), 1, "one picked: the first");
+        assert_eq!(streams_to_share(Ask::Add, 0), 0);
+    }
 
     #[test]
     fn stream_properties() {

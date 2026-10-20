@@ -45,6 +45,14 @@ impl Platform for WinPlatform {
         self.capture.stop();
     }
 
+    fn share_all_screens(&mut self) {
+        self.ui.post(UiCmd::ShareAll);
+    }
+
+    fn screen_count(&self) -> Option<usize> {
+        Some(windows_list::monitors().len()).filter(|n| *n > 0)
+    }
+
     fn add_source(&mut self) {
         self.ui.post(UiCmd::AddSource);
     }

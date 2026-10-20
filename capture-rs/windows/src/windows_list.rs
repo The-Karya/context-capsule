@@ -122,7 +122,7 @@ pub fn exe_file_name(path: &str) -> &str {
 }
 
 #[cfg(windows)]
-pub use win::{front, monitors, on_screen, title, Apps};
+pub use win::{front, monitor_handles, monitors, on_screen, title, Apps};
 
 #[cfg(windows)]
 mod win {
@@ -363,6 +363,11 @@ mod win {
 
     /// Monitors in physical pixels, with their device names ("\\.\DISPLAY1").
     pub fn monitors() -> Vec<MonitorCandidate> {
+        monitor_handles().into_iter().map(|(_, m)| m).collect()
+    }
+
+    /// Every monitor with its handle (for capturing it directly: "All my screens").
+    pub fn monitor_handles() -> Vec<(HMONITOR, MonitorCandidate)> {
         let mut handles: Vec<HMONITOR> = vec![];
         // SAFETY: the callback only pushes into `handles`, which outlives the call.
         unsafe {
@@ -376,10 +381,10 @@ mod win {
                 // SAFETY: MONITORINFOEXW with cbSize set, as GetMonitorInfoW expects.
                 unsafe { GetMonitorInfoW(m, &mut info as *mut MONITORINFOEXW as *mut MONITORINFO) }.ok().ok()?;
                 let end = info.szDevice.iter().position(|c| *c == 0).unwrap_or(info.szDevice.len());
-                Some(MonitorCandidate {
+                Some((m, MonitorCandidate {
                     device: String::from_utf16_lossy(&info.szDevice[..end]),
                     rect: rect(&info.monitorInfo.rcMonitor),
-                })
+                }))
             })
             .collect()
     }
