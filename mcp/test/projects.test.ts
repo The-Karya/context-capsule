@@ -193,6 +193,7 @@ describe("tools", () => {
     expect(t).toContain('get_day_activity with date "2026-10-19"');
     expect(t).toContain('kind "daily"');
     expect(t).toContain('kind "project"');
-    expect(t).toContain("Ask me before creating projects");
+    expect(t).toContain("sort it yourself");
+    expect(t).toContain("so I can correct anything");
   });
 });

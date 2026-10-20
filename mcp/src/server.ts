@@ -633,18 +633,20 @@ export function makeDayCapsulesPrompt(date?: string): string {
   return `Turn my work on ${day} into project capsules.
 
 1. Call list_projects, then get_day_activity${date?.trim() ? ` with date "${date.trim()}"` : ""}. It splits the day by project, with the time spent on each. Lines starting with ">> You said" / ">> You typed" are my own words.
-2. If some work is "Not sorted yet": look at its apps, window titles and addresses and suggest which project each part belongs to (an existing one, or a new one). Show me the plan as a short list (time, what it was, proposed project) and ask me to confirm. Then:
+2. If some work is "Not sorted yet", sort it yourself — don't stop to ask:
+   - decide which project each part belongs to (an existing one, or a new one with a short clear name) from its apps, window titles, addresses, screen text and my notes;
    - create_project for new ones, with clues (folder, site, file or document names from those windows) so it's found automatically next time;
    - add clues to existing projects the same way (create_project with the same name);
-   - assign_project for stretches that clues can't catch (session id, from/to as HH:MM).
+   - assign_project for stretches that clues can't catch (session id, from/to as HH:MM);
+   - leave out only what is clearly not work (personal browsing, private chats).
    Call get_day_activity again to see the sorted day.
 3. For each project worked on that day, write a daily capsule from that project's part only, with the usual sections (## Summary, ## What I worked on, ## Decisions, ## Open questions, ## Next steps, ## Sources). Save it with save_capsule: title "<Project> — <day>", project, kind "daily", date, and the session ids used.
 4. Then update each project's growing capsule: get_capsule with the project id (if it exists), merge in what's new from today (keep decisions and their reasons, update open questions and next steps, drop what is done), and save_capsule with project, kind "project", title "<Project>". If there's none yet, make it from today's capsule.
-5. Finish with a short table: project, time, capsule names.
+5. Finish with a short table: project, time, capsule names — and list what you sorted yourself (new projects, clues added, stretches assigned) so I can correct anything.
 
 Rules:
 - Voice and typed notes are my own words: the primary source for decisions, reasons and intent; screen text is supporting evidence. Quote or closely paraphrase them and cite the time.
 - Keep each project's capsule about that project only. Shared apps (chat, email) go where their content belongs, else leave them out.
 - Only use what the timeline shows; mark guesses as *(guess)*. Never include secrets or private personal data.
-- Ask me before creating projects or reassigning work; don't guess silently.`;
+- When unsure where a stretch belongs, pick the most likely project and say so in the final list (*(guess)*), rather than asking in the middle.`;
 }

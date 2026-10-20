@@ -390,7 +390,7 @@ final class Recorder {
         guard isRecording else { return }
         lastWindow = (window.0, window.1, window.2)
         if let found { setCurrent(found) }
-        if found == nil && currentProject == nil && !askedProject {
+        if config.askProject && found == nil && currentProject == nil && !askedProject {
             askedProject = true
             onAskProject?((window.0, window.1, window.2))
         }

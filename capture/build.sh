@@ -49,5 +49,16 @@ cat > "$APP/Contents/Info.plist" <<PLIST
 </plist>
 PLIST
 
-codesign --force -s - --identifier com.thekarya.contextcapsule "$APP"
+# Sign with a fixed local identity when there is one, so macOS keeps the Accessibility / Microphone
+# permissions across rebuilds (it ties them to the signature). Else ad-hoc (permissions reset on rebuild).
+# Make one with Keychain Access → Certificate Assistant → Create a Certificate (type: Code Signing),
+# named "Context Capsule Dev", or set CODESIGN_IDENTITY.
+IDENTITY="${CODESIGN_IDENTITY:-Context Capsule Dev}"
+if security find-certificate -c "$IDENTITY" >/dev/null 2>&1 \
+   && codesign --force -s "$IDENTITY" --identifier com.thekarya.contextcapsule "$APP" 2>/dev/null; then
+  echo "signed with \"$IDENTITY\""
+else
+  codesign --force -s - --identifier com.thekarya.contextcapsule "$APP"
+  echo "signed ad-hoc (permissions reset after each rebuild)"
+fi
 echo "built $APP"

@@ -154,6 +154,9 @@ struct Config {
     var excludeApps: [String] = []
     /// Locale for voice notes, e.g. "en-GB". nil: the user's locale.
     var voiceLocale: String? = nil
+    /// Ask "What are you working on?" when a recording's first window matches no project. Off by default:
+    /// known projects are detected from clues, and Claude sorts new work at the end of the day.
+    var askProject = false
 
     /// Reads `{"exclude_apps": [...], "voice_locale": "en-GB"}`; a missing or broken file means defaults.
     static func load(from url: URL) -> Config {
@@ -161,7 +164,8 @@ struct Config {
               let obj = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else { return Config() }
         let locale = (obj["voice_locale"] as? String)?.trimmingCharacters(in: .whitespaces)
         return Config(excludeApps: (obj["exclude_apps"] as? [String]) ?? [],
-                      voiceLocale: locale?.isEmpty == false ? locale : nil)
+                      voiceLocale: locale?.isEmpty == false ? locale : nil,
+                      askProject: obj["ask_project"] as? Bool ?? false)
     }
 }
 

@@ -195,7 +195,11 @@ events: `{"assign": [{"from": iso, "to": iso, "project": id}]}` (later entries w
 Readers apply it on top of each event's own `project`.
 
 **Menu:** "Project: <name or Auto>" with *Auto-detect*, each project, and *New project
-from this window…* (name prefilled from the window, the clue added to `match`).
+from this window…* (name prefilled from the window, the clue added to `match`). Optional
+(`config.json` `"ask_project": true`, off by default): ask "What are you working on?" when
+a recording's first window matches no project. Clues need window titles and addresses,
+i.e. Accessibility (macOS) — so the app is signed with a fixed local identity when one
+exists (`build.sh`), and the permission survives rebuilds.
 `control`: `{"command":"project","project":"<id>"|"auto","at":<ms>}`. `state.json` adds
 `"project": id|null, "project_by": "auto"|"you"|null`.
 
@@ -236,9 +240,9 @@ from, mark guesses as guesses, never include secrets, keep it under ~1500 words.
 notes are the user's own words: the primary source for decisions, reasons and intent;
 screen text is supporting evidence; quote or closely paraphrase them and cite the time.
 
-Prompt `make_day_capsules` `{date?}`: read `get_day_activity`; propose a project for
-unassigned work (and clues so it's found automatically next time), ask the user, then
-`create_project` / `assign_project`; write one daily capsule per project
+Prompt `make_day_capsules` `{date?}`: read `get_day_activity`; sort unassigned work into
+projects itself (`create_project` with clues so it's found automatically next time,
+`assign_project` for the rest) and list what it sorted at the end so the user can correct it; write one daily capsule per project
 (`save_capsule` with `project`, `kind: "daily"`, `date`), then update each project's
 growing capsule (`get_capsule` → merge → `save_capsule` `kind: "project"`); end with
 the time per project.
