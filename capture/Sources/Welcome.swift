@@ -76,28 +76,29 @@ enum Setup {
     }
 }
 
-/// One setup step: a ✓ (or an empty circle), what it is in plain words, and one button.
+/// One setup step: a ✓ or an empty circle, a short label, and one button. More detail on hover.
 private struct StepRow: View {
     let done: Bool
     let title: String
-    let detail: String
+    let help: String
     let button: String
-    var optional = false
     let action: () -> Void
 
     var body: some View {
-        HStack(alignment: .top, spacing: 12) {
+        HStack(spacing: 12) {
             Image(systemName: done ? "checkmark.circle.fill" : "circle")
-                .font(.system(size: 22))
+                .font(.system(size: 20))
                 .foregroundStyle(done ? Color.green : Color.secondary)
-            VStack(alignment: .leading, spacing: 3) {
-                Text(title + (optional ? "  (optional)" : "")).font(.headline)
-                Text(detail).font(.callout).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
+            Text(title).font(.title3)
+            Spacer()
+            if done {
+                Text("Done").foregroundStyle(.secondary)
+            } else {
+                Button(button, action: action).controlSize(.large)
             }
-            Spacer(minLength: 8)
-            if !done { Button(button, action: action).controlSize(.large) }
         }
-        .padding(.vertical, 6)
+        .padding(.vertical, 4)
+        .help(help)
     }
 }
 
@@ -105,13 +106,12 @@ private struct KeyRow: View {
     let keys: String
     let text: String
     var body: some View {
-        HStack(alignment: .firstTextBaseline, spacing: 10) {
+        HStack(spacing: 12) {
             Text(keys)
-                .font(.system(.body, design: .rounded).weight(.semibold))
-                .padding(.horizontal, 8).padding(.vertical, 3)
-                .background(RoundedRectangle(cornerRadius: 6).fill(Color.secondary.opacity(0.15)))
-                .frame(minWidth: 70, alignment: .leading)
-            Text(text).font(.callout).fixedSize(horizontal: false, vertical: true)
+                .font(.system(.title3, design: .rounded).weight(.semibold))
+                .frame(width: 56, height: 32)
+                .background(RoundedRectangle(cornerRadius: 7).fill(Color.secondary.opacity(0.15)))
+            Text(text).font(.title3)
         }
     }
 }
@@ -122,42 +122,38 @@ struct WelcomeView: View {
     var onDone: () -> Void
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 14) {
-            Text("Welcome to Context Capsule").font(.largeTitle.bold())
-            Text("While you work, it notes what's on your screen and what you say about it. Then Claude turns your day "
-                 + "into a short summary per project — a capsule — that you or anyone you share it with can use.")
-                .font(.body).fixedSize(horizontal: false, vertical: true)
-            Text("Everything stays on your Mac. Private apps like WhatsApp and password managers are never recorded.")
-                .font(.callout).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
-
-            Divider()
-            Text("Set up").font(.title3.bold())
-            StepRow(done: status.readsText, title: "Read text from your apps",
-                    detail: "Gives cleaner text, window names and web addresses — that's how it knows your projects. "
-                        + "In the list that opens, switch on Context Capsule.",
-                    button: "Turn on", action: onAccessibility)
-            StepRow(done: status.microphone && status.speech, title: "Voice notes",
-                    detail: "So you can say what you're doing and why. Your voice is turned into text on this Mac and never saved.",
-                    button: "Allow", optional: true, action: Setup.askVoice)
-            StepRow(done: status.dictation, title: "Dictation",
-                    detail: "Apple needs Dictation on for voice notes. In the page that opens, scroll down to Dictation and switch it on.",
-                    button: "Open", optional: true) { Setup.openSettings(Setup.keyboardPane) }
-            StepRow(done: status.claude, title: "Connect to Claude",
-                    detail: "So Claude can start recordings and write your capsules. Claude asks you to confirm.",
-                    button: "Connect") { ClaudeConnect.connect() }
-            StepRow(done: status.atLogin, title: "Start when you log in",
-                    detail: "So it's always ready in the menu bar.",
-                    button: "Turn on", optional: true) { Setup.setLaunchAtLogin(true); status.refresh() }
-
-            Divider()
-            Text("How to use it").font(.title3.bold())
-            VStack(alignment: .leading, spacing: 8) {
-                KeyRow(keys: "⌥ C", text: "Start recording, choose your screen. Press again to stop. (⌥ is the Option key.)")
-                KeyRow(keys: "⌥ V", text: "Start talking: say what you're doing and why. Press again when you're done.")
-                KeyRow(keys: "Claude", text: "At the end of the day, ask Claude: “Make my capsules for today.”")
+        VStack(alignment: .leading, spacing: 18) {
+            VStack(alignment: .leading, spacing: 4) {
+                Text("Context Capsule").font(.largeTitle.bold())
+                Text("Claude sums up your work. It all stays on your Mac.").foregroundStyle(.secondary)
             }
-            Text("The circle in the menu bar turns red while recording. Click it for everything else.")
-                .font(.callout).foregroundStyle(.secondary)
+
+            VStack(spacing: 2) {
+                StepRow(done: status.readsText, title: "Read your apps",
+                        help: "Gives clean text, window names and web addresses, so projects are found by themselves. "
+                            + "Switch on Context Capsule in the list that opens.",
+                        button: "Turn on", action: onAccessibility)
+                StepRow(done: status.microphone && status.speech, title: "Voice notes",
+                        help: "Say what you're doing and why. Turned into text on this Mac; audio is never saved.",
+                        button: "Allow", action: Setup.askVoice)
+                StepRow(done: status.dictation, title: "Dictation",
+                        help: "Apple needs it for voice notes. Scroll down to Dictation and switch it on.",
+                        button: "Turn on") { Setup.openSettings(Setup.keyboardPane) }
+                StepRow(done: status.claude, title: "Connect Claude",
+                        help: "Lets Claude start recordings and write your capsules. Claude asks you to install it.",
+                        button: "Connect") { ClaudeConnect.connect() }
+                StepRow(done: status.atLogin, title: "Open at login",
+                        help: "Always ready in the menu bar.",
+                        button: "Turn on") { Setup.setLaunchAtLogin(true); status.refresh() }
+            }
+
+            Divider()
+
+            VStack(alignment: .leading, spacing: 10) {
+                KeyRow(keys: "⌥ C", text: "Record")
+                KeyRow(keys: "⌥ V", text: "Talk")
+                KeyRow(keys: "✦", text: "Ask Claude: “Make my capsules for today”")
+            }
 
             HStack {
                 Spacer()
@@ -165,7 +161,7 @@ struct WelcomeView: View {
             }
         }
         .padding(28)
-        .frame(width: 600)
+        .frame(width: 440)
     }
 }
 
