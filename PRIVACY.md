@@ -1,7 +1,8 @@
 # Privacy: what leaves your computer, and when
 
 Context Capsule records on your computer. It has no account, no server, no cloud and no
-analytics. Here is every place your data goes, and the code that makes it so.
+analytics. Its only network use is the update check below (and the one-time speech model
+download on Windows/Linux). Here is every place your data goes, and the code that makes it so.
 
 | What | Where it goes | Who sees it | When | Where to check |
 |---|---|---|---|---|
@@ -11,6 +12,7 @@ analytics. Here is every place your data goes, and the code that makes it so.
 | Voice-note text, typed notes | Your session files | Only you | When saved | `events.jsonl` (`"kind":"voice"` / `"note"`) |
 | A timeline or capsule your Claude reads | **Your Claude conversation**, so to Anthropic, under your own Claude plan and its terms | Claude | Only when you ask Claude to make, read or continue a capsule | `mcp/src/server.ts` (the tools return text to Claude) |
 | A capsule you export | The folder you choose (Desktop by default); then wherever *you* send it | Whoever you send it to | Only when you ask | `mcp/src/capsules.ts` (`exportCapsule`) |
+| Update check | Nothing is sent about you. The app downloads `latest.json` and its signature from the Context Capsule releases on github.com, at launch and once a day, and, when there is a new version, that version's file. GitHub sees a normal web request (your IP address), as with any download | — | Daily, or when you click Check for Updates; turn off "Update automatically" in Settings | `capture/Sources/Updater.swift`, `capture-rs/` (Windows, Linux) |
 | The speech model (Windows/Linux) | Downloaded once from huggingface.co after you say yes; nothing is uploaded | — | Once | `capture-rs/*/src/model.rs` |
 
 ## How long it's kept

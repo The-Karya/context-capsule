@@ -25,11 +25,11 @@ time) has everything in one place, with a sidebar:
 - **Projects** — rename, edit how they're found, delete.
 - **Settings** — set up (read your apps, voice notes, Dictation, connect Claude, open at login),
   the evening reminder and its time, when to delete old recordings, sounds, the voice-note
-  language, and apps never to record.
+  language, apps never to record, and updates (Update automatically, Check for Updates).
 - **Help** — shortcuts, how it works, privacy.
 
 The menu-bar menu is the quick version: Start contextualizing (⌥C) · Speak a note (⌥V) · Add a
-screen · Project · Open Context Capsule · Make today's capsules · Quit.
+screen · Project · Open Context Capsule · Make today's capsules · Check for Updates · Quit.
 
 Menu-bar icon: hollow circle = idle; **a red dot and the time** (● 12:34) while recording; **a
 red mic with bars that move with your voice** while listening. Nothing appears on the screen
@@ -97,7 +97,11 @@ ARCHS=arm64 ./build.sh     # faster, one arch
 open "build/Context Capsule.app"
 ```
 
-The app is **ad-hoc signed** (`codesign -s -`). macOS remembers permissions by
+For people: `./package.sh` builds and makes `dist/Context-Capsule-<ver>-mac.dmg` (drag to
+Applications) and `-mac.zip` (for the updater). With `DEVELOPER_ID` and `NOTARY_PROFILE` set it
+signs with the hardened runtime, notarizes and staples; see [../release/README.md](../release/README.md).
+
+Without a "Context Capsule Dev" certificate the app is **ad-hoc signed** (`codesign -s -`). macOS remembers permissions by
 signature, and every rebuild gets a new one, so after a rebuild the Accessibility
 check mark may be gone (turn Context Capsule off and on again in System Settings → Privacy &
 Security → Accessibility).
@@ -132,6 +136,26 @@ Security → Accessibility).
 - Before writing, text and titles are scrubbed: `sk-…`, `ghp_…`, `github_pat_…`,
   `xox[bp]-…`, `AKIA…`, `Bearer …`, long hex, long random-looking base64, and whole
   `password: …` lines become `[redacted]`. Text is capped at 4000 characters per event.
+
+## Updates
+
+Once a day (and a minute after launch) the app fetches `latest.json` and `latest.json.sig` from
+the GitHub releases (`"update_feed"` in config.json changes the base URL). In order: the Ed25519
+signature must match the key built into the app; the version must be newer; the Mac zip is
+downloaded and its size and SHA-256 must match; it's unzipped next to the app; the new app must
+be Context Capsule, say that version, and be validly signed by the same signer as the running app
+(same Developer ID team, or the same local certificate). Then one small box says
+"Context Capsule 0.2.0 is ready. Restart to update." (Later / Restart now). Restart moves the old
+app aside, moves the new one in, quits, and a tiny shell script reopens it. Never while
+contextualizing or during a voice note. Any failure keeps the current version and is logged
+in app.log; you're told only if you clicked Check for Updates. `"auto_update": false` (Settings →
+Update automatically) stops the daily check. A 404 (no release yet) counts as "up to date".
+
+Run from the disk image or Downloads, the app asks once: **Move Context Capsule to
+Applications?** (Move / Not now). Move copies it there, puts the old copy in the Trash (not on a
+disk image), and reopens it.
+
+`--test-update latest.json latest.json.sig <zip>` runs every check offline and installs nothing.
 
 ## Control from outside
 
@@ -173,5 +197,7 @@ false and `last_error` is `"cancelled"`.
 | `Sources/Recorder.swift` | sessions, 3 s sampling, notes into the session, state.json, control file |
 | `Sources/Voice.swift` | mic + on-device Apple Speech for voice notes |
 | `Sources/App.swift` | menu-bar icon and menu, ⌥C / ⌥V hotkeys, messages, Accessibility menu item |
+| `Sources/UpdateCore.swift` | pure update logic: the feed, its Ed25519 signature, versions, when to check |
+| `Sources/Updater.swift` | updates (download, checks, same-signer check, swap and restart) and "Move to Applications?" |
 | `Sources/SelfTest.swift` | `--selftest` |
 | `Sources/main.swift` | entry point |

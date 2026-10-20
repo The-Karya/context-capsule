@@ -28,6 +28,10 @@ capsule is written **for Claude**: people can read it, but they don't have to.
 
 ## Get started
 
+**Download it** from the download page (`site/index.html`): Mac, Windows or Linux. On a Mac,
+open the file and drag Context Capsule to Applications. It updates itself: new versions are
+signed and checked, and install when you click **Restart now**.
+
 1. **Open Context Capsule.** It lives in your menu bar (Windows: system tray) and opens by
    itself at login.
 2. **Settings** opens the first time. Turn each step on, and it gets a ✓:
@@ -54,11 +58,11 @@ the same actions are in the tray menu and a small setup window.
   Show in Finder, AirDrop/Mail/Messages) and Open.
 - **Projects**: rename them, change how they're found, delete them.
 - **Settings**: your name (it goes on your capsules), set up, the evening reminder and its time, when to delete old recordings,
-  sounds, the voice-note language, and apps never to record.
+  sounds, the voice-note language, apps never to record, and updates.
 - **Help**: shortcuts, how it works, privacy.
 
 The menu-bar menu is the quick version: Start contextualizing · Speak a note · Add a screen ·
-Project · Open Context Capsule · Make today's capsules · Quit.
+Project · Open Context Capsule · Make today's capsules · Check for Updates · Quit.
 
 ## Projects
 
@@ -157,7 +161,7 @@ All of Claude's instructions live in one playbook (`mcp/src/playbook.ts`). Detai
 
 ## Build from source
 
-Signed downloads are coming. Until then:
+Most people should use the download page instead. To build it yourself:
 
 ```sh
 git clone <this repo> context-capsule && cd context-capsule
@@ -166,7 +170,7 @@ mcp/extension/build.sh          # the Claude extension (needs Node 18+ and bun)
 
 - **macOS 14+** (Xcode command line tools): `capture/build.sh`, then open
   `capture/build/Context Capsule.app`. The Claude extension is bundled inside, so
-  Settings → Connect Claude installs it.
+  Settings → Connect Claude installs it. `capture/package.sh` makes the disk image and zip.
 - **Windows 10/11:** `capture-rs\windows\build.ps1` (Rust, Visual Studio Build Tools, CMake,
   LLVM), or from a Mac `capture-rs/windows/cross-build.sh`. Keep `context-capsule.mcpb`
   next to the `.exe`. See [capture-rs/windows/README.md](capture-rs/windows/README.md).
@@ -175,6 +179,7 @@ mcp/extension/build.sh          # the Claude extension (needs Node 18+ and bun)
   `claude mcp add context-capsule -- node /absolute/path/to/context-capsule/mcp/dist/index.js`
 
 Data lives in `~/.context-capsule/` (`%USERPROFILE%\.context-capsule\` on Windows).
+Making a release (version bump, builds, the signed update feed): [release/README.md](release/README.md).
 
 ## Develop
 
