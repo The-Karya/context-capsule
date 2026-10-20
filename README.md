@@ -92,7 +92,9 @@ Claude treats them as the main source, and screen text as supporting evidence.
 
 ## Several screens
 
-While contextualizing, **Add a screen** shares another screen (up to 4, each picked by you).
+Want every screen? **Settings → Screens → When you start → All my screens**: starting shares all of them
+at once, with no picker (the Mac asks once for Screen Recording; on Linux you confirm in its dialog).
+Or, while contextualizing, **Add a screen** shares another screen (up to 4, each picked by you).
 Each moment, Context Capsule reads the window you're using (the one with keyboard focus — so
 keyboard-only work is followed too), and, if you're reading on another shared screen (your
 mouse moved or scrolled there in the last 30 seconds), that window as well. A screen you
