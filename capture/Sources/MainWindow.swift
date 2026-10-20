@@ -78,7 +78,7 @@ struct MainView: View {
                     Label(s.title, systemImage: s.icon).tag(s)
                 }
             }
-            .navigationSplitViewColumnWidth(min: 200, ideal: 220, max: 300)
+            .navigationSplitViewColumnWidth(min: 170, ideal: 180, max: 220)
         } detail: {
             // The content widens with the window up to a comfortable reading width, and stays centred;
             // on wide windows Home puts Today and This week side by side.
@@ -100,7 +100,7 @@ struct MainView: View {
                 }
             }
         }
-        .frame(minWidth: 800, minHeight: 540)
+        .frame(minWidth: 760, minHeight: 540)
         .onAppear { library.reload() }
     }
 }
