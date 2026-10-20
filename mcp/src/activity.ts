@@ -233,6 +233,7 @@ export function condenseActivity(meta: SessionMeta, events: CaptureEvent[], opts
     ...(perProject ? [perProject] : []),
     `${segs.length} segments from ${screen.length} screen samples. ${source}: repeated lines, menus and numbers-only lines are removed; each line appears once, where it was first seen.${noteHead}`,
     ...(opts.noRule ? [] : [maxChars < 4000 ? SCREEN_RULE_SHORT : SCREEN_RULE]),
+    ...(maxChars < 4000 ? [] : ["Long stretches are shortened here; for everything recorded in a stretch, call get_moment (session id and times)."]),
   ].join("\n");
 
   if (!segs.length && !notes.length) return trimTo(`${head}\n\n(No activity was captured in this session.)`, maxChars);
@@ -350,4 +351,38 @@ export function condenseDay(day: string, events: CaptureEvent[], sessionIds: str
   const shares = fairShares(full, maxChars - head.length - 2 * sections.length);
   const parts = [head, ...sections.map((render, i) => render(Math.max(300, shares[i]!)))];
   return trimTo(parts.join("\n\n"), maxChars);
+}
+
+// ---------- zoom in: everything recorded in a stretch of time ----------
+
+/** Every event of a session between two times, in full (screen text wrapped as information), so Claude can
+ * look closer at a moment the condensed timeline shortened. Says where to continue if it doesn't fit. */
+export function momentText(sessionId: string, events: CaptureEvent[], from: number, to: number, maxChars: number): string {
+  const names = projectNames();
+  const inRange = events.filter((e) => {
+    const t = Date.parse(e.t);
+    const end = Date.parse(e.end ?? e.t);
+    return end >= from && t < to;
+  });
+  const head = `# Session ${sessionId}, ${formatClock(new Date(from).toISOString())}–${formatClock(new Date(to).toISOString())}: everything recorded\n${SCREEN_RULE}`;
+  if (!inRange.length) return `${head}\n\n(Nothing was recorded in this stretch.)`;
+  const parts: string[] = [head];
+  let used = head.length;
+  for (const e of inRange) {
+    let block: string;
+    if (isNote(e)) block = noteLine(e);
+    else {
+      const project = e.project ? `[${names.get(e.project) ?? e.project}] ` : "";
+      const where = e.where ? ` · ${e.where}` : "";
+      const header = `## ${formatClock(e.t)}–${formatClock(e.end ?? e.t)} · ${project}${e.app}${e.title ? ` — ${e.title}` : ""}${where}`;
+      block = e.text?.trim() ? `${header}\n${screenBlock(e.text)}` : `${header}\n(nothing new on screen)`;
+    }
+    if (used + block.length + 2 > maxChars) {
+      parts.push(`(More after ${formatClock(e.t)}: call get_moment again with from "${e.t}".)`);
+      break;
+    }
+    parts.push(block);
+    used += block.length + 2;
+  }
+  return parts.join("\n\n");
 }

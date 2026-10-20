@@ -41,7 +41,7 @@ People and their roles, URLs, tickets, documents and file paths — exactly as t
 
 Rules:
 - Voice and typed notes ("You said" / "You typed") are the user's own words: the primary source for decisions, reasons and intent. Screen text is supporting evidence. Quote or closely paraphrase notes and cite the time.
-- Only use what the timeline shows; mark inferences *(guess)*.
+- Only use what the timeline shows; mark inferences *(guess)*. If the timeline shortened something you need (a long document, a chat), call get_moment for that stretch instead of guessing.
 - Never include secrets (passwords, keys, tokens, anything [redacted]) or private personal data unrelated to the work.
 - Up to ~2500 words. Don't add front matter; it is added for you.`;
 

@@ -9,6 +9,8 @@ import SwiftUI
 final class LibraryModel: ObservableObject {
     @Published var capsules: [CapsuleSummary] = []
     @Published var projects: [Project] = []
+    @Published var recordings: [RecordingSummary] = []
+    @Published var tab = 0
     let paths: Paths
     var onProjectsChanged: () -> Void = {}
 
@@ -17,6 +19,14 @@ final class LibraryModel: ObservableObject {
     func reload() {
         capsules = CapsuleSummary.all(in: paths.capsules)
         projects = Projects.load(from: paths.projects)
+        recordings = Recording.all(in: paths.sessions)
+    }
+
+    /// Delete a recording for good (its capsules stay).
+    func deleteRecording(_ r: RecordingSummary) {
+        try? FileManager.default.removeItem(at: r.folder)
+        AppLog.shared.write("recording deleted by the user: \(r.id)")
+        reload()
     }
 
     func name(of project: String) -> String {
@@ -157,6 +167,124 @@ private struct CapsuleRow: View {
     }
 }
 
+private struct RecordingRow: View {
+    let recording: RecordingSummary
+
+    var body: some View {
+        HStack(spacing: 12) {
+            VStack(alignment: .leading, spacing: 3) {
+                Text(Self.when(recording)).font(.system(size: 14, weight: .medium))
+                Text(Self.details(recording)).font(.system(size: 12)).foregroundStyle(.secondary).lineLimit(1)
+            }
+            Spacer()
+            Image(systemName: "chevron.right").font(.system(size: 12)).foregroundStyle(.tertiary)
+        }
+        .padding(.horizontal, 14)
+        .padding(.vertical, 9)
+        .contentShape(Rectangle())
+    }
+
+    static func when(_ r: RecordingSummary) -> String {
+        guard let s = r.started else { return r.id }
+        let day = Calendar.current.isDateInToday(s) ? "Today" : Calendar.current.isDateInYesterday(s) ? "Yesterday"
+            : s.formatted(.dateTime.day().month(.abbreviated))
+        var text = "\(day), \(s.formatted(date: .omitted, time: .shortened))"
+        if let e = r.ended { text += " · \(max(1, Int(e.timeIntervalSince(s) / 60))) min" }
+        return text
+    }
+
+    static func details(_ r: RecordingSummary) -> String {
+        var parts = ["\(r.moments) moment\(r.moments == 1 ? "" : "s")"]
+        if r.notes > 0 { parts.append("\(r.notes) note\(r.notes == 1 ? "" : "s")") }
+        if !r.apps.isEmpty { parts.append(r.apps.prefix(3).joined(separator: ", ")) }
+        return parts.joined(separator: " · ")
+    }
+}
+
+/// One recording, moment by moment: time, app and window, project, and exactly what was saved.
+private struct RecordingDetail: View {
+    let recording: RecordingSummary
+    @ObservedObject var model: LibraryModel
+    let back: () -> Void
+    @State private var confirmDelete = false
+    @State private var moments: [RecordingMoment] = []
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            HStack {
+                Button(action: back) { Label("Recordings", systemImage: "chevron.left") }.buttonStyle(.borderless)
+                Spacer()
+                Button("Show in Finder") { NSWorkspace.shared.activateFileViewerSelecting([recording.folder]) }
+                Button("Delete") { confirmDelete = true }
+            }
+            Text(RecordingRow.when(recording)).font(.system(size: 15, weight: .semibold)).padding(.leading, 4)
+            Panel {
+                ForEach(moments) { m in
+                    if m.id > 0 { Divider().padding(.leading, 14) }
+                    MomentRow(moment: m, projectName: m.project.isEmpty ? "" : model.name(of: m.project))
+                }
+            }
+        }
+        .onAppear { moments = Recording.moments(in: recording.folder) }
+        .confirmationDialog("Delete this recording?", isPresented: $confirmDelete) {
+            Button("Delete", role: .destructive) {
+                model.deleteRecording(recording)
+                back()
+            }
+        } message: {
+            Text("Everything saved in it is removed for good. Capsules already made from it stay.")
+        }
+    }
+}
+
+private struct MomentRow: View {
+    let moment: RecordingMoment
+    let projectName: String
+    @State private var expanded = false
+
+    private var icon: String {
+        switch moment.kind {
+        case "voice": return "mic"
+        case "note": return "keyboard"
+        default: return moment.source == "ocr" ? "text.viewfinder" : "text.alignleft"
+        }
+    }
+
+    private static func time(_ iso: String) -> String {
+        ISO8601DateFormatter().date(from: iso).map { $0.formatted(date: .omitted, time: .shortened) } ?? ""
+    }
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 4) {
+            HStack(spacing: 8) {
+                Image(systemName: icon).font(.system(size: 12)).foregroundStyle(.secondary).frame(width: 16)
+                Text(Self.time(moment.start)).font(.system(size: 12).monospacedDigit()).foregroundStyle(.secondary)
+                Text(moment.kind == "voice" ? "You said" : moment.kind == "note" ? "You typed"
+                     : moment.title.isEmpty ? moment.app : "\(moment.app) — \(moment.title)")
+                    .font(.system(size: 13, weight: .medium)).lineLimit(1)
+                Spacer()
+                if !projectName.isEmpty { Text(projectName).font(.system(size: 11)).foregroundStyle(.secondary) }
+            }
+            if !moment.text.isEmpty {
+                Text(moment.text)
+                    .font(.system(size: 12))
+                    .foregroundStyle(moment.kind == "screen" ? .secondary : .primary)
+                    .lineLimit(expanded ? nil : 3)
+                    .textSelection(.enabled)
+                    .padding(.leading, 24)
+                if moment.text.split(separator: "\n").count > 3 || moment.text.count > 240 {
+                    Button(expanded ? "Show less" : "Show all") { expanded.toggle() }
+                        .buttonStyle(.borderless).font(.system(size: 11)).padding(.leading, 24)
+                }
+            } else if moment.kind == "screen" {
+                Text("Nothing new on screen").font(.system(size: 12)).foregroundStyle(.tertiary).padding(.leading, 24)
+            }
+        }
+        .padding(.horizontal, 14)
+        .padding(.vertical, 8)
+    }
+}
+
 private struct ProjectRow: View {
     let project: Project
     @ObservedObject var model: LibraryModel
@@ -222,18 +350,18 @@ private struct Panel<Content: View>: View {
 
 struct LibraryView: View {
     @ObservedObject var model: LibraryModel
-    @State private var tab = 0
 
     var body: some View {
         VStack(alignment: .leading, spacing: 16) {
             HStack {
-                Picker("", selection: $tab) {
+                Picker("", selection: $model.tab) {
                     Text("Capsules").tag(0)
+                    Text("Recordings").tag(2)
                     Text("Projects").tag(1)
                 }
                 .pickerStyle(.segmented)
                 .labelsHidden()
-                .frame(width: 220)
+                .frame(width: 300)
                 Spacer()
                 Button("Make today's capsules") { Claude.makeTodaysCapsules() }
                     .controlSize(.large)
@@ -241,7 +369,7 @@ struct LibraryView: View {
 
             ScrollView {
                 VStack(alignment: .leading, spacing: 18) {
-                    if tab == 0 { capsules } else { projectList }
+                    if model.tab == 0 { capsules } else if model.tab == 2 { recordingList } else { projectList }
                 }
                 .padding(.bottom, 8)
             }
@@ -266,6 +394,25 @@ struct LibraryView: View {
                             CapsuleRow(capsule: c)
                         }
                     }
+                }
+            }
+        }
+    }
+
+    @State private var open: RecordingSummary?
+
+    @ViewBuilder private var recordingList: some View {
+        if let r = open {
+            RecordingDetail(recording: r, model: model) { open = nil }
+        } else if model.recordings.isEmpty {
+            empty("No recordings yet", "Press ⌥C to record. You'll see here exactly what was saved.")
+        } else {
+            Text("What was saved from your screen and voice. Only you can see this, on this Mac.")
+                .font(.system(size: 12)).foregroundStyle(.secondary).padding(.leading, 4)
+            Panel {
+                ForEach(Array(model.recordings.enumerated()), id: \.element.id) { i, r in
+                    if i > 0 { Divider().padding(.leading, 14) }
+                    Button { open = r } label: { RecordingRow(recording: r) }.buttonStyle(.plain)
                 }
             }
         }

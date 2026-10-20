@@ -24,6 +24,8 @@ final class Recorder {
     private(set) var currentProject: (id: String, by: String)?
     /// The current project changed (main thread): show it.
     var onProjectChange: ((Project?) -> Void)?
+    /// Lines already saved per window in this recording (only touched on the work queue).
+    private let newLines = NewLines()
     /// The front window as of the latest sample: what "New project from this window" uses.
     private(set) var lastWindow: (title: String, location: String, app: String)?
 
@@ -148,6 +150,8 @@ final class Recorder {
         reloadProjects(force: true)
         currentProject = projectChoice.pinned.map { ($0, "you") }
         askedProject = false
+        let newLines = self.newLines
+        work.async { newLines.reset() }
         sessionID = id
         startedAt = now
         sessionDir = dir
@@ -370,6 +374,7 @@ final class Recorder {
         let changedAt = self.changedAt
         let projects = self.projects
         let choice = self.projectChoice
+        let newLines = self.newLines
         work.async { [weak self] in
             var outcome: Skip?
             defer {
@@ -405,6 +410,10 @@ final class Recorder {
             let found = event.project.isEmpty ? nil : (event.project, event.projectBy)
             let window = (event.title, location, front.appName)
             DispatchQueue.main.async { self?.sampledProject(found, window: window) }
+            // Save only what's new in this window since it was last seen; nothing new: just extend the time.
+            event.text = newLines.filter(event.text, window: NewLines.key(app: event.app, bundle: event.bundle,
+                                                                          title: event.title, location: location))
+            if event.text.isEmpty, (try? log.extendIfSameWindow(event)) == true { return }
             do { try log.record(event) } catch { NSLog("Context Capsule: cannot write event: \(error)") }
         }
     }

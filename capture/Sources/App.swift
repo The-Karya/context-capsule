@@ -129,6 +129,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
 
         // For testing: open a window at launch.
         if CommandLine.arguments.contains("--show-library") { library.show() }
+        if CommandLine.arguments.contains("--show-recordings") { library.model.tab = 2; library.show() }
         if CommandLine.arguments.contains("--show-welcome") { welcome.show() }
         if CommandLine.arguments.contains("--show-reminder") { daily.show() }
     }

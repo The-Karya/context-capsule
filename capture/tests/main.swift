@@ -49,7 +49,8 @@ let safe = [
 for s in safe { check(!redacted(s), "keeps normal text", s + " -> " + Redactor.redact(s)) }
 
 let long = String(repeating: "word ", count: 2000)
-check(Redactor.clean(long).count == 4000, "caps text at 4000")
+check(Redactor.clean(long).count == 10_000, "normal long text is kept whole")
+check(Redactor.clean(String(repeating: "word ", count: 30_000)).count == 100_000, "safety cap at 100,000")
 check(Redactor.clean(long).hasPrefix("word word"), "cap keeps the start")
 check(Redactor.clean("short") == "short", "short text unchanged")
 
@@ -338,7 +339,7 @@ check(vEvent.line == #"{"t":"2026-10-19T10:01:03Z","end":"2026-10-19T10:01:12Z",
       "voice event line: kind + src, trimmed, redacted", vEvent.line)
 let longVoice = Voice.event(text: String(repeating: "word ", count: 2000), kind: Event.voice, src: "voice",
                             start: vStart, end: vStart, app: "", bundle: "", title: "")
-check(longVoice.text.count == 4000, "voice text capped at 4000")
+check(longVoice.text.count == 9_999, "voice text kept whole")
 let noteLine = Voice.event(text: "typed context", kind: Event.note, src: "typed", start: vStart, end: vStart,
                            app: "", bundle: "", title: "").line
 check(noteLine.contains(#""kind":"note","src":"typed""#), "typed note line", noteLine)
@@ -646,6 +647,53 @@ let onLeft = WindowInfo(id: 8, pid: 1, frame: CGRect(x: 100, y: 100, width: 800,
 check(Membership.pick(for: onRight, in: [leftScreen, rightScreen])?.source == 2, "the screen holding the window in front")
 check(Membership.pick(for: onLeft, in: [leftScreen, rightScreen])?.source == 1, "the other screen")
 check(Membership.pick(for: onRight, in: [leftScreen]) == nil, "window on a screen that isn't shared: not recorded")
+
+// MARK: only what's new
+
+let nl = NewLines()
+check(nl.filter("Title\nLine one\n\nLine two\nLine one", window: "doc") == "Title\nLine one\nLine two", "first look: every line once")
+check(nl.filter("Title\nLine two\nLine three", window: "doc") == "Line three", "next look: only the new line")
+check(nl.filter("Title\nLine two", window: "doc") == "", "nothing new")
+check(nl.filter("Title\nLine two", window: "other") == "Title\nLine two", "another window starts fresh")
+for i in 0..<(NewLines.maxWindows + 1) { _ = nl.filter("x", window: "w\(i)") }
+check(nl.filter("Title", window: "doc") == "Title", "least used window forgotten past the limit")
+nl.reset()
+check(nl.filter("Line two", window: "other") == "Line two", "reset for a new recording")
+
+let extURL = tmp.appendingPathComponent("ext/events.jsonl")
+let extLog = try! EventLog(url: extURL)
+var w1 = Event(t: "2026-10-19T10:00:00Z", end: "2026-10-19T10:00:00Z", app: "Notes", bundle: "n", title: "Plan", src: "ax", text: "a")
+try! extLog.record(w1)
+var w1b = w1
+w1b.t = "2026-10-19T10:00:03Z"; w1b.end = w1b.t; w1b.text = ""
+check(try! extLog.extendIfSameWindow(w1b), "nothing new in the same window: extend")
+var w2 = w1b
+w2.title = "Other"
+check(!(try! extLog.extendIfSameWindow(w2)), "another window: not extended")
+let extLines = (try! String(contentsOf: extURL, encoding: .utf8)).split(separator: "\n")
+check(extLines.count == 1 && extLines[0].contains(#""end":"2026-10-19T10:00:03Z""#), "end moved in place", "\(extLines)")
+
+// MARK: recordings tab
+
+let recRoot = tmp.appendingPathComponent("rec-sessions")
+let recDir = recRoot.appendingPathComponent("20261019-100000")
+try! FileManager.default.createDirectory(at: recDir, withIntermediateDirectories: true)
+try! #"{"id":"20261019-100000","started_at":"2026-10-19T10:00:00Z","ended_at":"2026-10-19T10:30:00Z","host":"Mac","version":1}"#
+    .write(to: recDir.appendingPathComponent("session.json"), atomically: true, encoding: .utf8)
+try! """
+{"t":"2026-10-19T10:00:03Z","end":"2026-10-19T10:01:00Z","app":"Notes","bundle":"n","title":"Plan","where":"file:///p","project":"web","project_by":"auto","src":"ax","text":"hello"}
+not json
+{"t":"2026-10-19T10:02:00Z","end":"2026-10-19T10:02:09Z","kind":"voice","src":"voice","app":"Notes","bundle":"n","title":"Plan","text":"why"}
+{"t":"2026-10-19T10:03:00Z","end":"2026-10-19T10:03:00Z","app":"Safari","bundle":"s","title":"Docs","src":"ocr","text":"x"}
+
+""".write(to: recDir.appendingPathComponent("events.jsonl"), atomically: true, encoding: .utf8)
+try! FileManager.default.createDirectory(at: recRoot.appendingPathComponent("not-a-session"), withIntermediateDirectories: true)
+let recs = Recording.all(in: recRoot)
+check(recs.map(\.id) == ["20261019-100000"], "recordings listed (other folders ignored)")
+check(recs.first?.moments == 2 && recs.first?.notes == 1 && recs.first?.apps == ["Notes", "Safari"], "recording counts and apps")
+check(recs.first?.started != nil && recs.first?.ended != nil, "recording times")
+let ms = Recording.moments(in: recDir)
+check(ms.count == 3 && ms[0].location == "file:///p" && ms[0].project == "web" && ms[1].kind == "voice", "moments read, bad lines skipped")
 
 try? FileManager.default.removeItem(at: tmp)
 print("\(passes) passed, \(failures) failed")

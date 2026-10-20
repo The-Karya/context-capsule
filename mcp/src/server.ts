@@ -3,7 +3,7 @@ import fs from "node:fs";
 import { McpServer, ResourceTemplate } from "@modelcontextprotocol/sdk/server/mcp.js";
 import type { CallToolResult } from "@modelcontextprotocol/sdk/types.js";
 import { z } from "zod";
-import { DEFAULT_MAX_CHARS, condenseActivity, condenseDay, localDay } from "./activity.js";
+import { DEFAULT_MAX_CHARS, condenseActivity, condenseDay, localDay, momentText } from "./activity.js";
 import { addAssignment, createProject, loadProjects } from "./projects.js";
 import { checkDay, finishDay, loadDay, prepareDay, today } from "./day.js";
 import { capsuleBlock, describeFindings, scanForInstructions } from "./untrusted.js";
@@ -375,6 +375,31 @@ export function createServer(opts: ServerOptions = {}): McpServer {
       annotations: { readOnlyHint: true },
     },
     safe(({ date }: { date?: string }) => text(finishDay(checkDay(date)).text)),
+  );
+
+  server.registerTool(
+    "get_moment",
+    {
+      title: "Look closer at a moment",
+      description:
+        "Everything recorded in one session between two times, in full: screen text (only what was new on screen each time) and notes. " +
+        "Use it when the condensed timeline shortened something you need. Times are HH:MM (local, on the session's day) or ISO.",
+      inputSchema: {
+        session_id: z.string().describe('Session id, or "latest"'),
+        from: z.string().describe("Start, HH:MM or ISO"),
+        to: z.string().optional().describe("End, HH:MM or ISO (default: 10 minutes after from)"),
+        max_chars: z.number().int().min(1000).max(1_000_000).optional().describe(`Maximum length (default ${DEFAULT_MAX_CHARS})`),
+      },
+      annotations: { readOnlyHint: true },
+    },
+    safe(({ session_id, from, to, max_chars }: { session_id: string; from: string; to?: string; max_chars?: number }) => {
+      const id = resolveSessionId(session_id);
+      const day = readSessionMeta(id).started_at ?? new Date().toISOString();
+      const f = Date.parse(toIso(from, day));
+      const t = to ? Date.parse(toIso(to, day)) : f + 10 * 60 * 1000;
+      if (!(t > f)) return fail("The end must be after the start.");
+      return text(momentText(id, readEvents(id), f, t, max_chars ?? DEFAULT_MAX_CHARS));
+    }),
   );
 
   // ---------- sessions ----------

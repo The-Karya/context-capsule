@@ -92,7 +92,8 @@ enum Clock {
 
 enum Redactor {
     static let mark = "[redacted]"
-    static let textCap = 4000
+    /// A safety net only (a whole book read through Accessibility), not a working limit: only new lines are saved.
+    static let textCap = 100_000
 
     private static func re(_ p: String) -> NSRegularExpression {
         // Patterns are constants; a typo should fail loudly in the tests.
@@ -283,6 +284,16 @@ final class EventLog {
 
     /// Something else happened (excluded app, failed capture): the next sample starts a new event.
     func breakRun() { last = nil }
+
+    /// A sample with nothing new on screen: if the last event is the same window (app, title, place, project),
+    /// just move its `end` and return true. Otherwise the caller writes the sample (with empty text) itself.
+    func extendIfSameWindow(_ e: Event) throws -> Bool {
+        guard var prev = last, !prev.isNote, !e.isNote, prev.app == e.app, prev.bundle == e.bundle, prev.title == e.title,
+              prev.location == e.location, prev.project == e.project else { return false }
+        prev.end = e.end
+        try rewriteLast(prev)
+        return true
+    }
 
     private func rewriteLast(_ e: Event) throws {
         let h = try FileHandle(forWritingTo: url)
@@ -600,11 +611,12 @@ enum AXText {
     /// Below this many letters and digits, AX text is not useful (canvas apps, video): use OCR.
     static let minUseful = 80
     /// Walk limits for one sample.
-    static let maxNodes = 2000
+    /// The walk stops at whichever comes first: this many elements, or the time budget (keeps the Mac smooth).
+    static let maxNodes = 20_000
     static let budget: TimeInterval = 0.4
     static let maxDepth = 60
     /// Stop collecting past this (the event cap is 4000 after redaction).
-    static let maxChars = 8000
+    static let maxChars = 100_000
 
     static let valueRoles: Set<String> = ["AXStaticText", "AXTextArea", "AXTextField", "AXComboBox"]
     static let labelRoles: Set<String> = ["AXHeading", "AXLink", "AXCell"]
@@ -1135,5 +1147,111 @@ enum Cleanup {
         guard let cutoff = cal.date(byAdding: .day, value: -keepDays, to: cal.startOfDay(for: now)) else { return [] }
         let cut = Clock.sessionID(cutoff, timeZone: timeZone)
         return ids.filter { $0.count == 15 && $0 < cut }
+    }
+}
+
+// MARK: - Only what's new on screen
+
+/// Remembers the lines already saved for each window in a recording, so each sample saves only what's new —
+/// no size limit needed, and long documents are kept whole as you scroll through them.
+final class NewLines {
+    private var seen: [String: Set<String>] = [:]
+    private var order: [String] = []
+    /// Windows remembered at once; the least recently used is forgotten first.
+    static let maxWindows = 64
+
+    /// The lines of `text` not saved before for `window`, in their order (blank lines dropped, repeats once).
+    func filter(_ text: String, window: String) -> String {
+        var known = seen[window] ?? []
+        var out: [String] = []
+        for raw in text.split(whereSeparator: \.isNewline) {
+            let line = raw.trimmingCharacters(in: .whitespaces)
+            guard !line.isEmpty, known.insert(line).inserted else { continue }
+            out.append(line)
+        }
+        seen[window] = known
+        order.removeAll { $0 == window }
+        order.append(window)
+        if order.count > Self.maxWindows { seen[order.removeFirst()] = nil }
+        return out.joined(separator: "\n")
+    }
+
+    func reset() {
+        seen = [:]
+        order = []
+    }
+
+    static func key(app: String, bundle: String, title: String, location: String) -> String {
+        [bundle.isEmpty ? app : bundle, title, location].joined(separator: "\u{1F}")
+    }
+}
+
+// MARK: - Recordings (for the "Recordings" tab: see exactly what was saved)
+
+struct RecordingMoment: Equatable, Identifiable {
+    var id: Int
+    var start: String
+    var end: String
+    var app: String
+    var title: String
+    var location: String
+    var project: String
+    /// "screen", "voice" or "note".
+    var kind: String
+    /// "ax", "ocr", "voice", "typed".
+    var source: String
+    var text: String
+}
+
+struct RecordingSummary: Equatable, Identifiable {
+    var id: String
+    var folder: URL
+    var started: Date?
+    var ended: Date?
+    var moments: Int
+    var notes: Int
+    var apps: [String]
+
+    /// Reads session.json and counts events.jsonl (cheap enough for a list).
+    static func load(_ folder: URL) -> RecordingSummary {
+        let id = folder.lastPathComponent
+        var started: Date?, ended: Date?
+        if let data = try? Data(contentsOf: folder.appendingPathComponent("session.json")),
+           let obj = try? JSONSerialization.jsonObject(with: data) as? [String: Any] {
+            let f = ISO8601DateFormatter()
+            started = (obj["started_at"] as? String).flatMap(f.date(from:))
+            ended = (obj["ended_at"] as? String).flatMap(f.date(from:))
+        }
+        let moments = Recording.moments(in: folder)
+        var apps: [String] = []
+        for m in moments where m.kind == "screen" && !m.app.isEmpty && !apps.contains(m.app) { apps.append(m.app) }
+        return RecordingSummary(id: id, folder: folder, started: started, ended: ended,
+                                moments: moments.filter { $0.kind == "screen" }.count,
+                                notes: moments.filter { $0.kind != "screen" }.count, apps: apps)
+    }
+}
+
+enum Recording {
+    /// Every recording folder (YYYYMMDD-HHMMSS), newest first.
+    static func all(in sessions: URL) -> [RecordingSummary] {
+        let names = (try? FileManager.default.contentsOfDirectory(atPath: sessions.path)) ?? []
+        return names.filter { $0.count == 15 && $0.dropFirst(8).first == "-" }.sorted(by: >)
+            .map { RecordingSummary.load(sessions.appendingPathComponent($0)) }
+    }
+
+    /// The saved moments of one recording, in order (bad lines skipped).
+    static func moments(in folder: URL) -> [RecordingMoment] {
+        guard let text = try? String(contentsOf: folder.appendingPathComponent("events.jsonl"), encoding: .utf8) else { return [] }
+        var out: [RecordingMoment] = []
+        for line in text.split(separator: "\n") {
+            guard let obj = try? JSONSerialization.jsonObject(with: Data(line.utf8)) as? [String: Any],
+                  let t = obj["t"] as? String else { continue }
+            out.append(RecordingMoment(id: out.count, start: t, end: obj["end"] as? String ?? t,
+                                       app: obj["app"] as? String ?? "", title: obj["title"] as? String ?? "",
+                                       location: obj["where"] as? String ?? "", project: obj["project"] as? String ?? "",
+                                       kind: obj["kind"] as? String ?? "screen", source: obj["src"] as? String ?? "",
+                                       text: obj["text"] as? String ?? ""))
+        }
+        return out
     }
 }

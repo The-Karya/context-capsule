@@ -21,8 +21,9 @@ capsules** (opens a new Claude chat with the request ready to paste (⌘V, Retur
 recording first) · **My capsules…** (capsules by project with Share / Open, and a Projects tab to
 rename, edit or delete projects) · **Set up Context Capsule…** · Quit.
 
-Menu-bar icon: hollow circle = idle, **red** filled circle = recording, **red** mic = listening
-to a voice note. A short message says "● Recording started" / "■ Recording stopped: N events
+Menu-bar icon: hollow circle = idle; **a red dot and the time** (● 12:34) while recording; **a
+red mic with bars that move with your voice** while listening. Nothing appears on the screen
+itself; soft sounds mark start and stop (`"sounds": false` to turn them off). A short message says "● Recording started" / "■ Recording stopped: N events
 saved", and "🎙 Listening… press ⌥V to finish" stays on screen for as long as the mic is on. While recording the
 menu shows how many events were written and, when a sample is skipped, why ("the front
 window is not in what you picked", "Mission Control is open"…). If a recording ends
@@ -30,6 +31,19 @@ with nothing written, an alert says why.
 Menu: Start / Stop recording, Read text directly (Accessibility)…, Open sessions
 folder, Quit. While macOS shares the picked content you also see its own sharing
 icon in the menu bar; stopping there stops the recording.
+
+## Seeing what was recorded
+
+**My capsules… → Recordings** lists every recording (when, how long, moments, notes, apps).
+Open one to see each moment exactly as saved — time, app and window, project, and the text
+(or "You said / You typed") — and **Delete** it for good.
+
+## Several screens
+
+When more than one screen is connected, **Add another screen…** (in the menu while recording)
+opens the picker again; up to 4 screens or windows can be shared, each chosen by you. Each
+sample reads only the shared screen holding the window you're typing in (keyboard focus, not
+the mouse pointer).
 
 ## Evening reminder and clean-up
 

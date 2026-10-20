@@ -52,6 +52,10 @@
       "description": "A short timeline of one recording"
     },
     {
+      "name": "get_moment",
+      "description": "Everything recorded in a stretch of time, in full"
+    },
+    {
       "name": "prepare_day",
       "description": "Everything needed to make a day's capsules, with a checklist"
     },

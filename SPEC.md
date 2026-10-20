@@ -156,8 +156,13 @@ note) or `"typed"` (a typed note). Optional `kind`: `"screen"` (default when mis
 
 `app`/`bundle`/`title` of a note are the front window when it started (empty for a
 private app or a typed note). Notes are never merged with other events. Readers must
-ignore unknown fields; older files have no `src`. `text` is capped at 4000 chars per event
-(keep the start). Times are ISO-8601 UTC.
+ignore unknown fields; older files have no `src`. Times are ISO-8601 UTC.
+
+**Only what's new:** a screen event's `text` holds only the lines not already saved for that
+window (app/bundle + title + where) in this recording; a sample with nothing new extends the
+last event of the same window, or is written with empty `text` (time spent there). Accessibility
+reads the whole window, limited only by time (0.4 s) and 20,000 elements; a 100,000-character
+safety cap per event remains for extreme cases. (Older files: whole screen text, 4000 cap.)
 
 ### Projects (dividing a day's work)
 
@@ -235,6 +240,7 @@ Tools:
 | `assign_project` `{session_id, project, from?, to?}` | records a correction in that session's `assign.json` |
 | `prepare_day` `{date?, max_chars?}` | the start of a day's job: a checklist, the projects to write up (time, sessions, which capsules exist), the current project capsules to merge into, and the day split by project — one call |
 | `finish_day` `{date?}` | the end: checks every project (≥ 2 min or a note) has its daily capsule and an updated project capsule and nothing is unsorted; lists exactly what's missing |
+| `get_moment` `{session_id, from, to?, max_chars?}` | zoom in: everything recorded between two times, in full (screen text wrapped as information, notes, "nothing new" moments); says where to continue if it doesn't fit |
 | `get_day_activity` `{date?, project?, max_chars?}` | all sessions of a local day, split by project with time per project; unassigned work listed for Claude to sort |
 
 Prompt `make_capsule` `{session_id}`: tells the AI how to write a capsule from

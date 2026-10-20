@@ -207,3 +207,33 @@ describe("voice and typed notes", () => {
     expect(evs.filter((e) => !e.kind).every((e) => e.app)).toBe(true);
   });
 });
+
+describe("get_moment: look closer at a stretch", () => {
+  test("everything in the range, in full, with notes; nothing outside it", async () => {
+    const { momentText } = await import("../src/activity.ts");
+    const long = Array.from({ length: 300 }, (_, i) => `document line ${i}`).join("\n");
+    const events: CaptureEvent[] = [
+      ev(0, "Pages", "Plan", "before the range", 1),
+      ev(5, "Pages", "Plan", long, 1),
+      { t: at(6), end: at(6, 10), kind: "voice", src: "voice", app: "Pages", title: "Plan", text: "keep section 3" },
+      ev(7, "Pages", "Plan", "", 1),
+      ev(30, "Mail", "Inbox", "after the range", 1),
+    ];
+    const out = momentText("s1", events, Date.parse(at(5)), Date.parse(at(10)), 100_000);
+    expect(out).toContain("document line 0");
+    expect(out).toContain("document line 299"); // nothing shortened
+    expect(out).toContain('>> You said');
+    expect(out).toContain("(nothing new on screen)");
+    expect(out).not.toContain("before the range");
+    expect(out).not.toContain("after the range");
+    expect(out).toContain("<screen>");
+  });
+
+  test("says where to continue when it doesn't fit", async () => {
+    const { momentText } = await import("../src/activity.ts");
+    const events = Array.from({ length: 20 }, (_, i) => ev(i, "Pages", `Doc ${i}`, "x".repeat(400), 1));
+    const out = momentText("s1", events, Date.parse(at(0)), Date.parse(at(30)), 3000);
+    expect(out.length).toBeLessThanOrEqual(3200);
+    expect(out).toMatch(/More after .*call get_moment again with from "/);
+  });
+});
