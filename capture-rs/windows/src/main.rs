@@ -13,6 +13,7 @@ mod input;
 mod model;
 mod ocr;
 mod picker;
+mod pointer;
 mod reminder;
 mod setup;
 mod tray;

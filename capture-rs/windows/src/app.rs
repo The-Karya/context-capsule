@@ -11,7 +11,7 @@ use crate::tray::{self, menu_text, Tray};
 use crate::uia::Uia;
 use crate::{changes, input, reminder, setup, voice, win, windows_list};
 use context_capsule_core::{
-    look, recording_started_message, recording_stopped_message, AppLog, Config, Cue, Engine, Exclusion, Front, Indicator, Location,
+    hotkeys_taken_message, look, recording_started_message, recording_stopped_message, AppLog, Config, Cue, Engine, Exclusion, Front, Indicator, Location,
     Msg, Options, Paths, PlatformText, ProjectItem, Projects, Redactor, Status, Voice,
 };
 use std::cell::{Cell, RefCell};
@@ -53,7 +53,7 @@ const MAX_PROJECTS: usize = 500;
 const LOOK_TIMER: usize = 7;
 const LOOK_EVERY_MS: u32 = 125;
 
-/// User-facing words for Windows (our hotkeys use Ctrl too: Alt+Shift alone switches keyboard layouts).
+/// User-facing words for Windows: Alt+C and Alt+V, like the Mac's ⌥C and ⌥V.
 pub const TEXT: PlatformText =
     PlatformText { record_hotkey: RECORD_LABEL, voice_hotkey: VOICE_LABEL, mic_privacy: voice::MIC_SETTINGS, ..PlatformText::WINDOWS };
 
@@ -168,7 +168,7 @@ pub fn run() {
     let mut tray = Tray::new(hwnd, WM_TRAY);
     tray.set_tip(tray::tooltip(&Status::default(), SystemTime::now()));
     tray.add();
-    hotkeys::register(hwnd);
+    let taken = hotkeys::register(hwnd);
     changes::install();
     let engine = spawn_engine(paths.clone(), ui, capture.clone(), tx.clone(), rx, log.clone());
     setup::open_at_login_once(&log);
@@ -192,6 +192,11 @@ pub fn run() {
             look_timer: false,
         })
     });
+    if !taken.is_empty() {
+        // Once, at launch: the keys don't work, the tray menu does.
+        with_app(|a| a.log.write(&format!("hotkeys taken by another app: {}", taken.join(", "))));
+        Ui::of(hwnd).post(UiCmd::Toast(hotkeys_taken_message(&taken)));
+    }
 
     let mut msg = MSG::default();
     // SAFETY: the standard message loop for this thread; the setup window gets Tab / Enter / Esc.

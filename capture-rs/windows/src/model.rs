@@ -221,7 +221,7 @@ mod tests {
         let dir = Path::new(r"C:\Users\s\.context-capsule\models");
         let c = consent_text(dir);
         assert!(c.contains("148 MB") && c.contains("one-time") && c.contains("models"));
-        let m = missing_text("Ctrl+Alt+Shift+V", dir);
-        assert!(m.contains("Ctrl+Alt+Shift+V") && m.contains(FILE_NAME));
+        let m = missing_text("Alt+V", dir);
+        assert!(m.contains("Alt+V") && m.contains(FILE_NAME));
     }
 }

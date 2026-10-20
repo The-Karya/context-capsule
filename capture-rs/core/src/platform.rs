@@ -39,6 +39,10 @@ pub struct Front {
     pub list: Vec<ListedWindow>,
     /// A window overview (Task View, GNOME Activities, KDE Overview…) shows every window: read nothing.
     pub overlay: bool,
+    /// Set by the engine on the Front it gets from `Platform::pointer_front`: `window` is the one under the
+    /// mouse, not the one with keyboard focus. Read that window itself (never the focused one); if it can't
+    /// be read on its own, give no accessibility text (the engine then uses OCR of its frame).
+    pub pointer: bool,
 }
 
 /// How the capture picker (or the capture it started) ended.
@@ -58,7 +62,12 @@ pub enum PickOutcome {
     AddCancelled,
     /// One of several shared screens or windows stopped on its own (how many are left).
     Removed(usize),
+    /// When adding a screen, the user picked one that's already shared: no capture was started.
+    AlreadyShared,
 }
+
+/// The message when the user adds a screen or window that's already shared.
+pub const ALREADY_SHARED: &str = "That screen is already shared. Pick a different one.";
 
 /// What the tray icon shows.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -186,6 +195,15 @@ pub fn screens_message(count: usize, added: bool) -> String {
     }
 }
 
+/// Shown once when a hotkey can't be registered because another app has it.
+pub fn hotkeys_taken_message(taken: &[&str]) -> String {
+    let (keys, verb) = match taken {
+        [one] => (one.to_string(), "is"),
+        _ => (taken.join(" and "), "are"),
+    };
+    format!("{keys} {verb} taken by another app. The Context Capsule menu in the tray still works.")
+}
+
 /// The short message when recording stops.
 pub fn recording_stopped_message(events: usize) -> String {
     format!("■ Stopped contextualizing: {events} moment{} saved.", if events == 1 { "" } else { "s" })
@@ -283,6 +301,24 @@ pub trait Platform {
         None
     }
 
+    /// The mouse position (global, top-left origin: the window list's coordinates). None: unknown (Wayland),
+    /// and then only the window in use is read.
+    fn pointer(&mut self) -> Option<(f64, f64)> {
+        None
+    }
+
+    /// When the mouse last moved or scrolled, if the platform watches it while recording (hooks). The engine
+    /// also notices movement between samples by itself.
+    fn pointer_activity(&self) -> Option<SystemTime> {
+        None
+    }
+
+    /// The window under the mouse as something to read: its app's name and id, `window` = it, `list` =
+    /// `front.list`. None: can't tell whose window it is (it is then not read).
+    fn pointer_front(&mut self, _window: &ListedWindow, _front: &Front, _is_excluded: &dyn Fn(Option<&str>, &str) -> bool) -> Option<Front> {
+        None
+    }
+
     /// While recording, the current project changed (None: auto-detect found nothing yet).
     fn project_changed(&mut self, project: Option<&Project>) {
         self.toast(&project_message(project));
@@ -308,13 +344,15 @@ mod tests {
         let t = PlatformText::WINDOWS;
         assert_eq!(
             recording_started_message(&t, false),
-            "● Contextualizing. Press Ctrl+Alt+Shift+C to stop, Ctrl+Alt+Shift+V to talk."
+            "● Contextualizing. Press Alt+C to stop, Alt+V to talk."
         );
         assert!(recording_started_message(&t, true).ends_with(" More screens? Menu → Add a screen."));
         assert_eq!(screens_message(2, true), "Screen added: 2 screens shared.");
         assert_eq!(screens_message(1, false), "A screen stopped sharing: 1 left.");
         assert_eq!(recording_stopped_message(12), "■ Stopped contextualizing: 12 moments saved.");
         assert_eq!(recording_stopped_message(1), "■ Stopped contextualizing: 1 moment saved.");
-        assert_eq!(listening_message(&t), "Listening… press Ctrl+Alt+Shift+V to finish");
+        assert_eq!(listening_message(&t), "Listening… press Alt+V to finish");
+        assert_eq!(hotkeys_taken_message(&["Alt+C"]), "Alt+C is taken by another app. The Context Capsule menu in the tray still works.");
+        assert_eq!(hotkeys_taken_message(&["Alt+C", "Alt+V"]), "Alt+C and Alt+V are taken by another app. The Context Capsule menu in the tray still works.");
     }
 }

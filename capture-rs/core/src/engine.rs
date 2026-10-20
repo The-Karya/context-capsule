@@ -1,7 +1,9 @@
 // context-capsule — core: the recorder — start (via the picker) / stop, a sample every 3 s, state.json,
 // typed and voice notes, and the `control` file the MCP server writes to drive us from outside.
-//! Several screens or windows can be shared (up to `MAX_SOURCES`); each sample uses the one holding the
-//! window in front. Each sample saves only the lines not saved before for that window (`NewLines`).
+//! Several screens or windows can be shared (up to `MAX_SOURCES`); each sample reads the window in use on the
+//! one holding it, and, when the mouse moved or scrolled over another shared screen in the last 30 s, the
+//! window under it too (`PointerRule`). Each sample saves only the lines not saved before for that window
+//! (`NewLines`).
 //! Once a minute: the evening reminder and the clean-up of old recordings (`DailyJobs`).
 //! Projects: projects.json is reloaded when it changes; each sample, voice note and typed note gets
 //! the pinned project or the one its window's clues point to.
@@ -17,7 +19,9 @@ use crate::json::write_atomically;
 use crate::membership::{Freshness, Membership, OcrDecision, PickStyle, Skip};
 use crate::newlines::NewLines;
 use crate::paths::Paths;
-use crate::platform::{screens_message, Indicator, Msg, PickOutcome, Platform, Status, MAX_SOURCES};
+use crate::membership::{ListedWindow, PickedContent, WindowList};
+use crate::platform::{screens_message, Front, Indicator, Msg, PickOutcome, Platform, Status, ALREADY_SHARED, MAX_SOURCES};
+use crate::pointer::PointerRule;
 use crate::projects::{Location, Project, ProjectChoice, Projects};
 use crate::redact::Redactor;
 use crate::reminder::DailyJobs;
@@ -99,6 +103,22 @@ struct Session {
     next_tick: Instant,
 }
 
+/// One window to read this sample: the window in use, or (focus "pointer") the one under the mouse.
+struct Target {
+    front: Front,
+    window: ListedWindow,
+    pick: PickedContent,
+}
+
+impl Target {
+    fn focus(&self) -> &'static str {
+        if self.front.pointer { "pointer" } else { "" }
+    }
+}
+
+/// What a read of the window in use tells the project state: the project found, and the window.
+type Noticed = (Option<(String, String)>, (String, String, String));
+
 pub struct Engine<P: Platform> {
     paths: Paths,
     platform: P,
@@ -139,6 +159,9 @@ pub struct Engine<P: Platform> {
     new_lines: NewLines,
     /// The evening reminder and the clean-up of old recordings.
     daily: DailyJobs,
+    /// When the mouse last moved (between samples) in this recording, and where it was last sample.
+    pointer_activity: Option<SystemTime>,
+    last_pointer: Option<(f64, f64)>,
 }
 
 impl<P: Platform> Engine<P> {
@@ -173,6 +196,8 @@ impl<P: Platform> Engine<P> {
             sources: 0,
             new_lines: NewLines::new(),
             daily: DailyJobs::new(),
+            pointer_activity: None,
+            last_pointer: None,
         }
     }
 
@@ -439,6 +464,12 @@ impl<P: Platform> Engine<P> {
             }
             PickOutcome::Added(_) => self.platform.stop_capture(), // recording ended meanwhile
             PickOutcome::AddCancelled => self.log.write("add a screen: cancelled"),
+            PickOutcome::AlreadyShared => {
+                self.log.write("add a screen: picked one that's already shared");
+                if self.is_recording() {
+                    self.platform.toast(ALREADY_SHARED);
+                }
+            }
             PickOutcome::Removed(count) => {
                 if self.is_recording() {
                     self.sources = count;
@@ -478,6 +509,8 @@ impl<P: Platform> Engine<P> {
         self.reload_projects(true);
         self.current_project = self.choice.pinned.clone().map(|id| (id, ProjectChoice::YOU.to_string()));
         self.new_lines.reset();
+        self.pointer_activity = None;
+        self.last_pointer = None;
         self.sources = 1;
         let picked = match self.platform.picked().first().map(|p| p.style) {
             Some(PickStyle::Display) => "a screen",
@@ -794,10 +827,11 @@ impl<P: Platform> Engine<P> {
 
     // MARK: sampling
 
-    /// One sample: only when the front window is part of what the user picked. Text comes from the
-    /// accessibility API when allowed and useful, else from OCR of the picked content's latest frame —
-    /// cropped to the front window, never-record windows painted out, never a frame from before the
-    /// last app switch, never during a window overview.
+    /// One sample: the window in use (keyboard focus) when it's on something the user shared, and, if the
+    /// mouse moved or scrolled over another shared screen in the last 30 s, the window under it too. Text
+    /// comes from the accessibility API when allowed and useful, else from OCR of that screen's latest
+    /// frame — cropped to the window, never-record windows painted out, never a frame from before the last
+    /// app switch, never during a window overview.
     pub fn tick(&mut self) {
         if self.session.is_none() {
             return;
@@ -808,36 +842,109 @@ impl<P: Platform> Engine<P> {
             (id.is_some() && id == own.as_deref()) || Exclusion::is_excluded(id, Some(name), &user)
         };
         let Some(front) = self.platform.front(&is_excluded) else { return self.skip(Skip::NoWindow) };
-        if is_excluded(front.app_id.as_deref(), &front.app_name) {
-            return self.skip(Skip::PrivateApp); // nothing read
-        }
         if front.overlay {
             self.changed_at = Some(now); // the frame after it closes is the first good one
             return self.skip(Skip::Overlay);
         }
-        let Some(window) = front.window.clone() else { return self.skip(Skip::NoWindow) };
-        // Several screens can be shared: use the one holding the window in front (keyboard focus, not the mouse).
         let picks = self.platform.picked();
         if picks.is_empty() {
             return self.skip(Skip::NotPicked);
         }
-        let Some(pick) = Membership::pick(&window, &picks).cloned() else {
-            let unknown = picks.iter().any(|p| p.style == PickStyle::Display && p.rect.is_empty());
-            return self.skip(if unknown { Skip::UnknownDisplay } else { Skip::NotPicked });
-        };
 
-        let ui = self.platform.ui_text(&front);
+        // The window in use. Several screens can be shared: the one holding it is read.
+        let mut targets: Vec<Target> = vec![];
+        let mut front_skip = None;
+        let mut front_pick = None;
+        if is_excluded(front.app_id.as_deref(), &front.app_name) {
+            front_skip = Some(Skip::PrivateApp); // nothing read
+        } else if let Some(window) = front.window.clone() {
+            if let Some(pick) = Membership::pick(&window, &picks) {
+                front_pick = Some(pick.clone());
+                targets.push(Target { front: front.clone(), window, pick: pick.clone() });
+            } else {
+                let unknown = picks.iter().any(|p| p.style == PickStyle::Display && p.rect.is_empty());
+                front_skip = Some(if unknown { Skip::UnknownDisplay } else { Skip::NotPicked });
+            }
+        } else {
+            front_skip = Some(Skip::NoWindow);
+        }
+
+        // Where you're looking: the window under the mouse, on another shared screen.
+        if let Some(target) = self.pointer_target(&front, front_pick.as_ref(), &picks, now, &is_excluded) {
+            targets.push(target);
+        }
+        if targets.is_empty() {
+            return self.skip(front_skip.unwrap_or(Skip::NotPicked));
+        }
+
+        self.reload_projects(false);
+        let mut outcome = front_skip;
+        let mut noticed = None;
+        for target in &targets {
+            let read = self.read(target, now);
+            if !target.front.pointer {
+                match read {
+                    Ok(n) => noticed = n,
+                    Err(why) => outcome = Some(why),
+                }
+            }
+        }
+        let count = self.session.as_ref().map_or(self.event_count, |s| s.log.appended());
+        self.sampled(outcome, count);
+        if let Some((found, window)) = noticed {
+            self.sampled_project(found, window);
+        }
+    }
+
+    /// The window under the mouse, when `PointerRule` says to read it and it isn't private.
+    fn pointer_target(
+        &mut self,
+        front: &Front,
+        front_pick: Option<&PickedContent>,
+        picks: &[PickedContent],
+        now: SystemTime,
+        is_excluded: &dyn Fn(Option<&str>, &str) -> bool,
+    ) -> Option<Target> {
+        let at = self.platform.pointer();
+        if PointerRule::moved(self.last_pointer, at) {
+            self.pointer_activity = Some(now);
+        }
+        self.last_pointer = at;
+        let (x, y) = at?;
+        let window = PointerRule::window_at(x, y, &front.list)?.clone();
+        let pick = Membership::pick(&window, picks)?.clone();
+        let activity = self.pointer_activity.max(self.platform.pointer_activity());
+        if !PointerRule::should_read(Some(&window), Some(&pick), front.window.as_ref(), front_pick, activity, now)
+            || WindowList::is_private(&window)
+        {
+            return None;
+        }
+        let mut under = self.platform.pointer_front(&window, front, is_excluded)?;
+        if is_excluded(under.app_id.as_deref(), &under.app_name) {
+            return None;
+        }
+        under.pointer = true;
+        under.window = Some(window.clone());
+        Some(Target { front: under, window, pick })
+    }
+
+    /// Read one target and write what's new. Err: why nothing was read. Ok: for the window in use, its
+    /// project and window (the pointer's never touch the project state).
+    fn read(&mut self, target: &Target, now: SystemTime) -> Result<Option<Noticed>, Skip> {
+        let (front, window, pointer) = (&target.front, &target.window, target.front.pointer);
+        let ui = self.platform.ui_text(front);
         let source = UiText::choose(ui.is_some(), ui.as_deref().unwrap_or(""));
         let mut text = ui.unwrap_or_default();
         if source == TextSource::Ocr {
             let changed_at = self.changed_at.max(self.platform.changed_at());
-            let frame = self.platform.latest_frame(pick.source);
+            let frame = self.platform.latest_frame(target.pick.source);
             let Some(frame) = frame.filter(|f| Freshness::ok(Some(f.arrived), changed_at)) else {
-                return self.skip(Skip::WaitingFrame);
+                return Err(self.break_run_unless(pointer, Skip::WaitingFrame));
             };
-            let pick = self.platform.picked().into_iter().find(|p| p.source == pick.source).unwrap_or(pick);
-            match Membership::ocr_decision(&pick, &window, &front.list) {
-                OcrDecision::Skip(why) => return self.skip(why),
+            let pick =
+                self.platform.picked().into_iter().find(|p| p.source == target.pick.source).unwrap_or(target.pick.clone());
+            match Membership::ocr_decision(&pick, window, &front.list) {
+                OcrDecision::Skip(why) => return Err(self.break_run_unless(pointer, why)),
                 OcrDecision::Read { region, masks } => {
                     text = match crop_masked(&frame.bgra, frame.width, frame.height, frame.stride, region, &masks) {
                         Some(image) => self.platform.ocr(&image), // the copy is dropped right after
@@ -846,9 +953,8 @@ impl<P: Platform> Engine<P> {
                 }
             }
         }
-        let title = self.platform.ui_title(&front).or_else(|| window.name.clone()).unwrap_or_default();
-        let location = Location::clean(self.platform.location(&front).as_deref());
-        self.reload_projects(false);
+        let title = self.platform.ui_title(front).or_else(|| window.name.clone()).unwrap_or_default();
+        let location = Location::clean(self.platform.location(front).as_deref());
         let stamp = clock::iso(now);
         let mut event = Event {
             t: stamp.clone(),
@@ -859,6 +965,7 @@ impl<P: Platform> Engine<P> {
             src: source.as_str().into(),
             text: Redactor::clean(&text),
             location,
+            focus: target.focus().into(),
             ..Default::default()
         };
         let found = self.choice.resolve(&self.projects, &event.title, &event.location, &front.app_name);
@@ -866,20 +973,32 @@ impl<P: Platform> Engine<P> {
             event.project = id.clone();
             event.project_by = by.clone();
         }
-        let window = (event.title.clone(), event.location.clone(), front.app_name.clone());
-        // Save only what's new in this window since it was last seen; nothing new: just extend the time.
+        let noticed = (!pointer).then(|| (found, (event.title.clone(), event.location.clone(), front.app_name.clone())));
+        // Save only what's new in this window since it was last seen. Nothing new: just extend the time (the
+        // window in use), or write nothing (the window under the mouse).
         let key = NewLines::key(&event.app, &event.bundle, &event.title, &event.location);
         event.text = self.new_lines.filter(&event.text, &key);
-        let Some(s) = &mut self.session else { return };
+        if event.text.is_empty() && pointer {
+            return Ok(None);
+        }
+        let Some(s) = &mut self.session else { return Ok(noticed) };
         let extended = event.text.is_empty() && s.log.extend_if_same_window(&event).unwrap_or(false);
         if !extended {
             if let Err(e) = s.log.record(&event) {
                 self.log.write(&format!("cannot write event: {e}"));
             }
         }
-        let count = s.log.appended();
-        self.sampled(None, count);
-        self.sampled_project(found, window);
+        Ok(noticed)
+    }
+
+    /// A failed read of the window in use breaks the run of samples (the pointer's doesn't).
+    fn break_run_unless(&mut self, pointer: bool, why: Skip) -> Skip {
+        if !pointer {
+            if let Some(s) = &mut self.session {
+                s.log.break_run();
+            }
+        }
+        why
     }
 
     fn skip(&mut self, why: Skip) {

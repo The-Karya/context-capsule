@@ -110,6 +110,8 @@ pub fn toast_ms(text: &str) -> i32 {
         2000
     } else if text.starts_with("Project: ") {
         3000
+    } else if text == context_capsule_core::ALREADY_SHARED {
+        4000
     } else {
         6000
     }

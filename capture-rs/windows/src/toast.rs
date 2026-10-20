@@ -1,5 +1,5 @@
 // context-capsule — windows: a small message near the tray icon that fades by itself ("Voice note saved",
-// "Start contextualizing first (Ctrl+Alt+Shift+C)"). A topmost borderless window: no notification permission.
+// "Start contextualizing first (Alt+C)"). A topmost borderless window: no notification permission.
 // Nothing stays on screen: while listening, the tray icon shows it.
 
 /// Seconds on screen before fading (like the Mac: short for good news and project changes, longer
@@ -11,8 +11,8 @@ pub fn seconds_for(text: &str) -> u32 {
         3
     } else if text.contains("More screens?") {
         5
-    } else if text.starts_with("● ") || text.starts_with("■ ") {
-        4 // recording started / stopped
+    } else if text.starts_with("● ") || text.starts_with("■ ") || text == context_capsule_core::ALREADY_SHARED {
+        4 // recording started / stopped, a screen already shared
     } else {
         6
     }
@@ -257,12 +257,13 @@ mod tests {
     #[test]
     fn durations() {
         assert_eq!(seconds_for("Voice note saved"), 2);
-        assert_eq!(seconds_for("Start contextualizing first (Ctrl+Alt+Shift+C)"), 6);
+        assert_eq!(seconds_for("Start contextualizing first (Alt+C)"), 6);
         assert_eq!(seconds_for("Project: Client report"), 3);
-        assert_eq!(seconds_for("● Contextualizing. Press Ctrl+Alt+Shift+C to stop, Ctrl+Alt+Shift+V to talk."), 4);
+        assert_eq!(seconds_for("● Contextualizing. Press Alt+C to stop, Alt+V to talk."), 4);
         assert_eq!(seconds_for("■ Stopped contextualizing: 3 moments saved."), 4);
         assert_eq!(seconds_for("● Recording started. Press X to stop, Y to talk. More screens? Menu → Add a screen."), 5);
         assert_eq!(seconds_for("Screen added: 2 screens shared."), 3);
+        assert_eq!(seconds_for("That screen is already shared. Pick a different one."), 4);
     }
 
     #[test]

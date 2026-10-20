@@ -465,8 +465,8 @@ mod tests {
         assert_eq!(Step::from_button(ID_BUTTON + 1), Some(Step::Claude));
         assert_eq!(Step::from_button(ID_BUTTON + 3), None);
         assert_eq!(Step::from_button(ID_DONE), None);
-        assert_eq!(uses()[0], ("Start contextualizing", "Ctrl+Alt+Shift+C"));
-        assert_eq!(uses()[1], ("Speak a note", "Ctrl+Alt+Shift+V"));
+        assert_eq!(uses()[0], ("Start contextualizing", "Alt+C"));
+        assert_eq!(uses()[1], ("Speak a note", "Alt+V"));
         assert_eq!(uses()[2], ("Make my capsules", "in Claude"));
         let d = Done { voice: true, claude: false, login: true };
         assert!(d.get(Step::Voice) && !d.get(Step::Claude) && d.get(Step::Login));

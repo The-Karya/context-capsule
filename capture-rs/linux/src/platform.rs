@@ -1,6 +1,7 @@
 // context-capsule — linux: the engine's seam to the desktop — the picked content, the front window
 // (AT-SPI, plus the real X11 window stack on X11), its text and title, OCR, the tray, messages, the soft
-// start/stop sounds and the evening reminder.
+// start/stop sounds and the evening reminder. On X11 also the mouse: where it is and when it last scrolled,
+// so the window under it on another shared screen is read too (OCR only: AT-SPI reads the focused window).
 
 use crate::apps::ProcApp;
 use crate::atspi_front::{is_shell, Accessibility, ActiveWindow};
@@ -31,6 +32,8 @@ pub struct LinuxPlatform {
     pub x11: Option<x11::Desktop>,
     pub overview: Option<Overview>,
     pub changed: Arc<Mutex<Option<SystemTime>>>,
+    /// The last mouse scroll (X11 watcher thread).
+    pub scrolled: Arc<Mutex<Option<SystemTime>>>,
     pub notifier: Notifier,
     pub tray: Tray,
     pub ocr: Ocr,
@@ -75,6 +78,7 @@ impl LinuxPlatform {
         x11: Option<x11::Desktop>,
         overview: Option<Overview>,
         changed: Arc<Mutex<Option<SystemTime>>>,
+        scrolled: Arc<Mutex<Option<SystemTime>>>,
         notifier: Notifier,
         tray: Tray,
         locale: &str,
@@ -88,6 +92,7 @@ impl LinuxPlatform {
             x11,
             overview,
             changed,
+            scrolled,
             notifier,
             tray,
             ocr: Ocr::new(locale),
@@ -134,6 +139,7 @@ impl LinuxPlatform {
             window: None,
             list: vec![],
             overlay,
+            pointer: false,
         };
         if is_shell(&a.app_name, proc_app.exe.as_deref()) {
             return Some(front); // the shell's own menus: no app window
@@ -208,7 +214,7 @@ impl LinuxPlatform {
                 list.iter().filter(|w| WindowList::is_normal(w)).map(|w| (w.id, w.frame)).collect();
             self.matched = windows.iter().map(|(id, size)| (*id, portal::match_window(*size, &candidates))).collect();
         }
-        Some(Front { app_name, app_id, pid, window, list, overlay })
+        Some(Front { app_name, app_id, pid, window, list, overlay, pointer: false })
     }
 }
 
@@ -253,6 +259,9 @@ impl Platform for LinuxPlatform {
 
     fn ui_text(&mut self, front: &Front) -> Option<String> {
         self.document = None;
+        if front.pointer {
+            return None; // AT-SPI gives the focused window only: the one under the mouse is read by OCR
+        }
         let a11y = self.a11y.clone()?;
         let obj = self.current_for(front.pid)?.obj.clone();
         let read = self.wait(atspi_text::read(a11y.connection(), &obj)).flatten()?;
@@ -262,6 +271,9 @@ impl Platform for LinuxPlatform {
 
     /// The address of the document the text walk found (a web view's page, an editor's file).
     fn location(&mut self, front: &Front) -> Option<String> {
+        if front.pointer {
+            return None;
+        }
         let a11y = self.a11y.clone()?;
         self.current_for(front.pid)?;
         let doc = self.document.clone()?;
@@ -269,6 +281,9 @@ impl Platform for LinuxPlatform {
     }
 
     fn ui_title(&mut self, front: &Front) -> Option<String> {
+        if front.pointer {
+            return None; // the engine uses the X11 window name
+        }
         self.current_for(front.pid).map(|a| a.title.clone()).filter(|t| !t.is_empty())
     }
 
@@ -317,6 +332,33 @@ impl Platform for LinuxPlatform {
 
     fn remind(&mut self) {
         reminder::ask_and_make(self.notifier.clone());
+    }
+
+    /// X11 only: on Wayland no app may know where the mouse is, so only the window in use is read.
+    fn pointer(&mut self) -> Option<(f64, f64)> {
+        match self.session {
+            SessionKind::X11 => self.x11.as_ref()?.pointer(),
+            _ => None,
+        }
+    }
+
+    /// The last scroll, if it was during this recording.
+    fn pointer_activity(&self) -> Option<SystemTime> {
+        let scrolled = (*self.scrolled.lock().unwrap())?;
+        let started = self.last_status.started_at.filter(|_| self.last_status.recording)?;
+        (scrolled >= started).then_some(scrolled)
+    }
+
+    /// Its app from its process (X11 windows carry their pid) and WM_CLASS.
+    fn pointer_front(&mut self, window: &ListedWindow, front: &Front, is_excluded: &dyn Fn(Option<&str>, &str) -> bool) -> Option<Front> {
+        let proc_app = ProcApp::of(window.pid);
+        let app_name = if window.owner.is_empty() { proc_app.exe.clone().unwrap_or_default() } else { window.owner.clone() };
+        if app_name.is_empty() {
+            return None;
+        }
+        let app_id = proc_app.app_id(is_excluded, &app_name);
+        let (pid, window) = (window.pid, Some(window.clone()));
+        Some(Front { app_name, app_id, pid, window, list: front.list.clone(), overlay: false, pointer: true })
     }
 }
 

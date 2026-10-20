@@ -5,8 +5,8 @@ use crate::app::{Ui, UiCmd};
 use crate::ocr::Ocr;
 use crate::picker::Capture;
 use crate::uia::Uia;
-use crate::{changes, windows_list};
-use context_capsule_core::{Frame, Front, Image, Indicator, PickedContent, Platform, Status};
+use crate::{changes, pointer, windows_list};
+use context_capsule_core::{Frame, Front, Image, Indicator, ListedWindow, PickedContent, Platform, Status};
 use std::sync::Arc;
 use std::time::SystemTime;
 
@@ -96,7 +96,27 @@ impl Platform for WinPlatform {
     }
 
     fn status_changed(&mut self, status: &Status) {
+        pointer::watch(status.recording); // the mouse hook runs only while recording
         self.ui.post(UiCmd::Status(Box::new(status.clone())));
+    }
+
+    fn pointer(&mut self) -> Option<(f64, f64)> {
+        pointer::position()
+    }
+
+    fn pointer_activity(&self) -> Option<std::time::SystemTime> {
+        pointer::last_activity()
+    }
+
+    /// Its app from its process; UI Automation then reads that window by its handle.
+    fn pointer_front(&mut self, window: &ListedWindow, front: &Front, _is_excluded: &dyn Fn(Option<&str>, &str) -> bool) -> Option<Front> {
+        let (app_id, name) = self.apps.info(window.pid);
+        let app_name = if name.is_empty() { window.owner.clone() } else { name };
+        if app_id.is_none() && app_name.is_empty() {
+            return None;
+        }
+        let (pid, window) = (window.pid, Some(window.clone()));
+        Some(Front { app_name, app_id, pid, window, list: front.list.clone(), overlay: false, pointer: true })
     }
 
     fn remind(&mut self) {

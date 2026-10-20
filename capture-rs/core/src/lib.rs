@@ -18,6 +18,7 @@ pub mod membership;
 pub mod newlines;
 pub mod paths;
 pub mod platform;
+pub mod pointer;
 pub mod projects;
 pub mod redact;
 pub mod reminder;
@@ -38,10 +39,11 @@ pub use look::Cue;
 pub use newlines::NewLines;
 pub use paths::Paths;
 pub use platform::{
-    listening_message, project_message, recording_started_message, recording_stopped_message, screens_message, Frame, Front, Indicator,
-    Msg, PickOutcome, Platform, ProjectItem, Status, MAX_SOURCES,
+    hotkeys_taken_message, listening_message, project_message, recording_started_message, recording_stopped_message, screens_message, Frame, Front, Indicator,
+    Msg, PickOutcome, Platform, ProjectItem, Status, ALREADY_SHARED, MAX_SOURCES,
 };
 pub use reminder::{Cleanup, DailyJobs, Reminder};
+pub use pointer::PointerRule;
 pub use projects::{Location, Project, ProjectChoice, Projects};
 pub use redact::Redactor;
 pub use state::{session_json, ControlCommand, ControlKind, StateJson};

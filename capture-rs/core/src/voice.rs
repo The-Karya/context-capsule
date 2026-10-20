@@ -65,8 +65,8 @@ impl PlatformText {
         add_language: "add the language in System Settings → Keyboard → Dictation",
     };
     pub const WINDOWS: PlatformText = PlatformText {
-        record_hotkey: "Ctrl+Alt+Shift+C",
-        voice_hotkey: "Ctrl+Alt+Shift+V",
+        record_hotkey: "Alt+C",
+        voice_hotkey: "Alt+V",
         sound_input: "Settings → System → Sound → Input",
         mic_privacy: "Settings → Privacy & security → Microphone",
         speech_privacy: "Settings → Privacy & security → Speech",
@@ -75,8 +75,8 @@ impl PlatformText {
         add_language: "install a speech model for that language",
     };
     pub const LINUX: PlatformText = PlatformText {
-        record_hotkey: "Ctrl+Alt+Shift+C",
-        voice_hotkey: "Ctrl+Alt+Shift+V",
+        record_hotkey: "Alt+C",
+        voice_hotkey: "Alt+V",
         sound_input: "your Sound settings (Input)",
         mic_privacy: "your Privacy settings (Microphone)",
         speech_privacy: "your Privacy settings",
@@ -486,15 +486,15 @@ mod notice_tests {
 
     #[test]
     fn windows_and_linux_hotkeys() {
-        assert_eq!(VoiceOutcome::NotRecording.message(&PlatformText::WINDOWS), "Start contextualizing first (Ctrl+Alt+Shift+C)");
-        assert_eq!(PlatformText::LINUX.voice_hotkey, "Ctrl+Alt+Shift+V");
+        assert_eq!(VoiceOutcome::NotRecording.message(&PlatformText::WINDOWS), "Start contextualizing first (Alt+C)");
+        assert_eq!(PlatformText::LINUX.voice_hotkey, "Alt+V");
     }
 
     #[test]
     fn busy_and_failure_texts() {
         assert_eq!(
             busy_listening_message(&PlatformText::WINDOWS),
-            "Finish the voice note first: press Ctrl+Alt+Shift+V. Then Ctrl+Alt+Shift+C stops contextualizing."
+            "Finish the voice note first: press Alt+V. Then Alt+C stops contextualizing."
         );
         let f = VoiceOutcome::Failed("the microphone could not start (0x80070005)".into());
         assert_eq!(f.log_summary(), "voice note: failed (the microphone could not start (0x80070005))", "keeps the error code");

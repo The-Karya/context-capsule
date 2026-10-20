@@ -42,6 +42,12 @@ struct Fake {
     frames_of: Vec<(u32, Frame)>,
     added: usize,
     reminded: usize,
+    /// The mouse, the platform's own activity time (hooks), and the text of the window under it (None: OCR).
+    pointer: Option<(f64, f64)>,
+    pointer_activity: Option<SystemTime>,
+    pointer_text: Option<String>,
+    /// What ui_text was asked for: true = the window under the mouse.
+    ui_asked: Vec<bool>,
 }
 
 impl Platform for Fake {
@@ -70,11 +76,30 @@ impl Platform for Fake {
         }
         Some(f)
     }
-    fn ui_text(&mut self, _front: &Front) -> Option<String> {
-        self.ui_text.clone()
+    fn ui_text(&mut self, front: &Front) -> Option<String> {
+        self.ui_asked.push(front.pointer);
+        if front.pointer { self.pointer_text.clone() } else { self.ui_text.clone() }
     }
-    fn ui_title(&mut self, _front: &Front) -> Option<String> {
-        self.ui_title.clone()
+    fn pointer(&mut self) -> Option<(f64, f64)> {
+        self.pointer
+    }
+    fn pointer_activity(&self) -> Option<SystemTime> {
+        self.pointer_activity
+    }
+    fn pointer_front(&mut self, window: &ListedWindow, front: &Front, is_excluded: &dyn Fn(Option<&str>, &str) -> bool) -> Option<Front> {
+        let id = format!("{}.exe", window.owner.to_lowercase());
+        let excluded = is_excluded(Some(&id), &window.owner);
+        Some(Front {
+            app_name: window.owner.clone(),
+            app_id: Some(id),
+            pid: window.pid,
+            window: Some(ListedWindow { excluded, ..window.clone() }),
+            list: front.list.clone(),
+            ..Default::default()
+        })
+    }
+    fn ui_title(&mut self, front: &Front) -> Option<String> {
+        if front.pointer { None } else { self.ui_title.clone() }
     }
     fn ocr(&mut self, image: &Image) -> String {
         self.ocr_images.push(image.clone());
@@ -209,6 +234,7 @@ impl Rig {
             window: Some(chrome.clone()),
             list: vec![private, chrome],
             overlay: false,
+            pointer: false,
         });
         p.frame = Some(Frame { bgra: vec![200u8; 100 * 50 * 4].into(), width: 100, height: 50, stride: 400, arrived });
         p.ocr_text = "Pricing tiers\nkey sk-proj-abcdefghijklmnop1234567890".into();
@@ -510,7 +536,7 @@ fn empty_session_says_why() {
 fn voice_needs_recording() {
     let mut r = Rig::new("voice-idle");
     r.engine.toggle_voice();
-    assert_eq!(r.engine.platform().toasts, ["Start contextualizing first (Ctrl+Alt+Shift+C)"]);
+    assert_eq!(r.engine.platform().toasts, ["Start contextualizing first (Alt+C)"]);
     assert!(!r.engine.platform().indicators.contains(&Indicator::Listening));
     assert!(!r.voice.borrow().mic_open);
 }
@@ -605,7 +631,7 @@ fn record_key_waits_while_a_voice_note_listens() {
     assert!(r.engine.is_recording() && r.engine.is_listening(), "neither recording nor the note ends");
     assert_eq!(
         r.engine.platform().toasts,
-        ["Finish the voice note first: press Ctrl+Alt+Shift+V. Then Ctrl+Alt+Shift+C stops contextualizing."]
+        ["Finish the voice note first: press Alt+V. Then Alt+C stops contextualizing."]
     );
     r.engine.toggle_voice(); // the note ends
     r.engine.toggle_record(); // now recording stops
@@ -1001,4 +1027,155 @@ fn reminder_asks_the_platform() {
     assert_eq!(r.engine.platform().reminded, 1);
     assert!(!r.engine.daily_now(), "once a day");
     assert_eq!(r.engine.platform().reminded, 1);
+}
+
+// MARK: where you look
+
+impl Rig {
+    /// `scene`, plus a second shared screen to the right (source 2, its own frame) with a docs window on it.
+    fn two_screens(&mut self) {
+        self.scene();
+        let docs = ListedWindow { owner: "Safari".into(), name: Some("ACME Q3 — Docs".into()), ..ListedWindow::new(3, 70, r(110.0, 0.0, 80.0, 50.0)) };
+        let arrived = self.now() + Duration::from_secs(1);
+        let p = self.p();
+        p.more_picks = vec![PickedContent::display(r(100.0, 0.0, 100.0, 50.0)).with_source(2)];
+        p.frames_of = vec![(2, Frame { bgra: vec![90u8; 100 * 50 * 4].into(), width: 100, height: 50, stride: 400, arrived })];
+        p.front.as_mut().unwrap().list.push(docs);
+        p.ui_text = Some("Real words here. ".repeat(10));
+        p.pointer_text = Some("Pointer docs line. ".repeat(10));
+    }
+}
+
+#[test]
+fn reads_where_you_look_too() {
+    let mut g = Rig::new("pointer");
+    g.projects(PROJECTS);
+    g.two_screens();
+    let id = g.record();
+    g.engine.on_pick(PickOutcome::Added(2));
+    g.p().pointer = Some((150.0, 25.0));
+    g.advance(Duration::from_secs(3));
+    g.engine.tick();
+    assert_eq!(g.events(&id).len(), 1, "the mouse hasn't moved yet: only the window in use");
+    assert_eq!(g.engine.platform().ui_asked, [false]);
+
+    // The mouse moves over the docs on the other screen: read it too, marked as where you look.
+    g.p().pointer = Some((160.0, 20.0));
+    g.advance(Duration::from_secs(3));
+    g.engine.tick();
+    let ev = g.events(&id);
+    assert_eq!(ev.len(), 2, "{ev:?}");
+    assert!(ev[0].get("focus").is_none() && ev[0]["end"] == "2026-10-19T10:01:09Z", "the window in use, extended");
+    assert!(ev[1]["focus"] == "pointer" && ev[1]["app"] == "Safari" && ev[1]["bundle"] == "safari.exe", "{:?}", ev[1]);
+    assert!(ev[1]["title"] == "ACME Q3 — Docs" && ev[1]["src"] == "ax" && ev[1]["text"].as_str().unwrap().starts_with("Pointer docs"));
+    assert_eq!(ev[1]["project"], "report", "its own project");
+    assert!(g.state()["project"].is_null() && g.changes().is_empty(), "the project state is the window in use's");
+    assert_ne!(g.engine.status().new_project_clue.as_deref(), Some("ACME Q3"), "nor the new-project clue");
+    let line = std::fs::read_to_string(g.session_dir(&id).join("events.jsonl")).unwrap();
+    assert!(line.contains(r#""project":"report","project_by":"auto","focus":"pointer","src":"ax","text":"#), "{line}");
+    assert!(g.state()["skip"].is_null());
+
+    // Nothing new under the mouse: nothing written for it (never an empty extend).
+    g.advance(Duration::from_secs(3));
+    g.engine.tick();
+    let ev = g.events(&id);
+    assert_eq!(ev.len(), 3);
+    assert!(ev[2].get("focus").is_none() && ev[2]["text"] == "", "the window in use, nothing new");
+
+    // New lines under the mouse are saved; then the mouse rests for more than 30 s: it isn't read any more.
+    g.p().pointer_text = Some(format!("{}\nMore docs", "Pointer docs line. ".repeat(10)));
+    g.advance(Duration::from_secs(3));
+    g.engine.tick();
+    assert_eq!(g.events(&id).last().unwrap()["text"], "More docs");
+    g.p().pointer_text = Some(format!("{}\nMore docs\nEven more", "Pointer docs line. ".repeat(10)));
+    g.advance(Duration::from_secs(31));
+    let asked = g.engine.platform().ui_asked.len();
+    g.engine.tick();
+    assert_eq!(g.engine.platform().ui_asked.len(), asked + 1, "only the window in use");
+    // A scroll the platform saw counts as looking.
+    let t = g.now();
+    g.p().pointer_activity = Some(t);
+    g.engine.tick();
+    assert_eq!(g.events(&id).last().unwrap()["text"], "Even more");
+}
+
+#[test]
+fn where_you_look_only_on_another_shared_screen() {
+    let mut g = Rig::new("pointer-rules");
+    g.two_screens();
+    let id = g.record();
+    g.engine.on_pick(PickOutcome::Added(2));
+    let t = g.now();
+    g.p().pointer_activity = Some(t);
+    let notes = ListedWindow { owner: "Notes".into(), ..ListedWindow::new(4, 80, r(55.0, 0.0, 40.0, 50.0)) };
+    g.p().front.as_mut().unwrap().list.push(notes);
+    // On the window in use, or another window on the same screen: the window in use is enough.
+    for at in [(20.0, 20.0), (70.0, 20.0)] {
+        g.p().pointer = Some(at);
+        g.engine.tick();
+    }
+    // Over the second screen but not over a window, or unknown (Wayland): nothing more.
+    g.p().pointer = Some((105.0, 20.0));
+    g.engine.tick();
+    g.p().pointer = None;
+    g.engine.tick();
+    assert!(g.engine.platform().ui_asked.iter().all(|p| !p), "never the mouse's window");
+    assert_eq!(g.events(&id).len(), 1);
+    // A never-record app under the mouse is never read.
+    g.p().front.as_mut().unwrap().list[2].owner = "1Password".into();
+    g.p().pointer = Some((150.0, 25.0));
+    g.engine.tick();
+    assert!(g.engine.platform().ui_asked.iter().all(|p| !p), "private: not read");
+    assert_eq!(g.events(&id).len(), 1);
+}
+
+#[test]
+fn where_you_look_while_the_window_in_use_is_skipped() {
+    let mut g = Rig::new("pointer-skip");
+    g.two_screens();
+    let id = g.record();
+    g.engine.on_pick(PickOutcome::Added(2));
+    let t = g.now();
+    g.p().pointer_activity = Some(t);
+    g.p().pointer = Some((150.0, 25.0));
+    // The window in use is a private app: the docs are read, and the skip reported is still the private app.
+    g.p().front.as_mut().unwrap().app_name = "1Password".into();
+    g.engine.tick();
+    let ev = g.events(&id);
+    assert!(ev.len() == 1 && ev[0]["focus"] == "pointer", "{ev:?}");
+    let s = g.state();
+    assert!(s["skip"] == "private_app" && s["events"] == 1, "{s}");
+
+    // Read by OCR: the second screen's frame, cropped to the window under the mouse.
+    g.p().front.as_mut().unwrap().app_name = "Google Chrome".into();
+    g.p().pointer_text = None;
+    g.p().ocr_text = "Seen by OCR".into();
+    g.advance(Duration::from_secs(3));
+    g.engine.tick();
+    let img = g.engine.platform().ocr_images.last().unwrap().clone();
+    assert_eq!((img.width, img.height), (80, 50), "cropped to the docs window");
+    assert_eq!(img.pixel(40, 25), [90, 90, 90, 90], "the second screen's frame");
+    let ev = g.events(&id);
+    assert!(ev.last().unwrap()["focus"] == "pointer" && ev.last().unwrap()["text"] == "Seen by OCR", "{ev:?}");
+    assert!(g.state()["skip"].is_null(), "the window in use was read");
+
+    // The mouse's screen has no fresh frame: its skip isn't reported; the window in use is still written.
+    g.p().frames_of[0].1.arrived = UNIX_EPOCH;
+    g.p().ocr_text = "Other".into();
+    let n = g.events(&id).len();
+    g.advance(Duration::from_secs(3));
+    g.engine.tick();
+    assert!(g.state()["skip"].is_null());
+    assert_eq!(g.events(&id).len(), n + 1, "only the window in use");
+}
+
+#[test]
+fn adding_a_screen_already_shared_is_refused() {
+    let mut g = Rig::new("already-shared");
+    g.scene();
+    g.record();
+    g.engine.on_pick(PickOutcome::AlreadyShared);
+    assert!(g.engine.is_recording());
+    assert_eq!(g.engine.status().sources, 1);
+    assert_eq!(g.engine.platform().toasts.last().unwrap(), "That screen is already shared. Pick a different one.");
 }

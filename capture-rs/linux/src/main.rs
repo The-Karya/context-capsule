@@ -73,13 +73,14 @@ fn main() {
 
     let (tx, rx) = mpsc::channel::<Msg>();
     let changed = Arc::new(Mutex::new(None));
+    let scrolled = Arc::new(Mutex::new(None));
     let notifier = notify::Notifier::new(handle.clone());
     let tray = if probe { tray::Tray::none(&handle) } else { tray::Tray::spawn(&handle, tx.clone(), notifier.clone()) };
     if !probe && !tray.is_shown() {
-        notifier.toast("Context Capsule is running, but this desktop shows no tray icon (on GNOME, install the AppIndicator extension). Use the hotkeys: Ctrl+Alt+Shift+C to start contextualizing.");
+        notifier.toast("Context Capsule is running, but this desktop shows no tray icon (on GNOME, install the AppIndicator extension). Use the hotkeys: Alt+C to start contextualizing.");
     }
     if !probe {
-        hotkeys::start(&handle, session, tx.clone(), changed.clone());
+        hotkeys::start(&handle, session, tx.clone(), changed.clone(), scrolled.clone(), notifier.clone());
     }
 
     let a11y = rt.block_on(async {
@@ -115,6 +116,7 @@ fn main() {
             x11,
             overview,
             changed,
+            scrolled,
             notifier,
             tray,
             &locale,
@@ -145,7 +147,7 @@ fn main() {
         let voice: Box<dyn VoiceEngine> = make_voice(root, notifier.clone());
         let config = paths.config();
         let platform = platform::LinuxPlatform::new(
-            engine_rt, session, capture, a11y, x11, overview, changed, notifier, tray, &locale, config,
+            engine_rt, session, capture, a11y, x11, overview, changed, scrolled, notifier, tray, &locale, config,
         );
         let mut engine = Engine::new(paths, platform, voice, opts);
         engine.set_voice_wake(Arc::new(move || {

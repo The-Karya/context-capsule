@@ -15,8 +15,8 @@ use tokio::runtime::Handle;
 /// While recording or listening, the time and the voice bars are refreshed this often.
 const LOOK_EVERY: Duration = Duration::from_millis(125);
 
-pub const RECORD_KEY: &str = "Ctrl+Alt+Shift+C";
-pub const VOICE_KEY: &str = "Ctrl+Alt+Shift+V";
+pub const RECORD_KEY: &str = "Alt+C";
+pub const VOICE_KEY: &str = "Alt+V";
 
 pub struct CapsuleTray {
     tx: Sender<Msg>,
@@ -378,7 +378,7 @@ mod tests {
         assert_eq!(title_text(&s, later), "Context Capsule ● 12:34");
         assert_eq!(
             tooltip_text(Indicator::Recording, &s, later),
-            "● Contextualizing 12:34 — Ctrl+Alt+Shift+C to stop, Ctrl+Alt+Shift+V to talk"
+            "● Contextualizing 12:34 — Alt+C to stop, Alt+V to talk"
         );
         assert!(tooltip_text(Indicator::Listening, &s, later).starts_with("Listening"));
     }

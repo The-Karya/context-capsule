@@ -4,15 +4,21 @@ A small tray app for Windows 10 (2004+) and 11. It drives the shared engine in
 [`../core`](../core) and writes exactly the same files as the macOS app (see
 [`../../SPEC.md`](../../SPEC.md)), so the MCP server works with it unchanged.
 
-Press **Ctrl+Alt+Shift+C**: the Windows capture picker opens. Pick a window or a screen and
-recording starts; close the picker to cancel. Press Ctrl+Alt+Shift+C again to stop.
+Press **Alt+C**: the Windows capture picker opens. Pick a window or a screen and
+recording starts; close the picker to cancel. Press Alt+C again to stop.
 
 While recording, every 3 seconds it notes the front app and, **only if the front window is
 part of what you picked**, its title and text. Text comes from UI Automation (password fields
 are never read); when that gives too little (canvas apps, video, games), from Windows OCR of
 the picked content, cropped to the front window, with private app windows and notification
 toasts painted out. OCR never uses a frame from before the last app or desktop switch, and
-nothing is read while Task View or Alt-Tab is open. Only text is saved, in
+nothing is read while Task View or Alt-Tab is open.
+
+It also reads where you look: when the mouse moved or scrolled over a window on **another**
+shared screen in the last 30 seconds, that window is read too (only its new lines; never a
+private app). Those events say `"focus":"pointer"`: seen, not counted as time spent. The mouse
+is watched only while recording (a mouse hook that notes the time of moves and scrolls, nothing
+else). Only text is saved, in
 `%USERPROFILE%\.context-capsule\sessions\`. Frames stay in memory and are never written to disk.
 
 The taskbar, Start, Search, the notification and action centers, Quick Settings, Alt-Tab and
@@ -27,7 +33,8 @@ closing has a soft sound too (`"sounds": false` in config.json turns them off). 
 the time, the event count and, when a sample is skipped, why. If a recording ends with nothing
 written, a message says why. Menu: Start / Stop recording, Add / Finish voice note, Add another
 screen… (while recording: the picker again, up to 4 screens or windows; each sample uses the
-one holding the window you type in), Project (Auto-detect, your projects, New project from this
+one holding the window you type in; picking one that's already shared says "That screen is
+already shared. Pick a different one."), Project (Auto-detect, your projects, New project from this
 window… — works without a recording too), Settings, Quit.
 
 Each sample saves only the lines not already saved for that window in this recording, so long
@@ -52,10 +59,11 @@ HKCU). Each row shows a check mark when done. Connected means the extension is i
 
 | keys | does |
 |---|---|
-| Ctrl+Alt+Shift+C | start (opens the picker) / cancel the picker / stop recording (waits while a voice note listens) |
-| Ctrl+Alt+Shift+V | start / finish a voice note (only while recording) |
+| Alt+C | start (opens the picker) / cancel the picker / stop recording (waits while a voice note listens) |
+| Alt+V | start / finish a voice note (only while recording) |
 
-If another app already uses one of them, Context Capsule logs it and the tray menu still works.
+The same keys as the Mac's ⌥C / ⌥V. If another app already uses one of them, Context Capsule
+logs it, says so once at launch, and the tray menu still works.
 
 ## The yellow border
 
@@ -65,7 +73,7 @@ recording. Context Capsule leaves it on.
 
 ## Voice notes
 
-While recording, press **Ctrl+Alt+Shift+V**, talk, press it again.
+While recording, press **Alt+V**, talk, press it again.
 
 - Recognition runs on this PC with [whisper.cpp](https://github.com/ggerganov/whisper.cpp)
   (the multilingual "base" model). The first time, a dialog asks before downloading the model
@@ -132,5 +140,6 @@ cd capture-rs && cargo test -p context-capsule-windows
 | `src/tray.rs` | tray icon (drawn in code) and menu text |
 | `src/toast.rs` | fading messages near the tray |
 | `src/hotkeys.rs` | global hotkeys |
+| `src/pointer.rs` | the mouse while recording: position and last move or scroll |
 | `src/changes.rs` | when the front app or virtual desktop last changed |
 | `src/win.rs` | small Win32 helpers |

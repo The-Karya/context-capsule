@@ -1,7 +1,8 @@
 // context-capsule — windows: the system capture picker (GraphicsCapturePicker) and the captures of what the
 // user picked: one at the start, and up to 4 in all through "Add a screen" (the picker once per added
 // screen or window). The user's choice is the consent; we capture only that, keep only the latest frame of
-// each, in memory, and never write it to disk.
+// each, in memory, and never write it to disk. A screen or window that's already shared is refused (the
+// picker can't hide it).
 //! Windows draws its yellow border around what is shared; we keep it (it tells the user what is read).
 
 use context_capsule_core::{Membership, PickedContent, Rect};
@@ -224,8 +225,12 @@ mod win {
                 // A closed picker gives no item (a null result).
                 Err(e) if e.code().is_ok() => PickOutcome::Cancelled,
                 Err(e) => PickOutcome::Failed(format!("picker: {}", e.message())),
-                Ok(item) => match self.start(&mut inner, generation, item) {
-                    Ok(()) => PickOutcome::Picked,
+                Ok(item) => match item.Size().and_then(|size| Ok((describe(&item.DisplayName()?.to_string_lossy(), size), size))) {
+                    Ok((picked, _)) if adding && Membership::already_shared(&picked, &shared(&inner)) => PickOutcome::AlreadyShared,
+                    Ok((picked, size)) => match self.start(&mut inner, generation, item, picked, size) {
+                        Ok(()) => PickOutcome::Picked,
+                        Err(e) => PickOutcome::Failed(format!("capture: {}", e.message())),
+                    },
                     Err(e) => PickOutcome::Failed(format!("capture: {}", e.message())),
                 },
             };
@@ -243,11 +248,17 @@ mod win {
             self.report(outcome);
         }
 
-        fn start(self: &Arc<Self>, inner: &mut Inner, generation: u64, item: GraphicsCaptureItem) -> windows::core::Result<()> {
-            let size = item.Size()?;
+        fn start(
+            self: &Arc<Self>,
+            inner: &mut Inner,
+            generation: u64,
+            item: GraphicsCaptureItem,
+            picked: PickedContent,
+            size: SizeInt32,
+        ) -> windows::core::Result<()> {
             let id = inner.next_id.max(1);
             inner.next_id = id + 1;
-            let picked = describe(&item.DisplayName()?.to_string_lossy(), size).with_source(id);
+            let picked = picked.with_source(id);
             let device = d3d_device()?;
             let pool = Direct3D11CaptureFramePool::CreateFreeThreaded(&device, FORMAT, 2, size)?;
             let me: Weak<Capture> = Arc::downgrade(self);
@@ -352,6 +363,11 @@ mod win {
                 }
             }
         }
+    }
+
+    /// Everything shared now.
+    fn shared(inner: &Inner) -> Vec<PickedContent> {
+        inner.sources.iter().map(|s| s.picked.clone()).collect()
     }
 
     /// What was picked, placed on screen (physical pixels).

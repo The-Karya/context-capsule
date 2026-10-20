@@ -428,7 +428,7 @@ mod win {
             .find(|w| w.id == fg_id && WindowList::is_normal(w))
             .or_else(|| WindowList::front(fg_pid, &list))
             .cloned();
-        Some(Front { app_name, app_id, pid: fg_pid, window, list, overlay })
+        Some(Front { app_name, app_id, pid: fg_pid, window, list, overlay, pointer: false })
     }
 }
 

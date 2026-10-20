@@ -1,6 +1,7 @@
 // context-capsule — linux: the picker = consent. The xdg-desktop-portal ScreenCast dialog (one monitor
 // or window, cursor hidden, nothing remembered), its PipeWire stream, and what was picked, placed on screen.
-// "Add a screen" opens the dialog again: one portal session and one stream per shared source, up to 4.
+// "Add a screen" opens the dialog again: one portal session and one stream per shared source, up to 4. A
+// monitor that's already shared is refused (the dialog can't hide it).
 
 use crate::pipewire::{self, FrameSlot};
 use ashpd::desktop::screencast::{CursorMode, Screencast, SelectSourcesOptions, SourceType, Stream};
@@ -89,6 +90,21 @@ pub fn picked_content(src: &Source, monitors: &[Rect], matched: Option<u64>) -> 
         SourceKind::Monitor => PickedContent::display(monitor_rect(src, monitors)),
         SourceKind::Window => PickedContent::window(src.size_rect(), Some(matched.into_iter().collect())),
     }
+}
+
+/// Is a newly picked source already shared? Monitors are told apart by their place; a window is known
+/// only by its size here (two windows can share one), so it is never refused.
+pub fn already_shared(new: &Source, shared: &[Source]) -> bool {
+    let pick = |s: &Source| match (s.kind, s.position) {
+        (SourceKind::Monitor, Some((x, y))) => {
+            let size = s.size_rect();
+            PickedContent::display(if size.is_empty() { Rect::ZERO } else { Rect::new(x as f64, y as f64, size.width, size.height) })
+        }
+        (SourceKind::Monitor, None) => PickedContent::display(Rect::ZERO),
+        (SourceKind::Window, _) => PickedContent::window(s.size_rect(), Some(vec![])),
+    };
+    let shared: Vec<PickedContent> = shared.iter().map(pick).collect();
+    Membership::already_shared(&pick(new), &shared)
 }
 
 /// The user-facing reason a portal call failed.
@@ -287,6 +303,13 @@ impl Job {
             return self.send(PickOutcome::Failed("picker: nothing was shared".into()));
         };
         let source = Source::of(stream);
+        if self.adding {
+            let shared: Vec<Source> = self.inner.lock().unwrap().sources.iter().map(|l| l.source.clone()).collect();
+            if already_shared(&source, &shared) {
+                let _ = session.close().await;
+                return self.send(PickOutcome::AlreadyShared);
+            }
+        }
         let node = stream.pipe_wire_node_id();
         let fd = match proxy.open_pipe_wire_remote(&session, Default::default()).await {
             Ok(fd) => fd,
@@ -384,6 +407,19 @@ mod tests {
         let pick = picked_content(&t, &twins, None);
         assert_eq!(pick.style, PickStyle::Display);
         assert!(pick.rect.is_empty(), "the engine skips with unknown_display");
+    }
+
+    #[test]
+    fn already_shared_monitors_are_refused() {
+        let left = Source::from_props(Some(SourceType::Monitor), Some((0, 0)), Some((1920, 1080)));
+        let right = Source::from_props(Some(SourceType::Monitor), Some((1920, 0)), Some((1920, 1080)));
+        let shared = [left.clone()];
+        assert!(already_shared(&left, &shared), "the same monitor");
+        assert!(!already_shared(&right, &shared), "another monitor of the same size");
+        let unplaced = Source::from_props(Some(SourceType::Monitor), None, Some((1920, 1080)));
+        assert!(!already_shared(&unplaced, std::slice::from_ref(&unplaced)), "no place: can't tell, allowed");
+        let win = Source::from_props(Some(SourceType::Window), None, Some((800, 600)));
+        assert!(!already_shared(&win, std::slice::from_ref(&win)), "a window is known by size only: allowed");
     }
 
     #[test]

@@ -645,7 +645,7 @@ fn voice_not_recording() {
     assert!(r.reset_ok() || r.indicator.is_empty(), "not recording: mic never opens");
     assert!(r.outcomes == [VoiceOutcome::NotRecording] && r.outcomes[0].message(&PlatformText::MACOS) == "Start contextualizing first (⌥C)",
         "not recording message");
-    assert_eq!(r.outcomes[0].message(&PlatformText::WINDOWS), "Start contextualizing first (Ctrl+Alt+Shift+C)");
+    assert_eq!(r.outcomes[0].message(&PlatformText::WINDOWS), "Start contextualizing first (Alt+C)");
     assert!(r.notes.phase() == VoicePhase::Idle && !r.notes.engine().mic_open, "not recording: idle");
 }
 
@@ -909,6 +909,75 @@ fn several_shared_screens() {
     assert_eq!(Status { sources: 1, ..s }.add_screen_label(), "Add a screen");
 }
 
+#[test]
+fn already_shared_screens() {
+    let left = PickedContent::display(r(0.0, 0.0, 1440.0, 900.0)).with_source(1);
+    let doc = PickedContent::window(r(100.0, 100.0, 800.0, 600.0), Some(vec![7])).with_source(2);
+    let shared = [left.clone(), doc.clone()];
+    assert!(Membership::already_shared(&PickedContent::display(r(2.0, 0.0, 1440.0, 900.0)), &shared), "the same screen");
+    assert!(!Membership::already_shared(&PickedContent::display(r(1440.0, 0.0, 1920.0, 1080.0)), &shared), "another screen");
+    assert!(!Membership::already_shared(&PickedContent::display(Rect::ZERO), &shared), "a screen we can't place: allowed");
+    assert!(Membership::already_shared(&PickedContent::window(r(0.0, 0.0, 10.0, 10.0), Some(vec![7])), &shared), "the same window");
+    assert!(!Membership::already_shared(&PickedContent::window(doc.rect, Some(vec![8])), &shared), "another window, same place");
+    assert!(!Membership::already_shared(&PickedContent::window(doc.rect, Some(vec![])), &shared), "a window we can't name: allowed");
+    let by_frame = [PickedContent::window(doc.rect, None)];
+    assert!(Membership::already_shared(&PickedContent::window(doc.rect, None), &by_frame), "ids unknown: by place and size");
+    assert!(!Membership::already_shared(&PickedContent::window(left.rect, Some(vec![9])), std::slice::from_ref(&left)), "a window is not a screen");
+    assert_eq!(ALREADY_SHARED, "That screen is already shared. Pick a different one.");
+}
+
+// MARK: where you look
+
+#[test]
+fn where_you_look() {
+    let scr_a = PickedContent::display(r(0.0, 0.0, 1440.0, 900.0)).with_source(1);
+    let scr_b = PickedContent::display(r(1440.0, 0.0, 1920.0, 1080.0)).with_source(2);
+    let typing = ListedWindow::new(1, 10, r(100.0, 100.0, 800.0, 600.0));
+    let reading = ListedWindow::new(2, 20, r(1600.0, 100.0, 900.0, 700.0));
+    let now = UNIX_EPOCH + Duration::from_secs(2000);
+    let list = [typing.clone(), reading.clone()];
+    assert_eq!(PointerRule::window_at(1700.0, 300.0, &list).map(|w| w.id), Some(2), "window under the mouse");
+    assert!(PointerRule::window_at(5000.0, 300.0, &list).is_none(), "nothing under the mouse");
+    let read = |pointer: &ListedWindow, pick: Option<&PickedContent>, front_pick: Option<&PickedContent>, last: Option<SystemTime>| {
+        PointerRule::should_read(Some(pointer), pick, Some(&typing), front_pick, last, now)
+    };
+    assert!(read(&reading, Some(&scr_b), Some(&scr_a), Some(now - Duration::from_secs(5))), "reading on the other screen: read it too");
+    assert!(!read(&reading, Some(&scr_b), Some(&scr_a), Some(now - Duration::from_secs(60))), "mouse parked a minute ago: not");
+    assert!(!read(&reading, Some(&scr_b), Some(&scr_a), None), "mouse never moved: not");
+    assert!(!read(&typing, Some(&scr_a), Some(&scr_a), Some(now)), "mouse on the window in use: once is enough");
+    assert!(!read(&reading, Some(&scr_a), Some(&scr_a), Some(now)), "same screen: the window in use is enough");
+    assert!(read(&reading, Some(&scr_b), None, Some(now)), "window in use isn't shared: read where you look");
+    assert!(!read(&reading, None, Some(&scr_a), Some(now)), "mouse over a screen that isn't shared: never");
+    let pointer_event = Event {
+        t: "a".into(),
+        end: "a".into(),
+        app: "Safari".into(),
+        bundle: "s".into(),
+        title: "Docs".into(),
+        src: "ax".into(),
+        text: "x".into(),
+        focus: "pointer".into(),
+        ..Default::default()
+    };
+    assert_eq!(
+        pointer_event.line(),
+        r#"{"t":"a","end":"a","app":"Safari","bundle":"s","title":"Docs","focus":"pointer","src":"ax","text":"x"}"#,
+        "pointer event line"
+    );
+    // Rust extras: the key sits after the project, and focus keeps samples apart.
+    let with_project = Event { project: "p".into(), project_by: "auto".into(), location: "w".into(), ..pointer_event.clone() };
+    assert_eq!(
+        with_project.line(),
+        r#"{"t":"a","end":"a","app":"Safari","bundle":"s","title":"Docs","where":"w","project":"p","project_by":"auto","focus":"pointer","src":"ax","text":"x"}"#
+    );
+    assert!(!pointer_event.same_content(&Event { focus: String::new(), ..pointer_event.clone() }), "focus is part of the content");
+    assert!(PointerRule::moved(Some((10.0, 10.0)), Some((13.0, 10.0))), "moved");
+    assert!(!PointerRule::moved(Some((10.0, 10.0)), Some((11.0, 11.0))), "jitter");
+    assert!(!PointerRule::moved(None, Some((10.0, 10.0))), "first sample: nothing to compare");
+    let tiny = ListedWindow { layer: 1, ..reading.clone() };
+    assert!(PointerRule::window_at(1700.0, 300.0, &[tiny]).is_none(), "only normal windows");
+}
+
 // MARK: only what's new
 
 #[test]
@@ -941,6 +1010,8 @@ fn only_whats_new() {
     let mut w2 = w1b.clone();
     w2.title = "Other".into();
     assert!(!log.extend_if_same_window(&w2).unwrap(), "another window: not extended");
+    let w1p = Event { focus: "pointer".into(), ..w1b.clone() };
+    assert!(!log.extend_if_same_window(&w1p).unwrap(), "the same window read under the mouse: not extended");
     let lines: Vec<String> = std::fs::read_to_string(&path).unwrap().lines().map(String::from).collect();
     assert!(lines.len() == 1 && lines[0].contains(r#""end":"2026-10-19T10:00:03Z""#), "end moved in place {lines:?}");
     log.break_run();

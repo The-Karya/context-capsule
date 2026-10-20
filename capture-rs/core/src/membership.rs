@@ -216,6 +216,23 @@ impl Membership {
         picks.iter().find(|p| Self::contains(p, w))
     }
 
+    /// Is a newly picked screen or window already shared? The system pickers can't hide those, so the
+    /// platform refuses it. A display or window whose place or id is unknown is never refused.
+    pub fn already_shared(new: &PickedContent, shared: &[PickedContent]) -> bool {
+        shared.iter().any(|old| {
+            if old.style != new.style {
+                return false;
+            }
+            match new.style {
+                PickStyle::Display => !new.rect.is_empty() && Self::same_frame(&old.rect, &new.rect),
+                PickStyle::Window => match (&new.window_ids, &old.window_ids) {
+                    (Some(a), Some(b)) => !a.is_empty() && a.iter().all(|id| b.contains(id)),
+                    _ => Self::same_frame(&old.rect, &new.rect),
+                },
+            }
+        })
+    }
+
     pub fn same_frame(a: &Rect, b: &Rect) -> bool {
         if a.is_empty() || b.is_empty() {
             return false;

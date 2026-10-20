@@ -357,8 +357,8 @@ mod tests {
         let now = SystemTime::UNIX_EPOCH + Duration::from_secs(755);
         let idle = menu_model(&Status::default(), now, &t);
         assert_eq!(idle.info, "Not contextualizing");
-        assert_eq!(idle.toggle, "Start contextualizing\tCtrl+Alt+Shift+C");
-        assert_eq!(idle.voice, "Speak a note\tCtrl+Alt+Shift+V");
+        assert_eq!(idle.toggle, "Start contextualizing\tAlt+C");
+        assert_eq!(idle.voice, "Speak a note\tAlt+V");
         assert_eq!(idle.skip, None);
 
         let picking = Status { picking: true, ..Default::default() };
@@ -407,11 +407,11 @@ mod tests {
         let rec = Status { recording: true, started_at: Some(start), ..Default::default() };
         for s in [Status::default(), rec.clone(), Status { listening: true, ..Default::default() }] {
             let tip = tooltip(&s, start + Duration::from_secs(36_000));
-            assert!(tip.chars().count() <= 127 && tip.contains("Ctrl+Alt+Shift"), "{tip}");
+            assert!(tip.chars().count() <= 127 && tip.contains("Alt+"), "{tip}");
         }
         assert_eq!(
             tooltip(&rec, start + Duration::from_secs(754)),
-            "● Contextualizing 12:34 — Ctrl+Alt+Shift+C to stop, Ctrl+Alt+Shift+V to talk"
+            "● Contextualizing 12:34 — Alt+C to stop, Alt+V to talk"
         );
     }
 }

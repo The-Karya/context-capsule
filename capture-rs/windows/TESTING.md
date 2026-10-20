@@ -38,14 +38,16 @@ that step is done.
      then click **Connect** again.
 3. **Open at login**: click **Turn On**. ✅ The row shows a ✓. (To undo later:
    Settings → Apps → Startup.)
-4. The **Use** list says: Record = Ctrl+Alt+Shift+C, Talk = Ctrl+Alt+Shift+V, Make my
+4. The **Use** list says: Record = Alt+C, Talk = Alt+V, Make my
    capsules = in Claude. Click **Done**.
 5. Right-click the tray icon → **Settings** ✅ The window opens again.
    Close it.
 
 ## 2. Start and cancel
 
-1. Press **Ctrl + Alt + Shift + C**. ✅ The Windows picker opens ("choose what to share").
+1. Press **Alt + C**. ✅ The Windows picker opens ("choose what to share").
+   (If another app already uses Alt+C or Alt+V, a message says so when Context Capsule
+   starts; use the tray menu instead, and tell us which app.)
 2. Close it without choosing. ✅ Nothing is recorded. Right-click the tray icon:
    it says *Not recording*.
 3. Right-click the tray icon → **Start recording…** ✅ The picker opens again.
@@ -55,7 +57,7 @@ that step is done.
 1. In the picker, choose **one window**, e.g. a browser window with a long web page.
 2. ✅ A yellow border appears around that window (Windows shows what is shared), the
    tray circle turns **red and filled**, you hear a soft sound, and a message says
-   *● Recording started. Press Ctrl+Alt+Shift+C to stop, Ctrl+Alt+Shift+V to talk.*
+   *● Recording started. Press Alt+C to stop, Alt+V to talk.*
    Nothing else stays on screen.
 3. Hold the mouse over the tray icon. ✅ The tooltip says *● Recording 0:12 — …*, and the
    time goes up while you watch (move the mouse off and back to refresh it).
@@ -64,7 +66,7 @@ that step is done.
 6. Right-click the tray icon. ✅ The first line says *● Recording 2:05 — since … — N events*.
    While you were in the other app it should have said *Skipping: the front window is not
    in what you picked*.
-7. Press **Ctrl + Alt + Shift + C** again to stop. ✅ A soft sound, a message says
+7. Press **Alt + C** again to stop. ✅ A soft sound, a message says
    *■ Recording stopped: N events saved.* and the circle is hollow again.
 
 ## 4. Record a whole screen
@@ -93,12 +95,19 @@ that step is done.
    20 seconds. Leave the mouse pointer on the *first* screen while you type on the second.
    ✅ The tray menu shows no *Skipping* line: the screen with the window you type in is the
    one that's read, wherever the mouse is.
-4. Optional: **Add a screen** again and close the picker without choosing.
+4. Keep typing in a window on one screen, and **scroll a long page on the other screen with
+   the mouse** (without clicking it) for 20 seconds. ✅ That page is read too (part 11: its
+   lines are in `events.jsonl` with `"focus":"pointer"`). Leave the mouse still for a minute:
+   ✅ it is not read any more.
+5. **Add a screen** again and pick a screen that is **already shared**. ✅ A message says
+   *That screen is already shared. Pick a different one.* and the menu still says
+   *Add a screen (2 shared)*.
+6. Optional: **Add a screen** again and close the picker without choosing.
    ✅ Recording goes on; nothing changes.
-5. Optional: stop sharing one screen from Windows (the yellow border's sharing button, if your
+7. Optional: stop sharing one screen from Windows (the yellow border's sharing button, if your
    Windows shows one, or unplug that monitor). ✅ *A screen stopped sharing: 1 left.* and the
    recording goes on.
-6. Stop the recording.
+8. Stop the recording.
 
 ## 6. Private apps are never recorded
 
@@ -125,24 +134,24 @@ Context Capsule sorts your work into projects by itself. You can also name one.
 ## 8. Voice notes
 
 1. Start a recording (whole screen).
-2. Press **Ctrl + Alt + Shift + V**. The first time it asks to download the speech
+2. Press **Alt + V**. The first time it asks to download the speech
    model (about 148 MB, one time only). Click **Yes** and wait for *Voice notes are ready*.
-3. Press **Ctrl + Alt + Shift + V** (✅ a soft tick), then say one or two sentences about
+3. Press **Alt + V** (✅ a soft tick), then say one or two sentences about
    what you are doing and why.
    ✅ The tray icon is a **red microphone with three bars** that grow when you talk and
    shrink when you stop. Nothing else is on screen while it listens.
-4. While it is listening, press **Ctrl + Alt + Shift + C**.
-   ✅ A message says *Finish the voice note first: press Ctrl+Alt+Shift+V. Then
-   Ctrl+Alt+Shift+C stops recording.* Recording goes on.
-5. Press **Ctrl + Alt + Shift + V**. ✅ A soft sound, the icon is a red circle again, and a
+4. While it is listening, press **Alt + C**.
+   ✅ A message says *Finish the voice note first: press Alt+V. Then
+   Alt+C stops recording.* Recording goes on.
+5. Press **Alt + V**. ✅ A soft sound, the icon is a red circle again, and a
    message says *Voice note saved*.
 6. Press it again, say **nothing** for 3 seconds, press again.
    ✅ *Didn't catch that…*
 7. Optional: in Settings → Privacy & security → Microphone, turn **off** *Let desktop apps
    access your microphone*, and try a voice note. ✅ The message says the microphone is
    blocked and where to turn it on (not *Didn't catch that*). Turn it back on.
-8. Stop the recording, then press **Ctrl + Alt + Shift + V**.
-   ✅ *Start recording first (Ctrl+Alt+Shift+C)*.
+8. Stop the recording, then press **Alt + V**.
+   ✅ *Start recording first (Alt+C)*.
 
 ## 9. The evening reminder
 

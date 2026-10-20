@@ -22,6 +22,9 @@ pub struct Event {
     /// Project id, and how it was chosen: "auto" (matched a clue) or "you" (picked by the user).
     pub project: String,
     pub project_by: String,
+    /// "pointer": read because the mouse was over it on another shared screen (not the window in use).
+    /// Empty for the window in use. Pointer samples don't count as time spent.
+    pub focus: String,
 }
 
 impl Event {
@@ -45,10 +48,11 @@ impl Event {
             && self.location == o.location
             && self.project == o.project
             && self.project_by == o.project_by
+            && self.focus == o.focus
     }
 
     /// One events.jsonl line (no newline), keys in SPEC order:
-    /// t, end, [kind, src,] app, bundle, title, [where], [project, project_by], [src,] text.
+    /// t, end, [kind, src,] app, bundle, title, [where], [project, project_by], [focus], [src,] text.
     pub fn line(&self) -> String {
         let s = |v: &str| JsonValue::Str(v.to_string());
         let mut pairs = vec![("t", s(&self.t)), ("end", s(&self.end))];
@@ -61,6 +65,9 @@ impl Event {
         }
         if !self.project.is_empty() {
             pairs.extend([("project", s(&self.project)), ("project_by", s(&self.project_by))]);
+        }
+        if !self.focus.is_empty() {
+            pairs.push(("focus", s(&self.focus)));
         }
         if self.kind.is_empty() && !self.src.is_empty() {
             pairs.push(("src", s(&self.src)));
@@ -135,7 +142,7 @@ impl EventLog {
     }
 
     /// A sample with nothing new on screen: if the last event is the same window (app, title, place,
-    /// project), just move its `end` and return true. Otherwise the caller writes the sample (empty text).
+    /// project, focus), just move its `end` and return true. Otherwise the caller writes the sample (empty text).
     pub fn extend_if_same_window(&mut self, e: &Event) -> std::io::Result<bool> {
         let Some(prev) = &self.last else { return Ok(false) };
         let same = !prev.is_note()
@@ -144,7 +151,8 @@ impl EventLog {
             && prev.bundle == e.bundle
             && prev.title == e.title
             && prev.location == e.location
-            && prev.project == e.project;
+            && prev.project == e.project
+            && prev.focus == e.focus;
         if !same {
             return Ok(false);
         }

@@ -1,6 +1,6 @@
 // context-capsule — linux: X11 — the real window stack (front to back, with frames, pids and window
-// types), the active window, monitors (also through Xwayland), and a watcher thread for app switches
-// and the Ctrl+Alt+Shift+C / V key grabs.
+// types), the active window, monitors (also through Xwayland), the mouse position, and a watcher thread
+// for app switches, mouse scrolls (XInput 2 raw events: no permission, no grab) and the Alt+C / V key grabs.
 
 use crate::apps::ProcApp;
 use context_capsule_core::{ListedWindow, Msg, Rect};
@@ -10,6 +10,7 @@ use std::sync::{Arc, Mutex};
 use std::time::SystemTime;
 use x11rb::connection::Connection;
 use x11rb::protocol::randr::ConnectionExt as _;
+use x11rb::protocol::xinput::{self, ConnectionExt as _};
 use x11rb::protocol::xproto::{
     AtomEnum, ChangeWindowAttributesAux, ConnectionExt as _, EventMask, GrabMode, MapState, ModMask, Window,
 };
@@ -143,6 +144,12 @@ impl Desktop {
 
     fn u32s(&self, w: Window, atom: u32, ty: impl Into<u32>) -> Vec<u32> {
         self.prop(w, atom, ty, 64).and_then(|r| r.value32().map(|v| v.collect())).unwrap_or_default()
+    }
+
+    /// The mouse position on the root window (global, top-left origin).
+    pub fn pointer(&self) -> Option<(f64, f64)> {
+        let p = self.conn.query_pointer(self.root).ok()?.reply().ok()?;
+        p.same_screen.then_some((p.root_x as f64, p.root_y as f64))
     }
 
     pub fn active_window(&self) -> Option<Window> {
@@ -291,24 +298,44 @@ pub fn listed(windows: &[XWindow], is_excluded: &dyn Fn(Option<&str>, &str) -> b
         .collect()
 }
 
-/// Ctrl+Alt+Shift + a key.
-const HOTKEY_MODS: u16 = 0x4 | 0x8 | 0x1; // Control | Mod1 (Alt) | Shift
+/// Alt + a key, like the Mac's ⌥C / ⌥V.
+const HOTKEY_MODS: u16 = 0x8; // Mod1 (Alt)
 /// Caps Lock and Num Lock (Mod2): the grab must work with them on too.
 const LOCK_MODS: [u16; 4] = [0, 0x2, 0x10, 0x2 | 0x10];
 const XK_C: u32 = 0x63;
 const XK_V: u32 = 0x76;
 
-/// A thread on its own X connection: records app and desktop switches in `changed`, and (if
-/// `grab`) turns Ctrl+Alt+Shift+C / V into messages. Returns false if X is not there.
-pub fn spawn_watcher(changed: Arc<Mutex<Option<SystemTime>>>, tx: Sender<Msg>, grab: bool) -> bool {
-    let Some(d) = Desktop::connect() else { return false };
-    std::thread::Builder::new().name("x11-watch".into()).spawn(move || watch(d, changed, tx, grab)).is_ok()
+/// What the watcher thread shares: app and desktop switches, mouse scrolls, and (with `grab`) the hotkeys.
+pub struct Watch {
+    pub changed: Arc<Mutex<Option<SystemTime>>>,
+    pub scrolled: Arc<Mutex<Option<SystemTime>>>,
+    pub tx: Sender<Msg>,
+    pub grab: bool,
+    /// Called once with the hotkeys another app already has.
+    pub taken: Box<dyn FnOnce(Vec<&'static str>) + Send>,
 }
 
-fn watch(d: Desktop, changed: Arc<Mutex<Option<SystemTime>>>, tx: Sender<Msg>, grab: bool) {
+/// A thread on its own X connection: records app and desktop switches in `changed`, mouse scrolls in
+/// `scrolled`, and (if `grab`) turns Alt+C / V into messages. Returns false if X is not there.
+pub fn spawn_watcher(w: Watch) -> bool {
+    let Some(d) = Desktop::connect() else { return false };
+    std::thread::Builder::new().name("x11-watch".into()).spawn(move || watch(d, w)).is_ok()
+}
+
+/// Scrolls are buttons 4–7 (an XInput 2.0 client gets wheel and smooth scrolling as those).
+pub fn is_scroll(button: u32) -> bool {
+    (4..=7).contains(&button)
+}
+
+fn watch(d: Desktop, w: Watch) {
+    let Watch { changed, scrolled, tx, grab, taken } = w;
     let aux = ChangeWindowAttributesAux::new().event_mask(EventMask::PROPERTY_CHANGE);
     let _ = d.conn.change_window_attributes(d.root, &aux);
-    let keys = if grab { grab_keys(&d) } else { (None, None) };
+    let keys = if grab { grab_keys(&d) } else { (None, None, vec![]) };
+    if !keys.2.is_empty() {
+        taken(keys.2.clone());
+    }
+    watch_scrolls(&d);
     let _ = d.conn.flush();
     while let Ok(event) = d.conn.wait_for_event() {
         match event {
@@ -316,6 +343,9 @@ fn watch(d: Desktop, changed: Arc<Mutex<Option<SystemTime>>>, tx: Sender<Msg>, g
                 if e.atom == d.atoms._NET_ACTIVE_WINDOW || e.atom == d.atoms._NET_CURRENT_DESKTOP =>
             {
                 *changed.lock().unwrap() = Some(SystemTime::now());
+            }
+            Event::XinputRawButtonPress(e) if is_scroll(e.detail) => {
+                *scrolled.lock().unwrap() = Some(SystemTime::now());
             }
             Event::KeyPress(e) => {
                 let msg = if Some(e.detail) == keys.0 {
@@ -334,15 +364,28 @@ fn watch(d: Desktop, changed: Arc<Mutex<Option<SystemTime>>>, tx: Sender<Msg>, g
     }
 }
 
-/// Grab both hotkeys on the root window (also with Caps Lock / Num Lock on). Logs a taken key.
-fn grab_keys(d: &Desktop) -> (Option<u8>, Option<u8>) {
+/// Raw button presses on the root window, for scrolls. Without XInput 2: movement between samples only.
+fn watch_scrolls(d: &Desktop) {
+    let version = d.conn.xinput_xi_query_version(2, 0).ok().and_then(|c| c.reply().ok());
+    if !version.is_some_and(|v| v.major_version >= 2) {
+        eprintln!("Context Capsule: no XInput 2; the mouse is noticed between samples only");
+        return;
+    }
+    let mask = xinput::EventMask { deviceid: xinput::Device::ALL_MASTER.into(), mask: vec![xinput::XIEventMask::RAW_BUTTON_PRESS] };
+    let _ = d.conn.xinput_xi_select_events(d.root, &[mask]);
+}
+
+/// Grab both hotkeys on the root window (also with Caps Lock / Num Lock on). Logs a taken key and
+/// returns the labels of those taken.
+fn grab_keys(d: &Desktop) -> (Option<u8>, Option<u8>, Vec<&'static str>) {
     let setup = d.conn.setup();
     let (min, max) = (setup.min_keycode, setup.max_keycode);
-    let Ok(Ok(map)) = d.conn.get_keyboard_mapping(min, max - min + 1).map(|c| c.reply()) else { return (None, None) };
+    let Ok(Ok(map)) = d.conn.get_keyboard_mapping(min, max - min + 1).map(|c| c.reply()) else { return (None, None, vec![]) };
     let per = map.keysyms_per_keycode.max(1) as usize;
     let code_of = |sym: u32| map.keysyms.chunks(per).position(|syms| syms.contains(&sym)).map(|i| min + i as u8);
     let mut grabbed = [None, None];
-    for (slot, (sym, label)) in [(XK_C, "Ctrl+Alt+Shift+C"), (XK_V, "Ctrl+Alt+Shift+V")].into_iter().enumerate() {
+    let mut taken = vec![];
+    for (slot, (sym, label)) in [(XK_C, crate::tray::RECORD_KEY), (XK_V, crate::tray::VOICE_KEY)].into_iter().enumerate() {
         let Some(code) = code_of(sym) else { continue };
         let mut ok = true;
         for extra in LOCK_MODS {
@@ -362,9 +405,10 @@ fn grab_keys(d: &Desktop) -> (Option<u8>, Option<u8>) {
             grabbed[slot] = Some(code);
         } else {
             eprintln!("Context Capsule: {label} is taken by another app; use the tray menu instead");
+            taken.push(label);
         }
     }
-    (grabbed[0], grabbed[1])
+    (grabbed[0], grabbed[1], taken)
 }
 
 #[cfg(test)]
@@ -385,6 +429,13 @@ mod tests {
         assert_eq!(kind(&[], true, "Dunst"), WinKind::Notification, "known notifier");
         assert_eq!(kind(&[WinType::Panel], false, "plasmashell"), WinKind::Other);
         assert_eq!(kind(&[WinType::Popup], true, "x"), WinKind::Other);
+    }
+
+    #[test]
+    fn hotkeys_and_scrolls() {
+        assert_eq!(HOTKEY_MODS, u16::from(ModMask::M1), "Alt only");
+        assert!(is_scroll(4) && is_scroll(5) && is_scroll(6) && is_scroll(7));
+        assert!(!is_scroll(1) && !is_scroll(3) && !is_scroll(8), "clicks are not scrolls");
     }
 
     #[test]

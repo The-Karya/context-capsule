@@ -1,8 +1,8 @@
 # Context Capsule — the Linux recorder
 
-A tray app for GNOME and KDE (Wayland first, X11 too). Press **Ctrl+Alt+Shift+C**: the
+A tray app for GNOME and KDE (Wayland first, X11 too). Press **Alt+C**: the
 desktop's screen-sharing dialog opens. Pick a window or a screen and recording starts;
-close the dialog to cancel. Press Ctrl+Alt+Shift+C again to stop. It writes exactly the
+close the dialog to cancel. Press Alt+C again to stop. It writes exactly the
 same files as the macOS app (see [`../../SPEC.md`](../../SPEC.md)), driven by the shared
 engine in [`../core`](../core), so the MCP server works unchanged.
 
@@ -14,13 +14,20 @@ and are never written to disk. Password fields are never read; password managers
 private messengers (KeePassXC, Bitwarden, 1Password, Signal, WhatsApp…, plus your own
 `exclude_apps` list) are never recorded.
 
+On X11 it also reads where you look: when the mouse moved or scrolled over a window on
+**another** shared screen in the last 30 seconds, that window is read too, by OCR (only its new
+lines; never a private app). Those events say `"focus":"pointer"`: seen, not counted as time
+spent. Scrolls come from XInput 2 raw events (no permission, no grab). On Wayland no app may know
+where the mouse is, so only the focused window is read.
+
 Tray icon: hollow circle idle, filled red circle recording (the running time in its title and
 tooltip), a red microphone with bars that move with your voice while listening; nothing else on
 screen. Soft sounds when recording or the mic starts and stops (`pw-play`, `paplay` or `aplay`;
 `"sounds": false` in config.json turns them off). Menu: status line with the time, "Skipping: …"
 (why the last sample wrote nothing), Start / Stop recording, Add / Finish voice note, Add another
 screen… (while recording: the sharing dialog again, up to 4 monitors or windows, one portal
-session each; each sample uses the one holding the focused window), Quit.
+session each; each sample uses the one holding the focused window; picking a monitor that's
+already shared says "That screen is already shared. Pick a different one."), Quit.
 A session that ends with nothing written shows a message saying why. Each sample saves only the
 lines not already saved for that window in the recording (no size limit; a 100,000-character
 safety net).
@@ -85,13 +92,15 @@ Data lives in `$XDG_DATA_HOME/context-capsule` when `XDG_DATA_HOME` is set, else
 
 ## Hotkeys
 
-- **Ctrl+Alt+Shift+C** — start (opens the dialog) / cancel the dialog / stop.
-- **Ctrl+Alt+Shift+V** — start / finish a voice note (only while recording).
+- **Alt+C** — start (opens the dialog) / cancel the dialog / stop.
+- **Alt+V** — start / finish a voice note (only while recording).
+
+The same keys as the Mac's ⌥C / ⌥V.
 
 Wayland: through the GlobalShortcuts portal (GNOME 48+, KDE Plasma 6); the desktop may ask
 you once to confirm them, and you can change them in its keyboard settings. X11: grabbed
-directly. If neither works (or another app holds the keys) the log says so; use the tray
-menu.
+directly. If neither works the log says so; if another app holds a key, a message says so
+once. Either way the tray menu still works.
 
 ## Wayland and X11
 
@@ -104,10 +113,11 @@ menu.
 | App switches | AT-SPI `window:activate` | that, plus `_NET_ACTIVE_WINDOW` / desktop changes |
 | Overview | GNOME Activities and KDE Overview are detected (read nothing) | the same |
 | Hotkeys | GlobalShortcuts portal | XGrabKey |
+| Where you look (the mouse) | not read (no app may know where the mouse is) | the window under the mouse on another shared screen, by OCR |
 
 ## Voice notes
 
-While recording press Ctrl+Alt+Shift+V, talk, press it again. The microphone opens only
+While recording press Alt+V, talk, press it again. The microphone opens only
 between the presses; the audio stays in memory, is turned into text on this computer by
 whisper.cpp (multilingual "base" model) and is never written anywhere. The first time,
 Context Capsule asks before downloading the model (about 150 MB, from Hugging Face) into

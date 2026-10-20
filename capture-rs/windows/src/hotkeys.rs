@@ -1,11 +1,11 @@
-// context-capsule — windows: the global hotkeys Ctrl+Alt+Shift+C (record) and Ctrl+Alt+Shift+V (voice note).
-//! RegisterHotKey needs no permission. If another app already owns a combination, we log it and the
-//! tray menu still works.
+// context-capsule — windows: the global hotkeys Alt+C (record) and Alt+V (voice note), like the Mac's ⌥C / ⌥V.
+//! RegisterHotKey needs no permission. If another app already owns a combination, we log it, say so once,
+//! and the tray menu still works.
 
 use context_capsule_core::Msg;
 
-pub const RECORD_LABEL: &str = "Ctrl+Alt+Shift+C";
-pub const VOICE_LABEL: &str = "Ctrl+Alt+Shift+V";
+pub const RECORD_LABEL: &str = "Alt+C";
+pub const VOICE_LABEL: &str = "Alt+V";
 
 const RECORD_ID: i32 = 1;
 const VOICE_ID: i32 = 2;
@@ -19,16 +19,20 @@ pub fn msg_for(id: usize) -> Option<Msg> {
     }
 }
 
+/// Registers both hotkeys; returns the labels of those another app already has.
 #[cfg(windows)]
-pub fn register(hwnd: windows::Win32::Foundation::HWND) {
-    use windows::Win32::UI::Input::KeyboardAndMouse::{RegisterHotKey, MOD_ALT, MOD_CONTROL, MOD_NOREPEAT, MOD_SHIFT};
-    let mods = MOD_CONTROL | MOD_ALT | MOD_SHIFT | MOD_NOREPEAT;
+pub fn register(hwnd: windows::Win32::Foundation::HWND) -> Vec<&'static str> {
+    use windows::Win32::UI::Input::KeyboardAndMouse::{RegisterHotKey, MOD_ALT, MOD_NOREPEAT};
+    let mods = MOD_ALT | MOD_NOREPEAT;
+    let mut taken = vec![];
     for (id, key, label) in [(RECORD_ID, 'C', RECORD_LABEL), (VOICE_ID, 'V', VOICE_LABEL)] {
         // SAFETY: registers a hotkey for our own window.
         if unsafe { RegisterHotKey(Some(hwnd), id, mods, key as u32) }.is_err() {
             eprintln!("Context Capsule: {label} is taken by another app; use the tray menu instead");
+            taken.push(label);
         }
     }
+    taken
 }
 
 #[cfg(test)]
@@ -40,5 +44,6 @@ mod tests {
         assert_eq!(msg_for(1), Some(Msg::ToggleRecord));
         assert_eq!(msg_for(2), Some(Msg::ToggleVoice));
         assert_eq!(msg_for(3), None);
+        assert_eq!((RECORD_LABEL, VOICE_LABEL), ("Alt+C", "Alt+V"), "the Mac's ⌥C / ⌥V");
     }
 }
