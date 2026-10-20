@@ -15,6 +15,7 @@ final class PickerCapture: NSObject, SCContentSharingPickerObserver, SCStreamDel
         case added(Int)             // another screen is shared too (how many now)
         case addCancelled           // the user closed the picker when adding a screen
         case removed(Int)           // one of several shared screens stopped (how many are left)
+        case alreadyShared          // the user picked a screen or window that's already shared
     }
 
     static let maxSources = 4
@@ -227,8 +228,31 @@ final class PickerCapture: NSObject, SCContentSharingPickerObserver, SCStreamDel
         return config
     }
 
+    /// The same screen (or the same windows) as a source already shared? The picker can't hide those.
+    private func isShared(_ filter: SCContentFilter) -> Bool {
+        let displays = Screen.displays()
+        let new = Self.describe(filter, screenRect: nil, displays: displays)
+        return sources.contains { s in
+            let old = Self.describe(s.filter, screenRect: s.screenRect, displays: displays)
+            guard old.style == new.style else { return false }
+            switch new.style {
+            case .display: return !new.rect.isEmpty && Membership.sameFrame(old.rect, new.rect)
+            case .window:
+                if let a = new.windowIDs, let b = old.windowIDs { return !a.isEmpty && Set(a).isSubset(of: Set(b)) }
+                return Membership.sameFrame(old.rect, new.rect)
+            case .application: return new.pids != nil && new.pids == old.pids
+            case .unknown: return false
+            }
+        }
+    }
+
     private func startStream(_ filter: SCContentFilter) {
         let wasAdding = adding
+        if wasAdding, isShared(filter) {
+            adding = false
+            onOutcome?(.alreadyShared)
+            return
+        }
         let stream = SCStream(filter: filter, configuration: Self.configuration(for: filter), delegate: self)
         do {
             try stream.addStreamOutput(self, type: .screen, sampleHandlerQueue: frames)

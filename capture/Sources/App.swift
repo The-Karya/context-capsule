@@ -82,6 +82,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
             guard let self else { return }
             self.toast.show(text, under: self.statusItem.button, seconds: 4)
         }
+        recorder.onAlreadyShared = { [weak self] in
+            guard let self else { return }
+            self.toast.show("That screen is already shared. Pick a different one.", under: self.statusItem.button, seconds: 4)
+        }
         recorder.onBusyListening = { [weak self] in
             guard let self else { return }
             self.toast.show("Finish the voice note first: press ⌥V. Then ⌥C stops contextualizing.", under: self.statusItem.button, seconds: 4)

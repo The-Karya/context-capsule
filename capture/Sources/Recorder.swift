@@ -63,6 +63,8 @@ final class Recorder {
 
     // MARK: start / stop (main thread)
 
+    /// The user picked a screen that's already shared (main thread).
+    var onAlreadyShared: (() -> Void)?
     /// Another screen was added (true) or one of several stopped (false), with how many are shared now.
     var onScreens: ((Int, Bool) -> Void)?
     var sharedScreens: Int { capture.sourceCount }
@@ -118,6 +120,9 @@ final class Recorder {
             onScreens?(count, true)
         case .addCancelled:
             break
+        case .alreadyShared:
+            AppLog.shared.write("add a screen: picked one that's already shared")
+            onAlreadyShared?()
         case .removed(let count):
             AppLog.shared.write("a shared screen stopped: \(count) left")
             onScreens?(count, false)
