@@ -169,6 +169,9 @@ struct Config {
     var autoUpdate = true
     /// Base URL of latest.json and latest.json.sig; nil = the GitHub release (Update.defaultFeedBase).
     var updateFeed: String? = nil
+    /// "share_screens": "all" = starting shares every screen at once, with no picker (needs Screen Recording);
+    /// anything else = the picker, one screen or window.
+    var shareAllScreens = false
 
     /// Reads `{"exclude_apps": [...], "voice_locale": "en-GB"}`; a missing or broken file means defaults.
     static func load(from url: URL) -> Config {
@@ -183,7 +186,8 @@ struct Config {
                       voiceLocale: locale?.isEmpty == false ? locale : nil,
                       askProject: obj["ask_project"] as? Bool ?? false,
                       remindAt: remind, keepDays: max(0, keep), sounds: obj["sounds"] as? Bool ?? true,
-                      autoUpdate: obj["auto_update"] as? Bool ?? true, updateFeed: obj["update_feed"] as? String)
+                      autoUpdate: obj["auto_update"] as? Bool ?? true, updateFeed: obj["update_feed"] as? String,
+                      shareAllScreens: (obj["share_screens"] as? String) == "all")
     }
 }
 

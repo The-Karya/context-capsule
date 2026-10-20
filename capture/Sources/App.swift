@@ -87,6 +87,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
             guard let self else { return }
             self.toast.show(text, under: self.statusItem.button, seconds: 4)
         }
+        recorder.onNeedsScreenRecording = { [weak self] in self?.askScreenRecording() }
         recorder.onAlreadyShared = { [weak self] in
             guard let self else { return }
             self.toast.show("That screen is already shared. Pick a different one.", under: self.statusItem.button, seconds: 4)
@@ -394,6 +395,22 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         if recording != wasRecording { recording ? Cue.recordingStarted() : Cue.recordingStopped() }
         wasRecording = recording
         wasListening = listening
+    }
+
+    /// "All my screens" without Screen Recording: ask once per launch; the picker opens meanwhile.
+    private var askedScreenRecording = false
+    private func askScreenRecording() {
+        guard !askedScreenRecording else { return }
+        askedScreenRecording = true
+        _ = CGRequestScreenCaptureAccess()
+        let alert = NSAlert()
+        alert.messageText = "Allow Screen Recording"
+        alert.informativeText = "To share all your screens at once, turn on Context Capsule in Screen Recording, then quit "
+            + "and reopen it. For now, pick a screen."
+        alert.addButton(withTitle: "Open Settings")
+        alert.addButton(withTitle: "Not now")
+        NSApp.activate(ignoringOtherApps: true)
+        if alert.runModal() == .alertFirstButtonReturn { Setup.openSettings(Setup.screenRecordingPane) }
     }
 
     @objc private func toggle() { recorder.toggle() }

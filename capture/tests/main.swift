@@ -79,6 +79,11 @@ check(Config.load(from: cfgURL).excludeApps == ["com.example.app"], "config.json
 check(Config.load(from: tmp.appendingPathComponent("missing.json")).excludeApps.isEmpty, "missing config")
 try! "not json".write(to: cfgURL, atomically: true, encoding: .utf8)
 check(Config.load(from: cfgURL).excludeApps.isEmpty, "broken config")
+let shareURL = tmp.appendingPathComponent("share.json")
+try! #"{"share_screens": "all"}"#.write(to: shareURL, atomically: true, encoding: .utf8)
+check(Config.load(from: shareURL).shareAllScreens, "share_screens all")
+try! #"{"share_screens": "pick"}"#.write(to: shareURL, atomically: true, encoding: .utf8)
+check(!Config.load(from: shareURL).shareAllScreens && !Config().shareAllScreens, "the picker by default")
 
 // MARK: times
 

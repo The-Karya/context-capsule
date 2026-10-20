@@ -60,6 +60,40 @@ final class PickerCapture: NSObject, SCContentSharingPickerObserver, SCStreamDel
         SCContentSharingPicker.shared.present()
     }
 
+    /// Screens still to start after the first, when sharing all screens at once.
+    private var pendingAll: [SCContentFilter] = []
+
+    /// "All my screens": every display at once, no picker. Needs Screen Recording permission (checked by the caller).
+    func shareAllScreens() {
+        isPicking = true
+        adding = false
+        pendingAll = []
+        SCShareableContent.getExcludingDesktopWindows(false, onScreenWindowsOnly: true) { content, error in
+            DispatchQueue.main.async {
+                guard self.isPicking else { return }
+                guard let content, !content.displays.isEmpty else {
+                    self.isPicking = false
+                    self.onOutcome?(.failed("all screens: \(error?.localizedDescription ?? "no screens found")"))
+                    return
+                }
+                let me = content.applications.filter { $0.bundleIdentifier == Bundle.main.bundleIdentifier }
+                let filters = content.displays.prefix(Self.maxSources).map {
+                    SCContentFilter(display: $0, excludingApplications: me, exceptingWindows: [])
+                }
+                AppLog.shared.write("all screens: \(filters.count) display(s)")
+                self.pendingAll = Array(filters.dropFirst())
+                self.startStream(filters[0])
+            }
+        }
+    }
+
+    /// The next screen of "all my screens", once the one before it is running.
+    private func startNextOfAll() {
+        guard !pendingAll.isEmpty, isCapturing else { pendingAll = []; return }
+        adding = true
+        startStream(pendingAll.removeFirst())
+    }
+
     /// While recording: pick one more screen or window to share too.
     func presentAdd() {
         guard isCapturing, sources.count < Self.maxSources else { return }
@@ -91,6 +125,7 @@ final class PickerCapture: NSObject, SCContentSharingPickerObserver, SCStreamDel
     func stop() {
         isPicking = false
         adding = false
+        pendingAll = []
         lock.lock()
         let all = sources
         sources = []
@@ -273,9 +308,11 @@ final class PickerCapture: NSObject, SCContentSharingPickerObserver, SCStreamDel
                 } else if wasAdding {
                     self.adding = false
                     self.onOutcome?(.added(self.sources.count))
+                    self.startNextOfAll()
                 } else {
                     self.isPicking = false
                     self.onOutcome?(.picked)
+                    self.startNextOfAll()
                 }
             }
         }
@@ -286,6 +323,7 @@ final class PickerCapture: NSObject, SCContentSharingPickerObserver, SCStreamDel
             adding = false
             onOutcome?(.addCancelled)
             AppLog.shared.write("add a screen failed: \(message)")
+            startNextOfAll()
         } else {
             stop()
             onOutcome?(.failed(message))

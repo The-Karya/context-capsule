@@ -19,6 +19,7 @@ final class AppModel: ObservableObject {
     @Published var screens = 0
     @Published var canAddScreen = false
     @Published var hasSeveralScreens = false
+    @Published var allScreens = false
     /// For the personal Home.
     @Published var name = ""
     @Published var today = WorkStats.Totals()
@@ -328,7 +329,8 @@ private struct HomeView: View {
                         }
                     }
                 } else {
-                    Text("Pick the screen or window you work on. Only that is read.")
+                    Text(app.allScreens ? "Shares all your screens. Private apps are never read."
+                                        : "Pick the screen or window you work on. Only that is read.")
                         .font(.system(size: 13)).foregroundStyle(.secondary)
                 }
             }
@@ -470,6 +472,9 @@ final class Preferences: ObservableObject {
     @Published var name = ""
     /// "system", "light" or "dark".
     @Published var appearance = "system"
+    /// "When you start": the picker (false) or every screen at once (true).
+    @Published var allScreens = false
+    @Published var screenRecording = CGPreflightScreenCaptureAccess()
     @Published var autoUpdate = true
 
     /// The first word of the name, for the greeting.
@@ -504,6 +509,12 @@ final class Preferences: ObservableObject {
         }
     }
 
+    func saveAllScreens() {
+        save("share_screens", allScreens ? "all" : nil)
+        if allScreens && !CGPreflightScreenCaptureAccess() { _ = CGRequestScreenCaptureAccess() }
+        screenRecording = CGPreflightScreenCaptureAccess()
+    }
+
     func saveAppearance() {
         save("appearance", appearance == "system" ? nil : appearance)
         Self.apply(appearance)
@@ -522,6 +533,8 @@ final class Preferences: ObservableObject {
         neverRecord = c.excludeApps
         name = Self.name(from: url)
         appearance = Self.appearance(from: url)
+        allScreens = Config.load(from: url).shareAllScreens
+        screenRecording = CGPreflightScreenCaptureAccess()
         if languages.isEmpty {
             // Only languages this Mac can turn into text by itself (nothing is sent to Apple).
             languages = SFSpeechRecognizer.supportedLocales()
@@ -616,6 +629,27 @@ private struct SettingsView: View {
                     help: "Always ready in the menu bar.",
                     button: "Turn On") { Setup.setLaunchAtLogin(true); status.refresh() }
         }
+
+        Caption(text: "Screens")
+        Panel {
+            row("When you start") {
+                Picker("", selection: $prefs.allScreens) {
+                    Text("Pick a screen or window").tag(false)
+                    Text("All my screens").tag(true)
+                }
+                .labelsHidden().frame(width: 220)
+                .onChange(of: prefs.allScreens) { prefs.saveAllScreens(); app.allScreens = prefs.allScreens }
+            }
+            if prefs.allScreens && !prefs.screenRecording {
+                Divider().padding(.leading, 14)
+                row("Allow Screen Recording, then quit and reopen") {
+                    Button("Open Settings") { Setup.openSettings(Setup.screenRecordingPane) }
+                }
+            }
+        }
+        Text(prefs.allScreens ? "Every screen is shared at once, with no picker. Private apps are still never read."
+                              : "Each time, you pick what's shared. Add more screens while contextualizing.")
+            .font(.system(size: 12)).foregroundStyle(.secondary).padding(.leading, 4)
 
         Caption(text: "Look")
         Panel {
@@ -790,6 +824,7 @@ final class MainWindow: NSObject, NSWindowDelegate {
         app.weekCapsules = capsules.filter { c in c.kind != "project" && (iso.date(from: c.created).map { $0 >= weekStart } ?? false) }.count
         app.recentCapsules = Array(capsules.prefix(3))
         app.streak = WorkStats.streak(sessionIDs: (try? FileManager.default.contentsOfDirectory(atPath: paths.sessions.path)) ?? [], today: now)
+        app.allScreens = Config.load(from: paths.config).shareAllScreens
         app.name = Preferences.name(from: paths.config).split(separator: " ").first.map(String.init) ?? ""
     }
 

@@ -68,7 +68,10 @@ final class Recorder {
     /// Another screen was added (true) or one of several stopped (false), with how many are shared now.
     var onScreens: ((Int, Bool) -> Void)?
     var sharedScreens: Int { capture.sourceCount }
-    var canAddScreen: Bool { isRecording && capture.sourceCount < PickerCapture.maxSources }
+    var canAddScreen: Bool {
+        isRecording && capture.sourceCount < PickerCapture.maxSources
+            && !(Config.load(from: paths.config).shareAllScreens && capture.sourceCount >= NSScreen.screens.count)
+    }
 
     /// While recording: share one more screen or window (the picker again).
     func addScreen() {
@@ -84,10 +87,24 @@ final class Recorder {
         if isRecording { AppLog.shared.write("stop: hotkey or menu"); stop() } else if isPicking { cancelPicking() } else { start() }
     }
 
-    /// Opens the system picker. Recording begins only once the user picks something.
+    /// "All my screens" needs Screen Recording; without it, the app asks and uses the picker meanwhile.
+    var onNeedsScreenRecording: (() -> Void)?
+
+    /// Opens the system picker, or shares every screen when Settings says "All my screens".
+    /// Recording begins only once something is shared.
     func start() {
         guard !isRecording else { return }
         lastError = nil
+        if Config.load(from: paths.config).shareAllScreens, !capture.isPicking {
+            if CGPreflightScreenCaptureAccess() {
+                capture.shareAllScreens()
+                writeState()
+                onChange?()
+                return
+            }
+            AppLog.shared.write("all screens: no Screen Recording permission; using the picker")
+            onNeedsScreenRecording?()
+        }
         capture.present() // also brings an open picker back to the front
         writeState()
         onChange?()

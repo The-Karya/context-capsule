@@ -51,6 +51,7 @@ enum Setup {
 
     static let accessibilityPane = "com.apple.preference.security?Privacy_Accessibility"
     static let keyboardPane = "com.apple.Keyboard-Settings.extension"
+    static let screenRecordingPane = "com.apple.preference.security?Privacy_ScreenCapture"
 
     /// Ask for the microphone and speech recognition (the macOS prompts); open Settings if already refused.
     static func askVoice() {
