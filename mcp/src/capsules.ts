@@ -256,6 +256,25 @@ export function resolveAuthor(): string {
 
 // ---------- save / list / get ----------
 
+/** A capsule the checks refused: not a failure — Claude gets the fix list and saves again. */
+export class NotSavedYet extends Error {
+  constructor(
+    message: string,
+    readonly problems: string[],
+  ) {
+    super(message);
+  }
+}
+
+/** One line in the app's diagnostics log (app.log): kinds of problems only, never capsule text. */
+export function logLine(message: string): void {
+  try {
+    fs.appendFileSync(path.join(path.dirname(capsulesDir()), "app.log"), `${new Date().toISOString().replace(/\.\d{3}Z$/, "Z")} mcp: ${message}\n`);
+  } catch {
+    // the log is best effort
+  }
+}
+
 /** Refusals per capsule being written, so a stuck Claude ends with a draft instead of looping forever. */
 const attempts = new Map<string, number>();
 export const MAX_TRIES = 3;
@@ -313,17 +332,20 @@ export function saveCapsule(input: {
     check.errors.push(...c.errors);
     check.warnings.push(...c.warnings);
   }
-  const attemptKey = `${input.kind ?? ""}|${input.project ?? ""}|${input.date ?? ""}|${slugify(title)}`;
+  const attemptKey = `${capsulesDir()}|${input.kind ?? ""}|${input.project ?? ""}|${input.date ?? ""}|${slugify(title)}`;
   let draft = false;
   if (check.errors.length) {
     const tries = (attempts.get(attemptKey) ?? 0) + 1;
     attempts.set(attemptKey, tries);
-    if (tries < MAX_TRIES)
-      throw new Error(
+    if (tries < MAX_TRIES) {
+      logLine(`capsule not saved yet (try ${tries}): ${check.errors.map((e) => e.split(/[:.]/)[0]!.slice(0, 60)).join("; ")}`);
+      throw new NotSavedYet(
         `Not saved yet (try ${tries} of ${MAX_TRIES}). Fix these, then call save_capsule again with the whole capsule. ` +
           `Change only what this list names; keep everything else as written:\n` +
           check.errors.map((e, i) => `${i + 1}. ${e}`).join("\n"),
+        check.errors,
       );
+    }
     draft = true;
     warnings.push(`Saved as a DRAFT after ${MAX_TRIES} tries. Still to fix: ${check.errors.join(" ")}`);
   }

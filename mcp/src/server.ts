@@ -16,6 +16,7 @@ import {
 } from "./playbook.js";
 import {
   CAPSULE_EXT,
+  NotSavedYet,
   REQUIRED_SECTIONS,
   exportCapsule,
   findCapsule,
@@ -448,7 +449,14 @@ export function createServer(opts: ServerOptions = {}): McpServer {
       },
     },
     safe((args: { title: string; markdown: string; session_ids?: string[]; project?: string; kind?: "daily" | "project"; date?: string }) => {
-      const r = saveCapsule(args);
+      let r: ReturnType<typeof saveCapsule>;
+      try {
+        r = saveCapsule(args);
+      } catch (e) {
+        // A refusal is a normal step (Claude fixes and saves again), not an error to show the user in red.
+        if (e instanceof NotSavedYet) return text(e.message);
+        throw e;
+      }
       const warn = r.warnings.length ? `\nNotes:\n${r.warnings.map((w) => `- ${w}`).join("\n")}` : "";
       return text(
         `Saved "${r.front.title}" to ${r.path}\nName: ${r.slug}${warn}\n` +

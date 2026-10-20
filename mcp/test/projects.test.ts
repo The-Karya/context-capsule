@@ -233,8 +233,10 @@ describe("tools", () => {
 
   test("save_capsule refuses an incomplete capsule with what to fix", async () => {
     const r = await call("save_capsule", { title: "x", markdown: "## In short\nHi." });
-    expect(r.isError).toBe(true);
+    expect(r.isError).toBe(false); // a normal step, not a red "Failed" in the Claude app
     expect(r.text).toContain("Not saved yet");
+    expect(fs.readFileSync(path.join(home, "app.log"), "utf8")).toContain("mcp: capsule not saved yet (try 1)");
+    expect(fs.readFileSync(path.join(home, "app.log"), "utf8")).not.toContain("Hi.");
     expect(r.text).toContain('Add the section "## For Claude"');
   });
 

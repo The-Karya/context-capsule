@@ -162,6 +162,8 @@ struct Config {
     var remindAt: String? = "18:00"
     /// Raw recordings older than this many days are deleted (capsules are kept); 0 = keep forever.
     var keepDays = 30
+    /// Soft sounds when recording / the mic starts and stops.
+    var sounds = true
 
     /// Reads `{"exclude_apps": [...], "voice_locale": "en-GB"}`; a missing or broken file means defaults.
     static func load(from url: URL) -> Config {
@@ -175,7 +177,7 @@ struct Config {
         return Config(excludeApps: (obj["exclude_apps"] as? [String]) ?? [],
                       voiceLocale: locale?.isEmpty == false ? locale : nil,
                       askProject: obj["ask_project"] as? Bool ?? false,
-                      remindAt: remind, keepDays: max(0, keep))
+                      remindAt: remind, keepDays: max(0, keep), sounds: obj["sounds"] as? Bool ?? true)
     }
 }
 

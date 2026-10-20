@@ -16,7 +16,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
                                     keyEquivalent: "")
     private var hotKey: HotKey?
     private var voiceKey: HotKey?
-    private lazy var voice = VoiceNotes(engine: SpeechEngine())
+    private let speech = SpeechEngine()
+    private lazy var voice = VoiceNotes(engine: speech)
+    /// Redraws the menu-bar icon while recording (the timer) or listening (the voice bars).
+    private var iconTimer: Timer?
     private let toast = Toast()
     private let welcome = WelcomeWindow()
     private lazy var daily = DailyJobs(paths: paths) { [weak self] in self?.recorder.isRecording ?? false }
@@ -28,18 +31,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         }
         return window
     }()
-    /// Stays up the whole time a voice note listens, so it's always clear the mic is on.
-    private let listenToast = Toast()
     private var wasRecording = false
     private var wasListening = false
     private var control: ControlWatcher?
-    private var askedAccessibility = false
-    private var trustPoll: Timer?
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         try? FileManager.default.createDirectory(at: paths.sessions, withIntermediateDirectories: true)
 
-        statusItem = NSStatusBar.system.statusItem(withLength: NSStatusItem.squareLength)
+        statusItem = NSStatusBar.system.statusItem(withLength: NSStatusItem.variableLength)
         let menu = NSMenu()
         infoItem.isEnabled = false
         skipItem.isEnabled = false
@@ -115,10 +114,27 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         daily.onMake = { [weak self] in self?.makeCapsules() }
         daily.start()
 
+        // Notice when Accessibility is switched on or off (no event for it): log it and say so.
+        lastTrusted = AXReader.trusted
+        AppLog.shared.write("accessibility: \(lastTrusted ? "on" : "off") at launch")
+        trustWatch = repeating(2) { [weak self] in self?.checkTrust() }
+
         // For testing: open a window at launch.
         if CommandLine.arguments.contains("--show-library") { library.show() }
         if CommandLine.arguments.contains("--show-welcome") { welcome.show() }
         if CommandLine.arguments.contains("--show-reminder") { daily.show() }
+    }
+
+    private var lastTrusted = false
+    private var trustWatch: Timer?
+
+    private func checkTrust() {
+        let now = AXReader.trusted
+        guard now != lastTrusted else { return }
+        lastTrusted = now
+        AppLog.shared.write("accessibility: turned \(now ? "on" : "off")")
+        toast.show(now ? "✓ Reading your apps is on" : "Reading your apps is off", under: statusItem.button, seconds: 4)
+        refresh()
     }
 
     @objc private func showWelcome() { welcome.show() }
@@ -148,17 +164,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     private func refresh() {
         let recording = recorder.isRecording
         let listening = recorder.listening
-        let symbol = listening ? "mic.fill" : recording ? "circle.fill" : "circle"
-        let label = listening ? "Context Capsule: listening" : recording ? "Context Capsule: recording" : "Context Capsule"
-        var image = NSImage(systemSymbolName: symbol, accessibilityDescription: label)
-        if recording || listening {
-            // Red while recording or listening, so it's obvious at a glance.
-            image = image?.withSymbolConfiguration(NSImage.SymbolConfiguration(paletteColors: [.systemRed]))
-            image?.isTemplate = false
-        } else {
-            image?.isTemplate = true
+        drawIcon()
+        if (recording || listening) && iconTimer == nil {
+            iconTimer = repeating(1.0 / 12) { [weak self] in self?.drawIcon() }
+        } else if !recording && !listening {
+            iconTimer?.invalidate()
+            iconTimer = nil
         }
-        statusItem.button?.image = image
         announce(recording: recording, listening: listening)
         statusItem.button?.toolTip = listening ? "Listening — press ⌥V to finish the voice note"
             : recording ? "Context Capsule is recording (⌥C to stop, ⌥V for a voice note)" : "Context Capsule (⌥C to record)"
@@ -263,8 +275,43 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         refresh()
     }
 
+    /// Idle: a hollow circle. Recording: a red dot and the time ("● 12:34"). Listening: a red mic with bars
+    /// that move with your voice. All in the menu bar; nothing on the screen.
+    private func drawIcon() {
+        guard let button = statusItem.button else { return }
+        if recorder.listening {
+            let image = MenuBarLook.listening(level: speech.currentLevel)
+            image.isTemplate = false
+            button.image = image
+            button.title = ""
+            button.setAccessibilityLabel("Context Capsule: listening")
+        } else if recorder.isRecording, let since = recorder.startedAt {
+            let image = MenuBarLook.dot()
+            image.isTemplate = false
+            button.image = image
+            button.imagePosition = .imageLeading
+            let time = MenuBarLook.clock(Date().timeIntervalSince(since))
+            if button.title != " " + time {
+                button.attributedTitle = NSAttributedString(string: " " + time, attributes: [
+                    .font: NSFont.monospacedDigitSystemFont(ofSize: NSFont.systemFontSize, weight: .medium),
+                    .foregroundColor: NSColor.systemRed,
+                ])
+            }
+            button.setAccessibilityLabel("Context Capsule: recording, \(time)")
+        } else {
+            let image = NSImage(systemSymbolName: "circle", accessibilityDescription: "Context Capsule")
+            image?.isTemplate = true
+            button.image = image
+            button.title = ""
+            button.setAccessibilityLabel("Context Capsule")
+        }
+    }
+
     /// A clear message whenever recording or listening starts or stops.
     private func announce(recording: Bool, listening: Bool) {
+        if listening != wasListening { listening ? Cue.micOpened() : Cue.micClosed() }
+        if recording != wasRecording { recording ? Cue.recordingStarted() : Cue.recordingStopped() }
+
         if recording != wasRecording {
             wasRecording = recording
             if recording {
@@ -274,14 +321,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
                 toast.show("■ Recording stopped: \(n) event\(n == 1 ? "" : "s") saved.", under: statusItem.button, seconds: 4)
             }
         }
-        if listening != wasListening {
-            wasListening = listening
-            if listening {
-                listenToast.show("🎙 Listening… press ⌥V to finish", under: statusItem.button, seconds: Voice.maxSeconds + 5)
-            } else {
-                listenToast.hideNow()
-            }
-        }
+        wasListening = listening // the menu-bar icon shows listening; no banner
     }
 
     @objc private func toggle() { recorder.toggle() }
@@ -308,31 +348,19 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
 
     /// Optional. First click: the system Accessibility prompt. Later clicks: open System Settings and
     /// explain. Recording never waits for it; the check mark updates by itself once allowed.
+    /// "Turn on" for reading apps. macOS remembers the permission per app signature, so an entry left from an
+    /// older build looks switched on but doesn't count. Clear that first, then ask fresh and open the right page.
     @objc private func askAccessibility() {
         if AXReader.trusted { refresh(); return }
-        if !askedAccessibility {
-            askedAccessibility = true
-            AXReader.requestTrust()
-        } else {
-            if let url = URL(string: "x-apple.systempreferences:com.apple.preference.security?Privacy_Accessibility") {
-                NSWorkspace.shared.open(url)
-            }
-            let alert = NSAlert()
-            alert.messageText = "Allow Context Capsule in Accessibility"
-            alert.informativeText = "In System Settings → Privacy & Security → Accessibility, turn on Context Capsule. "
-                + "If it is already on but this item has no check mark (this happens after a rebuild), select it, "
-                + "click −, then add it again with +."
-            NSApp.activate(ignoringOtherApps: true)
-            alert.runModal()
-        }
-        trustPoll?.invalidate()
-        var tries = 0
-        trustPoll = repeating(1) { [weak self] in
-            tries += 1
-            if AXReader.trusted || tries > 120 {
-                self?.trustPoll?.invalidate()
-                self?.refresh()
-            }
+        let reset = Process()
+        reset.executableURL = URL(fileURLWithPath: "/usr/bin/tccutil")
+        reset.arguments = ["reset", "Accessibility", Bundle.main.bundleIdentifier ?? "com.thekarya.contextcapsule"]
+        try? reset.run()
+        reset.waitUntilExit()
+        AppLog.shared.write("accessibility: asked (old entry cleared: \(reset.terminationStatus == 0 ? "yes" : "no"))")
+        AXReader.requestTrust() // adds Context Capsule to the list and shows macOS's prompt
+        if let url = URL(string: "x-apple.systempreferences:com.apple.preference.security?Privacy_Accessibility") {
+            NSWorkspace.shared.open(url)
         }
     }
 }

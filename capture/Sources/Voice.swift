@@ -22,6 +22,7 @@ final class SpeechEngine: VoiceEngine {
     private var ended = false // the recognizer already stopped on its own (an error mid-note)
     private var firstError: NSError?
     private var buffers = 0
+    private var level: Float = 0
     private var gotFinal = false
     private var converter: AVAudioConverter?
     private var inputRate: Double = 0
@@ -73,6 +74,7 @@ final class SpeechEngine: VoiceEngine {
         ended = false
         firstError = nil
         buffers = 0
+        level = 0
         gotFinal = false
         self.converter = converter
         lock.unlock()
@@ -166,7 +168,15 @@ final class SpeechEngine: VoiceEngine {
         peak = max(peak, p)
         frames += AVAudioFramePosition(n)
         buffers += 1
+        level = p
         lock.unlock()
+    }
+
+    /// How loud the mic is right now (0…1), for the listening badge's moving bars. Never stored.
+    var currentLevel: Float {
+        lock.lock()
+        defer { lock.unlock() }
+        return level
     }
 
     private func recognized(_ result: SFSpeechRecognitionResult?, _ error: Error?) {
