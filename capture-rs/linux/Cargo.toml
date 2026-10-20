@@ -11,9 +11,12 @@ name = "context-capsule"
 path = "src/main.rs"
 
 [features]
-default = ["voice"]
+default = ["voice", "window"]
 # On-device voice notes: whisper.cpp + the microphone. Off: voice notes say they are not built in.
 voice = ["dep:whisper-rs", "dep:cpal", "dep:sha2"]
+# The Context Capsule window (Home, Capsules, Projects, Settings, Help): GTK 4.8+ and libadwaita 1.2+.
+# Off: tray and hotkeys only.
+window = ["dep:gtk", "dep:adw"]
 
 [dependencies]
 context-capsule-core = { path = "../core" }
@@ -32,3 +35,6 @@ ureq = "3"
 cpal = { version = "0.18", optional = true }
 sha2 = { version = "0.11", optional = true }
 whisper-rs = { version = "0.16", optional = true }
+serde_json = "1"
+gtk = { package = "gtk4", version = "0.11", features = ["v4_8"], optional = true }
+adw = { package = "libadwaita", version = "0.9", features = ["v1_2"], optional = true }

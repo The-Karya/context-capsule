@@ -2,8 +2,10 @@
 // hollow circle idle, filled red while recording (the running time in its title and tooltip), a red mic with
 // bars that move with the voice while listening; status, skip reason and actions. Nothing on screen.
 
+use crate::link::WindowLink;
 use crate::notify::Notifier;
 use context_capsule_core::look::{self, LEVEL_FRAMES};
+use context_capsule_core::window::OPEN_WINDOW;
 use context_capsule_core::{Indicator, Msg, ProjectItem, Status, Voice};
 use ksni::menu::{CheckmarkItem, StandardItem, SubMenu};
 use ksni::{MenuItem, TrayMethods};
@@ -21,6 +23,8 @@ pub const VOICE_KEY: &str = "Alt+V";
 pub struct CapsuleTray {
     tx: Sender<Msg>,
     notifier: Notifier,
+    /// "Open Context Capsule" (off: no window, the item is hidden).
+    window: WindowLink,
     status: Status,
     indicator: Indicator,
     /// The listening step (`look::level_frame`).
@@ -106,7 +110,19 @@ impl ksni::Tray for CapsuleTray {
         let send =
             |msg: Msg| Box::new(move |t: &mut Self| drop(t.tx.send(msg.clone()))) as Box<dyn Fn(&mut Self) + Send>;
         let skip = self.status.skip.filter(|_| self.status.recording);
-        vec![
+        let mut items: Vec<MenuItem<Self>> = vec![];
+        if self.window.is_on() {
+            items.push(
+                StandardItem {
+                    label: OPEN_WINDOW.into(),
+                    activate: Box::new(|t: &mut Self| t.window.open(None)),
+                    ..Default::default()
+                }
+                .into(),
+            );
+            items.push(MenuItem::Separator);
+        }
+        items.extend([
             StandardItem { label: info_line(&self.status, SystemTime::now(), &local_time), enabled: false, ..Default::default() }
                 .into(),
             StandardItem {
@@ -149,7 +165,8 @@ impl ksni::Tray for CapsuleTray {
             .into(),
             StandardItem { label: "Quit".into(), activate: send(Msg::Quit), ..Default::default() }
                 .into(),
-        ]
+        ]);
+        items
     }
 }
 
@@ -215,12 +232,21 @@ pub struct Tray {
     rt: Handle,
     handle: Option<ksni::Handle<CapsuleTray>>,
     look: Arc<Mutex<Look>>,
+    /// The window hears every status too (shown or not, tray or not).
+    window: WindowLink,
 }
 
 impl Tray {
     /// Show the tray icon. On GNOME this needs the AppIndicator extension; without it we log and go on.
-    pub fn spawn(rt: &Handle, tx: Sender<Msg>, notifier: Notifier) -> Tray {
-        let tray = CapsuleTray { tx, notifier, status: Status::default(), indicator: Indicator::Idle, level: 0 };
+    pub fn spawn(rt: &Handle, tx: Sender<Msg>, notifier: Notifier, window: WindowLink) -> Tray {
+        let tray = CapsuleTray {
+            tx,
+            notifier,
+            window: window.clone(),
+            status: Status::default(),
+            indicator: Indicator::Idle,
+            level: 0,
+        };
         let handle = match rt.block_on(tray.spawn()) {
             Ok(h) => Some(h),
             Err(e) => {
@@ -234,12 +260,12 @@ impl Tray {
         if let Some(h) = handle.clone() {
             rt.spawn(refresh(h, look.clone()));
         }
-        Tray { rt: rt.clone(), handle, look }
+        Tray { rt: rt.clone(), handle, look, window }
     }
 
     /// No tray (for `--probe`).
     pub fn none(rt: &Handle) -> Tray {
-        Tray { rt: rt.clone(), handle: None, look: Arc::default() }
+        Tray { rt: rt.clone(), handle: None, look: Arc::default(), window: WindowLink::off() }
     }
 
     pub fn is_shown(&self) -> bool {
@@ -248,6 +274,7 @@ impl Tray {
 
     pub fn set_status(&self, status: &Status) {
         crate::update::set_busy(status.recording || status.listening); // no update check meanwhile
+        self.window.status(status);
         self.look.lock().unwrap().status = status.clone();
         let status = status.clone();
         self.update(move |t| t.status = status);

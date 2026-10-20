@@ -20,6 +20,9 @@ pub fn autostart_dir(env: &dyn Fn(&str) -> Option<String>) -> Option<PathBuf> {
     env("HOME").map(|h| PathBuf::from(h).join(".config/autostart"))
 }
 
+/// The entry's file name.
+pub const FILE: &str = "com.thekarya.contextcapsule.desktop";
+
 /// Add the entry the first time the app runs; a marker in the data folder remembers it was done.
 pub fn install_once(data_dir: &Path, env: &dyn Fn(&str) -> Option<String>) -> Option<&'static str> {
     let marker = data_dir.join(".login-set");
@@ -28,12 +31,41 @@ pub fn install_once(data_dir: &Path, env: &dyn Fn(&str) -> Option<String>) -> Op
     }
     let _ = std::fs::create_dir_all(data_dir);
     let _ = std::fs::write(&marker, "1\n");
-    let dir = autostart_dir(env)?;
-    // From an AppImage: the AppImage file (the program inside is gone once it quits).
-    let exe = crate::appimage::launcher(env)?;
-    std::fs::create_dir_all(&dir).ok()?;
-    std::fs::write(dir.join("com.thekarya.contextcapsule.desktop"), desktop_entry(&exe.to_string_lossy())).ok()?;
+    enable(env).ok()?;
     Some("open at login: on (first launch)")
+}
+
+/// Write the entry (Settings → Open at login → Turn On).
+pub fn enable(env: &dyn Fn(&str) -> Option<String>) -> std::io::Result<()> {
+    let dir = autostart_dir(env).ok_or_else(|| std::io::Error::other("no home folder"))?;
+    // From an AppImage: the AppImage file (the program inside is gone once it quits).
+    let exe = crate::appimage::launcher(env).ok_or_else(|| std::io::Error::other("no program path"))?;
+    std::fs::create_dir_all(&dir)?;
+    std::fs::write(dir.join(FILE), desktop_entry(&exe.to_string_lossy()))
+}
+
+/// The entry is there and not turned off (`Hidden=true`, or `X-GNOME-Autostart-enabled=false`).
+#[cfg_attr(not(feature = "window"), allow(dead_code))]
+pub fn is_enabled(env: &dyn Fn(&str) -> Option<String>) -> bool {
+    autostart_dir(env).and_then(|d| std::fs::read_to_string(d.join(FILE)).ok()).is_some_and(|text| entry_enabled(&text))
+}
+
+/// Whether a desktop entry's text says it starts (the `[Desktop Entry]` group only).
+#[cfg_attr(not(feature = "window"), allow(dead_code))]
+pub fn entry_enabled(text: &str) -> bool {
+    let mut in_entry = false;
+    for line in text.lines().map(str::trim) {
+        if line.starts_with('[') {
+            in_entry = line == "[Desktop Entry]";
+            continue;
+        }
+        let Some((key, value)) = line.split_once('=') else { continue };
+        let (key, value) = (key.trim(), value.trim().to_ascii_lowercase());
+        if in_entry && ((key == "Hidden" && value == "true") || (key == "X-GNOME-Autostart-enabled" && value == "false")) {
+            return false;
+        }
+    }
+    true
 }
 
 #[cfg(test)]
@@ -64,9 +96,21 @@ mod tests {
         let env = |k: &str| (k == "HOME").then(|| home.to_string_lossy().into_owned());
         assert!(install_once(&data, &env).is_some());
         assert!(home.join(".config/autostart/com.thekarya.contextcapsule.desktop").exists());
+        assert!(is_enabled(&env));
         std::fs::remove_file(home.join(".config/autostart/com.thekarya.contextcapsule.desktop")).unwrap();
         assert!(install_once(&data, &env).is_none()); // removed by the user: stays off
         assert!(!home.join(".config/autostart/com.thekarya.contextcapsule.desktop").exists());
+        assert!(!is_enabled(&env));
+        enable(&env).unwrap();
+        assert!(is_enabled(&env), "Turn On");
         let _ = std::fs::remove_dir_all(&tmp);
+    }
+
+    #[test]
+    fn turned_off_entries() {
+        assert!(entry_enabled(&desktop_entry("/x")));
+        assert!(!entry_enabled("[Desktop Entry]\nExec=x\nHidden=true\n"));
+        assert!(!entry_enabled("[Desktop Entry]\nX-GNOME-Autostart-enabled = False\n"));
+        assert!(entry_enabled("[Desktop Entry]\nExec=x\n[Desktop Action a]\nHidden=true\n"), "other groups don't count");
     }
 }

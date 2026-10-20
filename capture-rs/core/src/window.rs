@@ -354,6 +354,13 @@ pub const CHOOSE: &str = "Choose…";
 pub const REMOVE: &str = "Remove";
 pub const UPDATES: &str = "Updates";
 pub const APPEARANCE: &str = "Appearance";
+/// Shown when "Update automatically" can't be saved (config.json not writable).
+pub const UPDATES_NOT_SAVED: &str = "Couldn't save this setting. Try again.";
+
+/// "Version 0.2.0", in Settings → Updates.
+pub fn version_line(version: &str) -> String {
+    format!("Version {version}")
+}
 
 /// One setup row: what it is, its button while not done, and a short help line.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]

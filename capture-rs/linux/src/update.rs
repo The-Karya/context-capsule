@@ -68,13 +68,13 @@ pub fn set_busy(busy: bool) {
 }
 
 /// "Update automatically" (config.json "auto_update", on by default).
-#[allow(dead_code)] // for a Settings window
+#[cfg_attr(not(feature = "window"), allow(dead_code))]
 pub fn auto_update() -> bool {
     update::Settings::load(&Paths::standard().config()).auto
 }
 
 /// Turn "Update automatically" on or off. false: config.json could not be written (it is left as it was).
-#[allow(dead_code)] // for a Settings window
+#[cfg_attr(not(feature = "window"), allow(dead_code))]
 pub fn set_auto_update(on: bool) -> bool {
     update::set_auto_update(&Paths::standard().config(), on).is_ok()
 }

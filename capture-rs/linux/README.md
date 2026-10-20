@@ -23,7 +23,7 @@ where the mouse is, so only the focused window is read.
 Tray icon: hollow circle idle, filled red circle recording (the running time in its title and
 tooltip), a red microphone with bars that move with your voice while listening; nothing else on
 screen. Soft sounds when recording or the mic starts and stops (`pw-play`, `paplay` or `aplay`;
-`"sounds": false` in config.json turns them off). Menu: status line with the time, "Skipping: …"
+`"sounds": false` in config.json turns them off). Menu: Open Context Capsule (the window, below), status line with the time, "Skipping: …"
 (why the last sample wrote nothing), Start / Stop recording, Add / Finish voice note, Add another
 screen… (while recording: the sharing dialog again, up to 4 monitors or windows, one portal
 session each; each sample uses the one holding the focused window; picking a monitor that's
@@ -31,6 +31,50 @@ already shared says "That screen is already shared. Pick a different one."), Che
 A session that ends with nothing written shows a message saying why. Each sample saves only the
 lines not already saved for that window in the recording (no size limit; a 100,000-character
 safety net).
+
+## The window
+
+Tray menu → **Open Context Capsule** (or start the app again from the app menu: the running one
+opens its window). The first launch opens it by itself on Settings (a `.window-seen` marker in the
+data folder remembers that), and so does every launch when the desktop shows no tray icon. Closing
+the window only hides it; the app keeps running in the tray. It follows the system's light or dark
+style unless Settings → Appearance says otherwise (`"appearance"` in config.json), and uses the
+system accent color.
+
+- **Home** — hello and the date; Today / This week / Streak; the status card (Start
+  contextualizing / Stop / Cancel, and while recording Speak a note and Add a screen, with the running
+  time); today's time per project; the three newest capsules. On the side (under it when the window is
+  narrow): the shortcuts, **Working on** (Find by itself, each project, New project), and
+  **Make today's capsules** (copies the request, opens Claude: Ctrl+V, then Enter).
+- **Capsules** — by project; Open, and Copy file / Copy text / Save a copy… / Show in folder.
+- **Projects** — each project and what finds it; Edit (name, clues) and Delete (asked first).
+  Saved to projects.json; the recorder reads it again by itself.
+- **Settings** — your name; Set up (Voice notes: the speech model, downloaded only after you say
+  yes; Connect Claude; Open at login), each with a check mark when done; Every day (reminder and its
+  time, deleting old recordings, sounds); the voice notes' language; Never record (apps, picked from the
+  installed ones; stored as their desktop id, e.g. `org.gnome.Calculator`); Appearance (System, Light,
+  Dark); Updates (Update automatically, the version, Check for updates). Every change is saved at once.
+- **Help** — shortcuts, how it works, privacy.
+
+Raw recordings are never shown: only time per project, counts and capsules.
+
+**Connect Claude**: Claude has no Linux app yet. If `context-capsule.mcpb` sits next to the program
+and a Claude app is the default for it, it opens there; otherwise the window shows the one line to
+run for Claude Code (`claude mcp add --scope user context-capsule -- node …/mcp/dist/index.js`, with
+the path filled in when `mcp/dist/index.js` is found next to or above the program) and a Copy button.
+It counts as connected when `~/.claude.json` or `~/.config/Claude/claude_desktop_config.json` lists a
+`context-capsule` MCP server, or `~/.config/Claude/Claude Extensions` has it.
+
+GTK runs on the main thread; the tray and the engine (each on its own thread) reach the window
+through a small link that queues on GTK's main loop. Without a display, the app runs as before,
+tray and hotkeys only. Build without the window: `cargo build --no-default-features --features voice`
+(or `--no-default-features` for neither).
+
+To try the window alone (no tray, no engine, no screen sharing; buttons that would start recording do
+nothing): `context-capsule --window-only` (Home) or `--window-only=settings` (`home`, `capsules`,
+`projects`, `settings`, `help`). It uses the normal data folder, or `CONTEXT_CAPSULE_HOME`.
+`CONTEXT_CAPSULE_WINDOW_SIZE=1100x760` opens the window at that size (for pictures of it, e.g. under
+Xvfb, where there is no window manager to resize it).
 
 Evening reminder: at 18:00 (`"remind_at"`, `false` = off), if something was recorded today and
 no capsule exists for today, it asks "Make today's capsules?" once a day (zenity / kdialog, else a
@@ -57,7 +101,7 @@ release file comes from the `appimage` job of the manual CI workflow (an artifac
 A minute after launch and then once a day (never while contextualizing or during a voice note), it
 fetches `latest.json` and its Ed25519 signature from the release feed (`"update_feed"` in
 config.json overrides it; `"auto_update": false` turns automatic checks off; **Check for updates** in
-the tray menu checks now). Signature first, then the version (only newer).
+the tray menu or in Settings → Updates checks now). Signature first, then the version (only newer).
 
 - **As an AppImage** (`$APPIMAGE` set and its folder writable): the new AppImage is downloaded next to
   it (`.<name>.new`) and checked (size and SHA-256), then *Context Capsule 0.2.0 is ready. Restart to
@@ -65,8 +109,7 @@ the tray menu checks now). Signature first, then the version (only newer).
 - **Built from source**: it only says *A new version is out: Context Capsule 0.2.0.*
 
 Any failure keeps the current version and is only logged (shown only after Check for updates). No
-network = no update, silently. Nothing about you is sent. For a settings window: `update::check_now()`,
-`update::auto_update()`, `update::set_auto_update(on)`.
+network = no update, silently. Nothing about you is sent.
 
 ## Install the dependencies
 
@@ -75,9 +118,10 @@ Debian / Ubuntu:
 ```sh
 # build
 sudo apt install build-essential pkg-config clang libclang-dev cmake \
-  libdbus-1-dev libpipewire-0.3-dev libspa-0.2-dev libasound2-dev
+  libdbus-1-dev libpipewire-0.3-dev libspa-0.2-dev libasound2-dev \
+  libgtk-4-dev libadwaita-1-dev      # the window: GTK 4.8+, libadwaita 1.2+ (Debian 12, Ubuntu 22.10+)
 # run
-sudo apt install xdg-desktop-portal pipewire at-spi2-core tesseract-ocr zenity
+sudo apt install xdg-desktop-portal pipewire at-spi2-core tesseract-ocr zenity libgtk-4-1 libadwaita-1-0
 sudo apt install xdg-desktop-portal-gnome gnome-shell-extension-appindicator   # GNOME
 sudo apt install xdg-desktop-portal-kde                                        # KDE
 ```
@@ -85,8 +129,9 @@ sudo apt install xdg-desktop-portal-kde                                        #
 Fedora:
 
 ```sh
-sudo dnf install gcc-c++ pkgconf clang clang-devel cmake dbus-devel pipewire-devel alsa-lib-devel
-sudo dnf install xdg-desktop-portal pipewire at-spi2-core tesseract zenity
+sudo dnf install gcc-c++ pkgconf clang clang-devel cmake dbus-devel pipewire-devel alsa-lib-devel \
+  gtk4-devel libadwaita-devel
+sudo dnf install xdg-desktop-portal pipewire at-spi2-core tesseract zenity gtk4 libadwaita
 sudo dnf install xdg-desktop-portal-gnome gnome-shell-extension-appindicator   # GNOME
 sudo dnf install xdg-desktop-portal-kde                                        # KDE
 ```

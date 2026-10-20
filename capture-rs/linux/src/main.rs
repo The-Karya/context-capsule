@@ -1,14 +1,18 @@
 // context-capsule — linux: the Linux recorder — tray, hotkeys and portal on a small async runtime; the
-// shared core engine on its own thread, fed through one message channel. Writes the same files as macOS.
+// shared core engine on its own thread, fed through one message channel; the window (GTK) on the main
+// thread. Writes the same files as macOS.
 
 mod apps;
 mod appimage;
 mod autostart;
 mod atspi_front;
 mod atspi_text;
+#[cfg(any(feature = "window", test))]
+mod connect;
 mod desktop;
 mod hotkeys;
 mod net;
+mod link;
 #[cfg(feature = "voice")]
 mod model;
 mod notify;
@@ -20,11 +24,16 @@ mod probe;
 mod reminder;
 mod tray;
 mod update;
+#[cfg(any(feature = "window", test))]
+mod ui;
 mod voice;
+#[cfg(feature = "window")]
+mod window;
 mod x11;
 
 use context_capsule_core::{Engine, Msg, Options, Paths, PlatformText, VoiceEngine};
 use desktop::{Overview, SessionKind};
+use link::WindowLink;
 use std::sync::{mpsc, Arc, Mutex};
 use std::time::Duration;
 
@@ -49,9 +58,29 @@ pub fn os_locale(env: &dyn Fn(&str) -> Option<String>) -> String {
 fn main() {
     let paths = Paths::standard();
     let env = |k: &str| std::env::var(k).ok();
+    let args: Vec<String> = std::env::args().collect();
     let session = SessionKind::detect(&env);
     let locale = os_locale(&env);
-    let probe = std::env::args().any(|a| a == "--probe");
+    #[cfg(feature = "window")]
+    if let Some(section) = ui::window_only_arg(&args) {
+        std::process::exit(window::run_alone(paths, section, locale));
+    }
+    let probe = args.iter().any(|a| a == "--probe");
+
+    // The window's GTK lives on this (main) thread. Start it first: if Context Capsule is already running,
+    // this only opens that one's window.
+    #[cfg(feature = "window")]
+    let gtk = if probe { None } else { window::Gtk::start() };
+    #[cfg(feature = "window")]
+    if gtk.as_ref().is_some_and(window::Gtk::is_remote) {
+        eprintln!("Context Capsule is already running: opened its window");
+        return;
+    }
+    #[cfg(feature = "window")]
+    let link = gtk.as_ref().map_or_else(WindowLink::off, window::Gtk::link);
+    #[cfg(not(feature = "window"))]
+    let link = WindowLink::off();
+
     if !probe {
         if let Some(line) = autostart::install_once(&paths.root, &env) {
             eprintln!("Context Capsule: {line}");
@@ -78,10 +107,24 @@ fn main() {
     let changed = Arc::new(Mutex::new(None));
     let scrolled = Arc::new(Mutex::new(None));
     let notifier = notify::Notifier::new(handle.clone());
-    let tray = if probe { tray::Tray::none(&handle) } else { tray::Tray::spawn(&handle, tx.clone(), notifier.clone()) };
+    let tray = if probe {
+        tray::Tray::none(&handle)
+    } else {
+        tray::Tray::spawn(&handle, tx.clone(), notifier.clone(), link.clone())
+    };
     if !probe && !tray.is_shown() {
         notifier.toast("Context Capsule is running, but this desktop shows no tray icon (on GNOME, install the AppIndicator extension). Use the hotkeys: Alt+C to start contextualizing.");
     }
+    // The window opens by itself on the first launch (on Settings), and when there is no tray to open it from.
+    #[cfg(feature = "window")]
+    let open_at_start = match (link.is_on(), ui::first_launch(&paths.root), tray.is_shown()) {
+        (false, _, _) => None,
+        (true, true, _) => Some(context_capsule_core::window::Section::Settings),
+        (true, false, false) => Some(context_capsule_core::window::Section::Home),
+        (true, false, true) => None,
+    };
+    #[cfg(feature = "window")]
+    let ui_paths = paths.clone();
     if !probe {
         hotkeys::start(&handle, session, tx.clone(), changed.clone(), scrolled.clone(), notifier.clone());
         update::start(&paths, notifier.clone(), tx.clone());
@@ -149,6 +192,9 @@ fn main() {
     let wake = tx.clone();
     let root = paths.root.clone();
     let engine_rt = handle.clone();
+    let engine_done = link.clone();
+    #[cfg(feature = "window")]
+    let ui_locale = locale.clone();
     let engine = std::thread::Builder::new().name("engine".into()).spawn(move || {
         let voice: Box<dyn VoiceEngine> = make_voice(root, notifier.clone());
         let config = paths.config();
@@ -161,7 +207,13 @@ fn main() {
         }));
         engine.run(rx);
         engine.platform().tray.shutdown();
+        engine_done.quit(); // the window's loop returns
     });
+    // The window: GTK's loop runs here until the engine stops (Quit, Ctrl+C). Closing the window only hides it.
+    #[cfg(feature = "window")]
+    if let (Some(gtk), true) = (gtk, engine.is_ok()) {
+        gtk.run(window::Setup { paths: ui_paths, tx: tx.clone(), open: open_at_start, locale: ui_locale });
+    }
     drop(tx);
     match engine {
         Ok(t) => {

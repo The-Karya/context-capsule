@@ -4,6 +4,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
       pkg-config clang libclang-dev cmake \
       libdbus-1-dev libpipewire-0.3-dev libspa-0.2-dev \
       libasound2-dev libx11-dev libxcb1-dev libxkbcommon-dev \
+      libgtk-4-dev libadwaita-1-dev \
       tesseract-ocr tesseract-ocr-eng \
       xvfb at-spi2-core dbus-x11 \
     && rm -rf /var/lib/apt/lists/*
