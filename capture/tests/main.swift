@@ -637,6 +637,16 @@ check(Cleanup.oldSessions(["20260918-090000", "20260919-000000", "20261019-10000
       == ["20260918-090000"], "sessions older than 30 days", "\(Cleanup.oldSessions(["20260918-090000", "20260919-000000"], keepDays: 30, now: cleanupNow, timeZone: utc))")
 check(Cleanup.oldSessions(["20200101-000000"], keepDays: 0, now: cleanupNow).isEmpty, "keep forever")
 
+// MARK: several shared screens
+
+let leftScreen = PickedContent(style: .display, rect: CGRect(x: 0, y: 0, width: 1440, height: 900), source: 1)
+let rightScreen = PickedContent(style: .display, rect: CGRect(x: 1440, y: 48, width: 1920, height: 1080), source: 2)
+let onRight = WindowInfo(id: 7, pid: 1, frame: CGRect(x: 1500, y: 100, width: 800, height: 600))
+let onLeft = WindowInfo(id: 8, pid: 1, frame: CGRect(x: 100, y: 100, width: 800, height: 600))
+check(Membership.pick(for: onRight, in: [leftScreen, rightScreen])?.source == 2, "the screen holding the window in front")
+check(Membership.pick(for: onLeft, in: [leftScreen, rightScreen])?.source == 1, "the other screen")
+check(Membership.pick(for: onRight, in: [leftScreen]) == nil, "window on a screen that isn't shared: not recorded")
+
 try? FileManager.default.removeItem(at: tmp)
 print("\(passes) passed, \(failures) failed")
 exit(failures == 0 ? 0 : 1)

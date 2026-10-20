@@ -61,6 +61,17 @@ final class Recorder {
 
     // MARK: start / stop (main thread)
 
+    /// Another screen was added (true) or one of several stopped (false), with how many are shared now.
+    var onScreens: ((Int, Bool) -> Void)?
+    var sharedScreens: Int { capture.sourceCount }
+    var canAddScreen: Bool { isRecording && capture.sourceCount < PickerCapture.maxSources }
+
+    /// While recording: share one more screen or window (the picker again).
+    func addScreen() {
+        guard canAddScreen else { return }
+        capture.presentAdd()
+    }
+
     /// A voice note is open: ⌥C waits until it's finished (⌥V), so one key never ends both.
     var onBusyListening: (() -> Void)?
 
@@ -100,6 +111,14 @@ final class Recorder {
             AppLog.shared.write(message.map { "stop: capture error: \($0)" } ?? "stop: sharing was stopped from macOS")
             endSession(wait: false)
             lastError = message.map { "capture: \($0)" }
+        case .added(let count):
+            AppLog.shared.write("screen added: \(count) shared")
+            onScreens?(count, true)
+        case .addCancelled:
+            break
+        case .removed(let count):
+            AppLog.shared.write("a shared screen stopped: \(count) left")
+            onScreens?(count, false)
         }
         writeState()
         onChange?()
@@ -337,9 +356,13 @@ final class Recorder {
             return skip(.overlay, log)
         }
         guard let window = front.window else { return skip(.noWindow, log) }
-        guard let pick = capture.pickedContent() else { return skip(.notPicked, log) }
-        if pick.style == .display && pick.rect.isEmpty { return skip(.unknownDisplay, log) }
-        guard Membership.contains(pick, window.info) else { return skip(.notPicked, log) }
+        // Several screens can be shared: use the one holding the window in front (keyboard focus, not the mouse).
+        let picks = capture.pickedContents()
+        guard !picks.isEmpty else { return skip(.notPicked, log) }
+        guard let pick = Membership.pick(for: window.info, in: picks) else {
+            let unknown = picks.contains { $0.style == .display && $0.rect.isEmpty }
+            return skip(unknown ? .unknownDisplay : .notPicked, log)
+        }
 
         sampling = true
         reloadProjects()
@@ -357,10 +380,12 @@ final class Recorder {
             let source = AXText.choose(trusted: AXReader.trusted, axText: axText)
             var text = axText
             if source == .ocr {
-                guard let frame = capture.latestFrame(), Freshness.ok(frameAt: frame.at, changedAt: changedAt) else {
+                guard let frame = capture.latestFrame(source: pick.source),
+                      Freshness.ok(frameAt: frame.at, changedAt: changedAt) else {
                     log.breakRun(); outcome = .waitingFrame; return
                 }
-                switch Membership.ocrDecision(capture.pickedContent() ?? pick, front: window, list: front.list) {
+                let current = capture.pickedContents().first { $0.source == pick.source } ?? pick
+                switch Membership.ocrDecision(current, front: window, list: front.list) {
                 case .skip(let why):
                     log.breakRun(); outcome = why; return
                 case .read(let region, let masks):

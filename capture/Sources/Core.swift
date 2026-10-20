@@ -370,6 +370,16 @@ struct PickedContent: Equatable {
     var rect: CGRect
     var windowIDs: [UInt32]? = nil
     var pids: [Int32]? = nil
+    /// Which shared screen/window this is, when several are shared (one stream each).
+    var source = 0
+}
+
+extension Membership {
+    /// The shared content that holds the window in front, when several screens or windows are shared. The
+    /// window with keyboard focus decides — not the mouse: people type on one screen with the pointer on another.
+    static func pick(for w: WindowInfo, in picks: [PickedContent]) -> PickedContent? {
+        picks.first { contains($0, w) }
+    }
 }
 
 /// The frontmost window: CGWindowList id, owner pid, frame in global points (top-left origin).

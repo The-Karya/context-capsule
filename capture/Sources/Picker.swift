@@ -1,6 +1,6 @@
-// context-capsule — capture: the macOS system picker (SCContentSharingPicker). The user chooses a window
-// or a display; we capture only that, through one SCStream at most one frame per second. Because the user
-// picked the content, macOS asks for no Screen Recording permission. Frames stay in memory.
+// context-capsule — capture: the macOS system picker (SCContentSharingPicker). The user chooses a window or a
+// display — and can add more screens (up to 4), one stream each, at most one frame per second each. Because the
+// user picked the content, macOS asks for no Screen Recording permission. Frames stay in memory.
 
 import AppKit
 import CoreMedia
@@ -11,28 +11,64 @@ final class PickerCapture: NSObject, SCContentSharingPickerObserver, SCStreamDel
         case picked                 // the user chose content and the stream is running
         case cancelled              // the user closed the picker
         case failed(String)         // the picker or the stream could not start
-        case stopped(String?)       // the stream ended on its own (nil: the user stopped sharing in macOS)
+        case stopped(String?)       // every stream ended (nil: the user stopped sharing in macOS)
+        case added(Int)             // another screen is shared too (how many now)
+        case addCancelled           // the user closed the picker when adding a screen
+        case removed(Int)           // one of several shared screens stopped (how many are left)
     }
+
+    static let maxSources = 4
 
     /// Called on the main thread.
     var onOutcome: ((Outcome) -> Void)?
 
     private(set) var isPicking = false
-    var isCapturing: Bool { stream != nil }
+    private var adding = false
+    var isCapturing: Bool { !sources.isEmpty }
+    var sourceCount: Int { sources.count }
 
-    private var stream: SCStream?
-    private var filter: SCContentFilter?
+    /// One shared screen or window: its stream, what was picked, and its latest frame.
+    private final class Source {
+        let id: Int
+        let stream: SCStream
+        var filter: SCContentFilter
+        var latest: CVPixelBuffer?
+        var latestAt: Date?
+        var screenRect: CGRect?
+        init(id: Int, stream: SCStream, filter: SCContentFilter) {
+            self.id = id
+            self.stream = stream
+            self.filter = filter
+        }
+    }
+
+    private var sources: [Source] = [] // changed on the main thread, read under `lock`
+    private var nextID = 1
     private var observing = false
     private let frames = DispatchQueue(label: "com.thekarya.contextcapsule.frames")
     private let lock = NSLock()
-    private var latest: CVPixelBuffer?
-    private var latestAt: Date?
-    private var latestScreenRect: CGRect?
 
     // MARK: main thread
 
     /// Show the system picker (or bring it back to the front if it is already open).
     func present() {
+        configurePicker()
+        isPicking = true
+        adding = false
+        NSApp.activate(ignoringOtherApps: true)
+        SCContentSharingPicker.shared.present()
+    }
+
+    /// While recording: pick one more screen or window to share too.
+    func presentAdd() {
+        guard isCapturing, sources.count < Self.maxSources else { return }
+        configurePicker()
+        adding = true
+        NSApp.activate(ignoringOtherApps: true)
+        SCContentSharingPicker.shared.present()
+    }
+
+    private func configurePicker() {
         let picker = SCContentSharingPicker.shared
         if !observing {
             picker.add(self)
@@ -46,57 +82,57 @@ final class PickerCapture: NSObject, SCContentSharingPickerObserver, SCStreamDel
         config.excludedBundleIDs = [Bundle.main.bundleIdentifier ?? "com.thekarya.contextcapsule"]
         config.allowsChangingSelectedContent = true
         picker.defaultConfiguration = config
-        picker.maximumStreamCount = 1
+        picker.maximumStreamCount = Self.maxSources
         picker.isActive = true
-        isPicking = true
-        NSApp.activate(ignoringOtherApps: true)
-        picker.present()
     }
 
-    /// Stop capturing and take the picker down. Safe to call in any state.
+    /// Stop every stream and take the picker down. Safe to call in any state.
     func stop() {
         isPicking = false
-        if let stream { stream.stopCapture { _ in } }
-        stream = nil
-        filter = nil
+        adding = false
         lock.lock()
-        latest = nil
-        latestAt = nil
-        latestScreenRect = nil
+        let all = sources
+        sources = []
         lock.unlock()
+        for s in all { s.stream.stopCapture { _ in } }
         SCContentSharingPicker.shared.isActive = false
     }
 
     // MARK: any thread
 
-    /// What the user picked, placed on screen as of the latest frame.
-    func pickedContent() -> PickedContent? {
-        guard let filter = currentFilter() else { return nil }
+    /// Everything shared, placed on screen as of each source's latest frame.
+    func pickedContents() -> [PickedContent] {
         lock.lock()
-        let screenRect = latestScreenRect
+        let snapshot = sources.map { ($0.id, $0.filter, $0.screenRect) }
         lock.unlock()
-        return Self.describe(filter, screenRect: screenRect, displays: Screen.displays())
+        let displays = Screen.displays()
+        return snapshot.map { id, filter, rect in
+            var pick = Self.describe(filter, screenRect: rect, displays: displays)
+            pick.source = id
+            return pick
+        }
     }
 
-    /// The latest frame and when it arrived. Frames only arrive when the picked content changes, so
+    /// The first shared content (for logs).
+    func pickedContent() -> PickedContent? { pickedContents().first }
+
+    /// The latest frame of one source and when it arrived. Frames only arrive when that content changes, so
     /// right after an app switch it may still show the previous app (see `Freshness`).
-    func latestFrame() -> (buffer: CVPixelBuffer, at: Date)? {
+    func latestFrame(source: Int) -> (buffer: CVPixelBuffer, at: Date)? {
         lock.lock()
         defer { lock.unlock() }
-        guard let latest, let latestAt else { return nil }
-        return (latest, latestAt)
+        guard let s = sources.first(where: { $0.id == source }), let latest = s.latest, let at = s.latestAt else { return nil }
+        return (latest, at)
     }
 
     /// Title of a picked window, when macOS tells us which windows were picked (15.2+).
     func pickedWindowTitle(id: UInt32) -> String? {
-        guard #available(macOS 15.2, *), let filter = currentFilter() else { return nil }
-        return filter.includedWindows.first { $0.windowID == id }?.title
-    }
-
-    private func currentFilter() -> SCContentFilter? {
+        guard #available(macOS 15.2, *) else { return nil }
         lock.lock()
-        defer { lock.unlock() }
-        return filter
+        let filters = sources.map(\.filter)
+        lock.unlock()
+        for f in filters { if let w = f.includedWindows.first(where: { $0.windowID == id }) { return w.title } }
+        return nil
     }
 
     /// For a display, `rect` is its global frame (empty if unknown: then nothing is read).
@@ -129,9 +165,15 @@ final class PickerCapture: NSObject, SCContentSharingPickerObserver, SCStreamDel
     func contentSharingPicker(_ picker: SCContentSharingPicker, didCancelFor stream: SCStream?) {
         DispatchQueue.main.async {
             // Cancelling a change to a running stream keeps the old selection.
-            guard stream == nil, self.isPicking else { return }
+            guard stream == nil else { return }
+            if self.adding {
+                self.adding = false
+                self.onOutcome?(.addCancelled)
+                return
+            }
+            guard self.isPicking else { return }
             self.isPicking = false
-            SCContentSharingPicker.shared.isActive = false
+            if self.sources.isEmpty { SCContentSharingPicker.shared.isActive = false }
             self.onOutcome?(.cancelled)
         }
     }
@@ -139,12 +181,17 @@ final class PickerCapture: NSObject, SCContentSharingPickerObserver, SCStreamDel
     func contentSharingPicker(_ picker: SCContentSharingPicker, didUpdateWith filter: SCContentFilter,
                               for stream: SCStream?) {
         DispatchQueue.main.async {
-            if let stream, stream === self.stream {
-                // The user changed the selection from the menu-bar sharing icon.
-                self.setFilter(filter)
+            if let stream, let source = self.sources.first(where: { $0.stream === stream }) {
+                // The user changed one selection from the menu-bar sharing icon.
+                self.lock.lock()
+                source.filter = filter
+                source.latest = nil
+                source.latestAt = nil
+                source.screenRect = nil
+                self.lock.unlock()
                 stream.updateContentFilter(filter) { _ in }
                 stream.updateConfiguration(Self.configuration(for: filter)) { _ in }
-            } else if self.isPicking, self.stream == nil {
+            } else if stream == nil, self.isPicking || self.adding {
                 self.startStream(filter)
             }
         }
@@ -152,14 +199,19 @@ final class PickerCapture: NSObject, SCContentSharingPickerObserver, SCStreamDel
 
     func contentSharingPickerStartDidFailWithError(_ error: Error) {
         DispatchQueue.main.async {
+            if self.adding {
+                self.adding = false
+                self.onOutcome?(.addCancelled)
+                return
+            }
             guard self.isPicking else { return }
             self.isPicking = false
-            SCContentSharingPicker.shared.isActive = false
+            if self.sources.isEmpty { SCContentSharingPicker.shared.isActive = false }
             self.onOutcome?(.failed("picker: \(error.localizedDescription)"))
         }
     }
 
-    // MARK: stream
+    // MARK: streams
 
     private static func configuration(for filter: SCContentFilter) -> SCStreamConfiguration {
         let config = SCStreamConfiguration()
@@ -175,30 +227,28 @@ final class PickerCapture: NSObject, SCContentSharingPickerObserver, SCStreamDel
         return config
     }
 
-    private func setFilter(_ filter: SCContentFilter?) {
-        lock.lock()
-        self.filter = filter
-        latest = nil
-        latestAt = nil
-        latestScreenRect = nil
-        lock.unlock()
-    }
-
     private func startStream(_ filter: SCContentFilter) {
+        let wasAdding = adding
         let stream = SCStream(filter: filter, configuration: Self.configuration(for: filter), delegate: self)
         do {
             try stream.addStreamOutput(self, type: .screen, sampleHandlerQueue: frames)
         } catch {
-            fail("capture: \(error.localizedDescription)")
-            return
+            return failStart("capture: \(error.localizedDescription)", adding: wasAdding)
         }
-        setFilter(filter)
-        self.stream = stream
+        let source = Source(id: nextID, stream: stream, filter: filter)
+        nextID += 1
+        lock.lock()
+        sources.append(source)
+        lock.unlock()
         stream.startCapture { error in
             DispatchQueue.main.async {
-                guard self.stream === stream else { return }
+                guard self.sources.contains(where: { $0 === source }) else { return }
                 if let error {
-                    self.fail("capture: \(error.localizedDescription)")
+                    self.drop(source)
+                    self.failStart("capture: \(error.localizedDescription)", adding: wasAdding)
+                } else if wasAdding {
+                    self.adding = false
+                    self.onOutcome?(.added(self.sources.count))
                 } else {
                     self.isPicking = false
                     self.onOutcome?(.picked)
@@ -207,14 +257,31 @@ final class PickerCapture: NSObject, SCContentSharingPickerObserver, SCStreamDel
         }
     }
 
-    private func fail(_ message: String) {
-        stop()
-        onOutcome?(.failed(message))
+    private func failStart(_ message: String, adding wasAdding: Bool) {
+        if wasAdding {
+            adding = false
+            onOutcome?(.addCancelled)
+            AppLog.shared.write("add a screen failed: \(message)")
+        } else {
+            stop()
+            onOutcome?(.failed(message))
+        }
+    }
+
+    private func drop(_ source: Source) {
+        lock.lock()
+        sources.removeAll { $0 === source }
+        lock.unlock()
     }
 
     func stream(_ stream: SCStream, didStopWithError error: Error) {
         DispatchQueue.main.async {
-            guard self.stream === stream else { return }
+            guard let source = self.sources.first(where: { $0.stream === stream }) else { return }
+            self.drop(source)
+            if !self.sources.isEmpty {
+                self.onOutcome?(.removed(self.sources.count))
+                return
+            }
             let userStopped = (error as NSError).code == SCStreamError.userStopped.rawValue
             self.stop()
             self.onOutcome?(.stopped(userStopped ? nil : error.localizedDescription))
@@ -231,9 +298,11 @@ final class PickerCapture: NSObject, SCContentSharingPickerObserver, SCStreamDel
         var screenRect: CGRect?
         if let dict = info[.screenRect] as? NSDictionary { screenRect = CGRect(dictionaryRepresentation: dict) }
         lock.lock()
-        latest = buffer
-        latestAt = Date()
-        if let screenRect, !screenRect.isEmpty { latestScreenRect = screenRect }
+        if let source = sources.first(where: { $0.stream === stream }) {
+            source.latest = buffer
+            source.latestAt = Date()
+            if let screenRect, !screenRect.isEmpty { source.screenRect = screenRect }
+        }
         lock.unlock()
     }
 }

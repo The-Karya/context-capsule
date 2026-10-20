@@ -10,6 +10,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     private let infoItem = NSMenuItem(title: "", action: nil, keyEquivalent: "")
     private let skipItem = NSMenuItem(title: "", action: nil, keyEquivalent: "")
     private let toggleItem = NSMenuItem(title: "", action: #selector(toggle), keyEquivalent: "c")
+    private let addScreenItem = NSMenuItem(title: "Add another screen…", action: #selector(addScreen), keyEquivalent: "")
     private let projectItem = NSMenuItem(title: "Project: Auto-detect", action: nil, keyEquivalent: "")
     private let voiceItem = NSMenuItem(title: "Add voice note", action: #selector(toggleVoice), keyEquivalent: "v")
     private let axItem = NSMenuItem(title: "Read text directly (Accessibility)…", action: #selector(askAccessibility),
@@ -49,6 +50,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         menu.addItem(.separator())
         menu.addItem(toggleItem)
         menu.addItem(voiceItem)
+        menu.addItem(addScreenItem)
         projectItem.submenu = NSMenu()
         menu.addItem(projectItem)
         menu.addItem(.separator())
@@ -72,6 +74,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
             self.toast.show("Project: \(project?.name ?? "not sure yet")", under: self.statusItem.button, seconds: 3)
         }
         recorder.reloadProjects(force: true)
+        recorder.onScreens = { [weak self] count, added in
+            guard let self else { return }
+            self.toast.show(added ? "Screen added: \(count) screens shared." : "A screen stopped sharing: \(count) left.",
+                            under: self.statusItem.button, seconds: 3)
+            self.refresh()
+        }
         recorder.onBusyListening = { [weak self] in
             guard let self else { return }
             self.toast.show("Finish the voice note first: press ⌥V. Then ⌥C stops recording.", under: self.statusItem.button, seconds: 4)
@@ -139,6 +147,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
 
     @objc private func showWelcome() { welcome.show() }
 
+    @objc private func addScreen() { recorder.addScreen() }
+
     @objc private func showLibrary() { library.show() }
 
     /// Opens the Claude app with "Make my capsules for today." typed in; stop recording first if it's on.
@@ -175,6 +185,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         statusItem.button?.toolTip = listening ? "Listening — press ⌥V to finish the voice note"
             : recording ? "Context Capsule is recording (⌥C to stop, ⌥V for a voice note)" : "Context Capsule (⌥C to record)"
         voiceItem.title = listening ? "Finish voice note" : "Add voice note"
+        addScreenItem.isHidden = !recording || NSScreen.screens.count < 2
+        addScreenItem.isEnabled = recorder.canAddScreen
+        addScreenItem.title = recorder.sharedScreens > 1 ? "Add another screen… (\(recorder.sharedScreens) shared)" : "Add another screen…"
         buildProjectMenu()
 
         if let id = recorder.sessionID, let started = recorder.startedAt {
@@ -315,7 +328,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         if recording != wasRecording {
             wasRecording = recording
             if recording {
-                toast.show("● Recording started. Press ⌥C to stop, ⌥V for a voice note.", under: statusItem.button, seconds: 4)
+                let more = NSScreen.screens.count > 1 ? " More screens? Menu → Add another screen." : ""
+                toast.show("● Recording started. ⌥C stops, ⌥V to talk.\(more)", under: statusItem.button, seconds: 5)
             } else {
                 let n = recorder.eventCount
                 toast.show("■ Recording stopped: \(n) event\(n == 1 ? "" : "s") saved.", under: statusItem.button, seconds: 4)
