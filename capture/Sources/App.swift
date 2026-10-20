@@ -19,6 +19,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     private lazy var voice = VoiceNotes(engine: SpeechEngine())
     private let toast = Toast()
     private let welcome = WelcomeWindow()
+    private lazy var daily = DailyJobs(paths: paths) { [weak self] in self?.recorder.isRecording ?? false }
     private lazy var library: LibraryWindow = {
         let window = LibraryWindow(paths: paths)
         window.model.onProjectsChanged = { [weak self] in
@@ -111,9 +112,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
 
         welcome.onAccessibility = { [weak self] in self?.askAccessibility() }
         if !WelcomeWindow.seen { welcome.show() }
+        daily.onMake = { [weak self] in self?.makeCapsules() }
+        daily.start()
+
         // For testing: open a window at launch.
         if CommandLine.arguments.contains("--show-library") { library.show() }
         if CommandLine.arguments.contains("--show-welcome") { welcome.show() }
+        if CommandLine.arguments.contains("--show-reminder") { daily.show() }
     }
 
     @objc private func showWelcome() { welcome.show() }

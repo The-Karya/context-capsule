@@ -13,6 +13,12 @@ analytics. Here is every place your data goes, and the code that makes it so.
 | A capsule you export | The folder you choose (Desktop by default); then wherever *you* send it | Whoever you send it to | Only when you ask | `mcp/src/capsules.ts` (`exportCapsule`) |
 | The speech model (Windows/Linux) | Downloaded once from huggingface.co after you say yes; nothing is uploaded | — | Once | `capture-rs/*/src/model.rs` |
 
+## How long it's kept
+
+Raw recordings are deleted after 30 days (change or turn off with `keep_recordings_days` in
+`config.json`); capsules stay until you delete them. Delete any recording folder in
+`~/.context-capsule/sessions/` and it's gone.
+
 ## Never recorded
 
 Password managers, WhatsApp, Signal, the lock screen, password fields, and any app you

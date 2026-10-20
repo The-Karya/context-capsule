@@ -31,6 +31,14 @@ Menu: Start / Stop recording, Read text directly (Accessibility)…, Open sessio
 folder, Quit. While macOS shares the picked content you also see its own sharing
 icon in the menu bar; stopping there stops the recording.
 
+## Evening reminder and clean-up
+
+- At 18:00, if you recorded today and no capsule has been made for today, a small box asks
+  **Make today's capsules?** — *Make* opens the Claude app with the request typed in; *Not now*
+  closes it (once a day). Change the time with `"remind_at": "19:30"`, or `false` to turn it off.
+- Raw recordings older than 30 days are deleted (`"keep_recordings_days"`, `0` = keep
+  forever). Capsules are never deleted. Both settings live in `~/.context-capsule/config.json`.
+
 ## Projects
 
 Menu → **Project: …** shows the project of the window in front, detected from the clues in

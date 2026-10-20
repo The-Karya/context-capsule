@@ -616,6 +616,26 @@ check(listed.map(\.url.lastPathComponent) == ["newer.capsule.md", "website-2026-
 check(ClaudeLink.newChat(prefill: "Make my capsules for today.")?.absoluteString
       == "claude://claude.ai/new?q=Make%20my%20capsules%20for%20today.", "Claude link with the message typed in")
 
+// MARK: reminder and clean-up
+
+check(Reminder.parse("18:00") == 1080 && Reminder.parse("7:5") == 425 && Reminder.parse("25:00") == nil, "reminder time")
+check(Reminder.due(now: 1085, at: "18:00", recordedToday: true, capsuleToday: false, askedToday: false, recording: false), "reminder due")
+check(!Reminder.due(now: 1000, at: "18:00", recordedToday: true, capsuleToday: false, askedToday: false, recording: false), "too early")
+check(!Reminder.due(now: 1085, at: "18:00", recordedToday: false, capsuleToday: false, askedToday: false, recording: false), "nothing recorded")
+check(!Reminder.due(now: 1085, at: "18:00", recordedToday: true, capsuleToday: true, askedToday: false, recording: false), "already made")
+check(!Reminder.due(now: 1085, at: "18:00", recordedToday: true, capsuleToday: false, askedToday: true, recording: false), "asked already")
+check(!Reminder.due(now: 1085, at: "18:00", recordedToday: true, capsuleToday: false, askedToday: false, recording: true), "still recording")
+check(!Reminder.due(now: 1085, at: nil, recordedToday: true, capsuleToday: false, askedToday: false, recording: false), "reminder off")
+try! #"{"remind_at": false, "keep_recordings_days": 7}"#.write(to: cfgURL, atomically: true, encoding: .utf8)
+check(Config.load(from: cfgURL).remindAt == nil && Config.load(from: cfgURL).keepDays == 7, "reminder off, keep 7 days")
+try! #"{"remind_at": "19:30"}"#.write(to: cfgURL, atomically: true, encoding: .utf8)
+check(Config.load(from: cfgURL).remindAt == "19:30" && Config.load(from: cfgURL).keepDays == 30, "custom reminder, default keep")
+let utc = TimeZone(identifier: "UTC")!
+let cleanupNow = Date(timeIntervalSince1970: 1_792_404_063) // 2026-10-19T10:01:03Z
+check(Cleanup.oldSessions(["20260918-090000", "20260919-000000", "20261019-100000", "junk"], keepDays: 30, now: cleanupNow, timeZone: utc)
+      == ["20260918-090000"], "sessions older than 30 days", "\(Cleanup.oldSessions(["20260918-090000", "20260919-000000"], keepDays: 30, now: cleanupNow, timeZone: utc))")
+check(Cleanup.oldSessions(["20200101-000000"], keepDays: 0, now: cleanupNow).isEmpty, "keep forever")
+
 try? FileManager.default.removeItem(at: tmp)
 print("\(passes) passed, \(failures) failed")
 exit(failures == 0 ? 0 : 1)

@@ -158,15 +158,24 @@ struct Config {
     /// Ask "What are you working on?" when a recording's first window matches no project. Off by default:
     /// known projects are detected from clues, and Claude sorts new work at the end of the day.
     var askProject = false
+    /// Evening reminder "Make today's capsules?" at this local time ("18:00"); nil = off.
+    var remindAt: String? = "18:00"
+    /// Raw recordings older than this many days are deleted (capsules are kept); 0 = keep forever.
+    var keepDays = 30
 
     /// Reads `{"exclude_apps": [...], "voice_locale": "en-GB"}`; a missing or broken file means defaults.
     static func load(from url: URL) -> Config {
         guard let data = try? Data(contentsOf: url),
               let obj = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else { return Config() }
         let locale = (obj["voice_locale"] as? String)?.trimmingCharacters(in: .whitespaces)
+        var remind: String? = "18:00"
+        if obj["remind_at"] is NSNull || (obj["remind_at"] as? Bool) == false { remind = nil }
+        if let r = obj["remind_at"] as? String { remind = Reminder.parse(r) == nil ? "18:00" : r }
+        let keep = (obj["keep_recordings_days"] as? NSNumber)?.intValue ?? 30
         return Config(excludeApps: (obj["exclude_apps"] as? [String]) ?? [],
                       voiceLocale: locale?.isEmpty == false ? locale : nil,
-                      askProject: obj["ask_project"] as? Bool ?? false)
+                      askProject: obj["ask_project"] as? Bool ?? false,
+                      remindAt: remind, keepDays: max(0, keep))
     }
 }
 
@@ -1079,5 +1088,36 @@ enum ClaudeLink {
         var parts = URLComponents(string: "claude://claude.ai/new")
         parts?.queryItems = [URLQueryItem(name: "q", value: text)]
         return parts?.url
+    }
+}
+
+// MARK: - Evening reminder and clean-up
+
+enum Reminder {
+    /// "18:00" → minutes after midnight.
+    static func parse(_ hhmm: String) -> Int? {
+        let p = hhmm.split(separator: ":")
+        guard p.count == 2, let h = Int(p[0]), let m = Int(p[1]), (0..<24).contains(h), (0..<60).contains(m) else { return nil }
+        return h * 60 + m
+    }
+
+    /// Time to ask "Make today's capsules?": past the reminder time, something recorded today, no capsule made
+    /// for today yet, not asked today already, and not recording right now.
+    static func due(now minutes: Int, at: String?, recordedToday: Bool, capsuleToday: Bool, askedToday: Bool,
+                    recording: Bool) -> Bool {
+        guard let at, let target = parse(at) else { return false }
+        return minutes >= target && recordedToday && !capsuleToday && !askedToday && !recording
+    }
+}
+
+enum Cleanup {
+    /// Session folders (YYYYMMDD-HHMMSS) started before `keepDays` days ago. Capsules are never touched.
+    static func oldSessions(_ ids: [String], keepDays: Int, now: Date, timeZone: TimeZone = .current) -> [String] {
+        guard keepDays > 0 else { return [] }
+        var cal = Calendar(identifier: .gregorian)
+        cal.timeZone = timeZone
+        guard let cutoff = cal.date(byAdding: .day, value: -keepDays, to: cal.startOfDay(for: now)) else { return [] }
+        let cut = Clock.sessionID(cutoff, timeZone: timeZone)
+        return ids.filter { $0.count == 15 && $0 < cut }
     }
 }
