@@ -18,6 +18,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     private var voiceKey: HotKey?
     private lazy var voice = VoiceNotes(engine: SpeechEngine())
     private let toast = Toast()
+    private let welcome = WelcomeWindow()
     /// Stays up the whole time a voice note listens, so it's always clear the mic is on.
     private let listenToast = Toast()
     private var wasRecording = false
@@ -42,6 +43,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         menu.addItem(voiceItem)
         projectItem.submenu = NSMenu()
         menu.addItem(projectItem)
+        menu.addItem(NSMenuItem(title: "Set up Context Capsule…", action: #selector(showWelcome), keyEquivalent: ""))
         menu.addItem(axItem)
         menu.addItem(NSMenuItem(title: "Open sessions folder", action: #selector(openSessions), keyEquivalent: ""))
         menu.addItem(.separator())
@@ -96,7 +98,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
 
         recorder.writeState()
         refresh()
+
+        welcome.onAccessibility = { [weak self] in self?.askAccessibility() }
+        if !WelcomeWindow.seen { welcome.show() }
     }
+
+    @objc private func showWelcome() { welcome.show() }
 
     func menuWillOpen(_ menu: NSMenu) { refresh() } // the Accessibility check mark may have changed
 

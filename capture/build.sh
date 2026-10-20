@@ -49,6 +49,10 @@ cat > "$APP/Contents/Info.plist" <<PLIST
 </plist>
 PLIST
 
+# The Claude Desktop extension ("Connect to Claude"), when it has been built (mcp/extension/build.sh).
+EXT="../mcp/dist-ext/context-capsule.mcpb"
+if [ -f "$EXT" ]; then cp "$EXT" "$APP/Contents/Resources/"; else echo "note: $EXT not built; Connect to Claude will be missing"; fi
+
 # Sign with a fixed local identity when there is one, so macOS keeps the Accessibility / Microphone
 # permissions across rebuilds (it ties them to the signature). Else ad-hoc (permissions reset on rebuild).
 # Make one with Keychain Access → Certificate Assistant → Create a Certificate (type: Code Signing),
