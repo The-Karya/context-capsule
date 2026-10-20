@@ -1,4 +1,5 @@
-# context-capsule — CI: tests and builds on macOS, Windows and Linux.
+# context-capsule — CI: tests and builds on Windows and Linux. The Mac side is tested and built on a Mac
+# (capture/tests/run.sh, capture/build.sh): macOS minutes on GitHub cost 10×.
 # Runs only when asked: GitHub → Actions → ci → "Run workflow", or `gh workflow run ci`.
 name: ci
 on:
@@ -10,7 +11,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        os: [macos-latest, windows-latest, ubuntu-latest]
+        os: [windows-latest, ubuntu-latest]
     defaults:
       run:
         working-directory: mcp
@@ -24,23 +25,12 @@ jobs:
       - run: bun run test
       - run: bun run build
 
-  mac-recorder:
-    runs-on: macos-latest
-    defaults:
-      run:
-        working-directory: capture
-    steps:
-      - uses: actions/checkout@v4
-      - run: ./tests/run.sh
-      - run: ARCHS=arm64 ./build.sh
-      - run: '"./build/Context Capsule.app/Contents/MacOS/ContextCapsule" --selftest'
-
   core:
     runs-on: ${{ matrix.os }}
     strategy:
       fail-fast: false
       matrix:
-        os: [macos-latest, windows-latest, ubuntu-latest]
+        os: [windows-latest, ubuntu-latest]
     defaults:
       run:
         working-directory: capture-rs
