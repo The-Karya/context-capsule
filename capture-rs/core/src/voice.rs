@@ -88,7 +88,7 @@ impl PlatformText {
 
 /// The record hotkey was pressed while a voice note listens: recording waits, so one key never ends both.
 pub fn busy_listening_message(t: &PlatformText) -> String {
-    format!("Finish the voice note first: press {}. Then {} stops recording.", t.voice_hotkey, t.record_hotkey)
+    format!("Finish the voice note first: press {}. Then {} stops contextualizing.", t.voice_hotkey, t.record_hotkey)
 }
 
 /// How a voice note ended. Every case turns the mic indicator off.
@@ -117,7 +117,7 @@ impl VoiceOutcome {
                 let mic = device.as_ref().map(|d| format!("“{d}”")).unwrap_or_else(|| "the microphone".into());
                 format!("Didn't catch that. Nothing was heard from {mic}. Check {}.", t.sound_input)
             }
-            VoiceOutcome::NotRecording => format!("Start recording first ({})", t.record_hotkey),
+            VoiceOutcome::NotRecording => format!("Start contextualizing first ({})", t.record_hotkey),
             VoiceOutcome::Denied(VoicePermission::Microphone) => {
                 format!("Context Capsule can't use the microphone. Turn it on in {}.", t.mic_privacy)
             }
@@ -130,7 +130,7 @@ impl VoiceOutcome {
                 t.cloud, t.config_file, t.add_language
             ),
             VoiceOutcome::Failed(why) => format!("Voice note failed: {why}"),
-            VoiceOutcome::Discarded => "Voice note not saved: recording had stopped".into(),
+            VoiceOutcome::Discarded => "Voice note not saved: contextualizing had stopped".into(),
             VoiceOutcome::Notice(text) => text.clone(),
         }
     }
@@ -486,7 +486,7 @@ mod notice_tests {
 
     #[test]
     fn windows_and_linux_hotkeys() {
-        assert_eq!(VoiceOutcome::NotRecording.message(&PlatformText::WINDOWS), "Start recording first (Ctrl+Alt+Shift+C)");
+        assert_eq!(VoiceOutcome::NotRecording.message(&PlatformText::WINDOWS), "Start contextualizing first (Ctrl+Alt+Shift+C)");
         assert_eq!(PlatformText::LINUX.voice_hotkey, "Ctrl+Alt+Shift+V");
     }
 
@@ -494,7 +494,7 @@ mod notice_tests {
     fn busy_and_failure_texts() {
         assert_eq!(
             busy_listening_message(&PlatformText::WINDOWS),
-            "Finish the voice note first: press Ctrl+Alt+Shift+V. Then Ctrl+Alt+Shift+C stops recording."
+            "Finish the voice note first: press Ctrl+Alt+Shift+V. Then Ctrl+Alt+Shift+C stops contextualizing."
         );
         let f = VoiceOutcome::Failed("the microphone could not start (0x80070005)".into());
         assert_eq!(f.log_summary(), "voice note: failed (the microphone could not start (0x80070005))", "keeps the error code");

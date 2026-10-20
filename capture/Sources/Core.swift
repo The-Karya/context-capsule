@@ -698,7 +698,7 @@ enum VoiceOutcome: Equatable {
         case .silent(let device):
             let mic = device.map { "“\($0)”" } ?? "the microphone"
             return "Didn't catch that. Nothing was heard from \(mic). Check System Settings → Sound → Input."
-        case .notRecording: return "Start recording first (⌥C)"
+        case .notRecording: return "Start contextualizing first (⌥C)"
         case .denied(.microphone):
             return "Context Capsule can't use the microphone. Turn it on in System Settings → Privacy & Security → Microphone."
         case .denied(.speech):
@@ -707,7 +707,7 @@ enum VoiceOutcome: Equatable {
             return "On-device speech isn't available for \(locale), so voice notes are off (nothing is sent to Apple). "
                 + "Set \"voice_locale\" in ~/.context-capsule/config.json, or add the language in System Settings → Keyboard → Dictation."
         case .failed(let why): return "Voice note failed: \(why)"
-        case .discarded: return "Voice note not saved: recording had stopped"
+        case .discarded: return "Voice note not saved: contextualizing had stopped"
         }
     }
 
@@ -1186,72 +1186,3 @@ final class NewLines {
     }
 }
 
-// MARK: - Recordings (for the "Recordings" tab: see exactly what was saved)
-
-struct RecordingMoment: Equatable, Identifiable {
-    var id: Int
-    var start: String
-    var end: String
-    var app: String
-    var title: String
-    var location: String
-    var project: String
-    /// "screen", "voice" or "note".
-    var kind: String
-    /// "ax", "ocr", "voice", "typed".
-    var source: String
-    var text: String
-}
-
-struct RecordingSummary: Equatable, Identifiable {
-    var id: String
-    var folder: URL
-    var started: Date?
-    var ended: Date?
-    var moments: Int
-    var notes: Int
-    var apps: [String]
-
-    /// Reads session.json and counts events.jsonl (cheap enough for a list).
-    static func load(_ folder: URL) -> RecordingSummary {
-        let id = folder.lastPathComponent
-        var started: Date?, ended: Date?
-        if let data = try? Data(contentsOf: folder.appendingPathComponent("session.json")),
-           let obj = try? JSONSerialization.jsonObject(with: data) as? [String: Any] {
-            let f = ISO8601DateFormatter()
-            started = (obj["started_at"] as? String).flatMap(f.date(from:))
-            ended = (obj["ended_at"] as? String).flatMap(f.date(from:))
-        }
-        let moments = Recording.moments(in: folder)
-        var apps: [String] = []
-        for m in moments where m.kind == "screen" && !m.app.isEmpty && !apps.contains(m.app) { apps.append(m.app) }
-        return RecordingSummary(id: id, folder: folder, started: started, ended: ended,
-                                moments: moments.filter { $0.kind == "screen" }.count,
-                                notes: moments.filter { $0.kind != "screen" }.count, apps: apps)
-    }
-}
-
-enum Recording {
-    /// Every recording folder (YYYYMMDD-HHMMSS), newest first.
-    static func all(in sessions: URL) -> [RecordingSummary] {
-        let names = (try? FileManager.default.contentsOfDirectory(atPath: sessions.path)) ?? []
-        return names.filter { $0.count == 15 && $0.dropFirst(8).first == "-" }.sorted(by: >)
-            .map { RecordingSummary.load(sessions.appendingPathComponent($0)) }
-    }
-
-    /// The saved moments of one recording, in order (bad lines skipped).
-    static func moments(in folder: URL) -> [RecordingMoment] {
-        guard let text = try? String(contentsOf: folder.appendingPathComponent("events.jsonl"), encoding: .utf8) else { return [] }
-        var out: [RecordingMoment] = []
-        for line in text.split(separator: "\n") {
-            guard let obj = try? JSONSerialization.jsonObject(with: Data(line.utf8)) as? [String: Any],
-                  let t = obj["t"] as? String else { continue }
-            out.append(RecordingMoment(id: out.count, start: t, end: obj["end"] as? String ?? t,
-                                       app: obj["app"] as? String ?? "", title: obj["title"] as? String ?? "",
-                                       location: obj["where"] as? String ?? "", project: obj["project"] as? String ?? "",
-                                       kind: obj["kind"] as? String ?? "screen", source: obj["src"] as? String ?? "",
-                                       text: obj["text"] as? String ?? ""))
-        }
-        return out
-    }
-}

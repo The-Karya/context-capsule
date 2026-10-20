@@ -32,12 +32,6 @@ Menu: Start / Stop recording, Read text directly (Accessibility)…, Open sessio
 folder, Quit. While macOS shares the picked content you also see its own sharing
 icon in the menu bar; stopping there stops the recording.
 
-## Seeing what was recorded
-
-**My capsules… → Recordings** lists every recording (when, how long, moments, notes, apps).
-Open one to see each moment exactly as saved — time, app and window, project, and the text
-(or "You said / You typed") — and **Delete** it for good.
-
 ## Several screens
 
 When more than one screen is connected, **Add another screen…** (in the menu while recording)

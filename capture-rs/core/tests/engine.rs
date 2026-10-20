@@ -488,7 +488,7 @@ fn empty_session_says_why() {
     r.engine.toggle_record();
     let alerts = &r.engine.platform().alerts;
     assert_eq!(alerts.len(), 1);
-    assert_eq!(alerts[0].0, "Nothing was recorded");
+    assert_eq!(alerts[0].0, "Nothing was saved");
     assert!(alerts[0].1.starts_with("Every few seconds, a private app is in front (not recorded).\n\n"), "{}", alerts[0].1);
 
     // Too short to sample.
@@ -510,7 +510,7 @@ fn empty_session_says_why() {
 fn voice_needs_recording() {
     let mut r = Rig::new("voice-idle");
     r.engine.toggle_voice();
-    assert_eq!(r.engine.platform().toasts, ["Start recording first (Ctrl+Alt+Shift+C)"]);
+    assert_eq!(r.engine.platform().toasts, ["Start contextualizing first (Ctrl+Alt+Shift+C)"]);
     assert!(!r.engine.platform().indicators.contains(&Indicator::Listening));
     assert!(!r.voice.borrow().mic_open);
 }
@@ -605,7 +605,7 @@ fn record_key_waits_while_a_voice_note_listens() {
     assert!(r.engine.is_recording() && r.engine.is_listening(), "neither recording nor the note ends");
     assert_eq!(
         r.engine.platform().toasts,
-        ["Finish the voice note first: press Ctrl+Alt+Shift+V. Then Ctrl+Alt+Shift+C stops recording."]
+        ["Finish the voice note first: press Ctrl+Alt+Shift+V. Then Ctrl+Alt+Shift+C stops contextualizing."]
     );
     r.engine.toggle_voice(); // the note ends
     r.engine.toggle_record(); // now recording stops

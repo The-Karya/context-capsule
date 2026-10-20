@@ -176,7 +176,7 @@ after 7 days instead of 30; capsules are never deleted).
 
 ## 11. Send us the results
 
-1. Open `C:\Users\<you>\.context-capsule\sessions\` (or: tray menu → **Show recordings folder**).
+1. Open `C:\Users\<you>\.context-capsule\sessions\`.
 2. **Look inside first**: each session folder has an `events.jsonl` file with the text
    that was read from your screen. Delete any session you don't want to share.
 3. Check: does any `events.jsonl` contain `TestPass123` or text from a private app?

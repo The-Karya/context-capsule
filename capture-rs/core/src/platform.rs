@@ -174,7 +174,7 @@ pub fn project_message(project: Option<&Project>) -> String {
 /// it says how to share another one.
 pub fn recording_started_message(t: &PlatformText, several_screens: bool) -> String {
     let more = if several_screens { " More screens? Menu → Add another screen." } else { "" };
-    format!("● Recording started. Press {} to stop, {} to talk.{more}", t.record_hotkey, t.voice_hotkey)
+    format!("● Contextualizing. Press {} to stop, {} to talk.{more}", t.record_hotkey, t.voice_hotkey)
 }
 
 /// A screen was added, or one of several stopped sharing.
@@ -188,7 +188,7 @@ pub fn screens_message(count: usize, added: bool) -> String {
 
 /// The short message when recording stops.
 pub fn recording_stopped_message(events: usize) -> String {
-    format!("■ Recording stopped: {events} event{} saved.", if events == 1 { "" } else { "s" })
+    format!("■ Stopped contextualizing: {events} moment{} saved.", if events == 1 { "" } else { "s" })
 }
 
 /// The banner that stays up while a voice note listens.
@@ -308,13 +308,13 @@ mod tests {
         let t = PlatformText::WINDOWS;
         assert_eq!(
             recording_started_message(&t, false),
-            "● Recording started. Press Ctrl+Alt+Shift+C to stop, Ctrl+Alt+Shift+V to talk."
+            "● Contextualizing. Press Ctrl+Alt+Shift+C to stop, Ctrl+Alt+Shift+V to talk."
         );
         assert!(recording_started_message(&t, true).ends_with(" More screens? Menu → Add another screen."));
         assert_eq!(screens_message(2, true), "Screen added: 2 screens shared.");
         assert_eq!(screens_message(1, false), "A screen stopped sharing: 1 left.");
-        assert_eq!(recording_stopped_message(12), "■ Recording stopped: 12 events saved.");
-        assert_eq!(recording_stopped_message(1), "■ Recording stopped: 1 event saved.");
+        assert_eq!(recording_stopped_message(12), "■ Stopped contextualizing: 12 moments saved.");
+        assert_eq!(recording_stopped_message(1), "■ Stopped contextualizing: 1 moment saved.");
         assert_eq!(listening_message(&t), "Listening… press Ctrl+Alt+Shift+V to finish");
     }
 }

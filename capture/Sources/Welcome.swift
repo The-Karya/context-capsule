@@ -184,7 +184,7 @@ struct WelcomeView: View {
                             button: "Turn On") { Setup.openSettings(Setup.keyboardPane) }
                     Divider().padding(.leading, 48)
                     StepRow(icon: "link", done: status.claude, title: "Connect Claude",
-                            help: "Lets Claude start recordings and write your capsules. Claude asks you to install it.",
+                            help: "Lets Claude start contextualizing and write your capsules. Claude asks you to install it.",
                             button: "Connect") { ClaudeConnect.connect() }
                     Divider().padding(.leading, 48)
                     StepRow(icon: "power", done: status.atLogin, title: "Open at login",
@@ -196,7 +196,7 @@ struct WelcomeView: View {
             VStack(alignment: .leading, spacing: 6) {
                 Text("Use").font(.system(size: 12, weight: .medium)).foregroundStyle(.secondary).padding(.leading, 4)
                 Group {
-                    Shortcut(keys: "⌥ C", label: "Record")
+                    Shortcut(keys: "⌥ C", label: "Start contextualizing")
                     Divider().padding(.leading, 14)
                     Shortcut(keys: "⌥ V", label: "Talk")
                     Divider().padding(.leading, 14)

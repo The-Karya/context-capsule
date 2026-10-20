@@ -472,7 +472,7 @@ do {
     let r = VoiceRig()
     r.press(recording: false)
     check(r.resetOK || r.indicator.isEmpty, "not recording: mic never opens")
-    check(r.outcomes == [.notRecording] && r.outcomes[0].message == "Start recording first (⌥C)", "not recording message")
+    check(r.outcomes == [.notRecording] && r.outcomes[0].message == "Start contextualizing first (⌥C)", "not recording message")
     check(r.notes.phase == .idle && !r.engine.micOpen, "not recording: idle")
 }
 do {
@@ -672,28 +672,6 @@ w2.title = "Other"
 check(!(try! extLog.extendIfSameWindow(w2)), "another window: not extended")
 let extLines = (try! String(contentsOf: extURL, encoding: .utf8)).split(separator: "\n")
 check(extLines.count == 1 && extLines[0].contains(#""end":"2026-10-19T10:00:03Z""#), "end moved in place", "\(extLines)")
-
-// MARK: recordings tab
-
-let recRoot = tmp.appendingPathComponent("rec-sessions")
-let recDir = recRoot.appendingPathComponent("20261019-100000")
-try! FileManager.default.createDirectory(at: recDir, withIntermediateDirectories: true)
-try! #"{"id":"20261019-100000","started_at":"2026-10-19T10:00:00Z","ended_at":"2026-10-19T10:30:00Z","host":"Mac","version":1}"#
-    .write(to: recDir.appendingPathComponent("session.json"), atomically: true, encoding: .utf8)
-try! """
-{"t":"2026-10-19T10:00:03Z","end":"2026-10-19T10:01:00Z","app":"Notes","bundle":"n","title":"Plan","where":"file:///p","project":"web","project_by":"auto","src":"ax","text":"hello"}
-not json
-{"t":"2026-10-19T10:02:00Z","end":"2026-10-19T10:02:09Z","kind":"voice","src":"voice","app":"Notes","bundle":"n","title":"Plan","text":"why"}
-{"t":"2026-10-19T10:03:00Z","end":"2026-10-19T10:03:00Z","app":"Safari","bundle":"s","title":"Docs","src":"ocr","text":"x"}
-
-""".write(to: recDir.appendingPathComponent("events.jsonl"), atomically: true, encoding: .utf8)
-try! FileManager.default.createDirectory(at: recRoot.appendingPathComponent("not-a-session"), withIntermediateDirectories: true)
-let recs = Recording.all(in: recRoot)
-check(recs.map(\.id) == ["20261019-100000"], "recordings listed (other folders ignored)")
-check(recs.first?.moments == 2 && recs.first?.notes == 1 && recs.first?.apps == ["Notes", "Safari"], "recording counts and apps")
-check(recs.first?.started != nil && recs.first?.ended != nil, "recording times")
-let ms = Recording.moments(in: recDir)
-check(ms.count == 3 && ms[0].location == "file:///p" && ms[0].project == "web" && ms[1].kind == "voice", "moments read, bad lines skipped")
 
 try? FileManager.default.removeItem(at: tmp)
 print("\(passes) passed, \(failures) failed")

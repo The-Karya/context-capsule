@@ -1,5 +1,5 @@
 // context-capsule — windows: a small message near the tray icon that fades by itself ("Voice note saved",
-// "Start recording first (Ctrl+Alt+Shift+C)"). A topmost borderless window: no notification permission.
+// "Start contextualizing first (Ctrl+Alt+Shift+C)"). A topmost borderless window: no notification permission.
 // Nothing stays on screen: while listening, the tray icon shows it.
 
 /// Seconds on screen before fading (like the Mac: short for good news and project changes, longer
@@ -257,10 +257,10 @@ mod tests {
     #[test]
     fn durations() {
         assert_eq!(seconds_for("Voice note saved"), 2);
-        assert_eq!(seconds_for("Start recording first (Ctrl+Alt+Shift+C)"), 6);
+        assert_eq!(seconds_for("Start contextualizing first (Ctrl+Alt+Shift+C)"), 6);
         assert_eq!(seconds_for("Project: Client report"), 3);
-        assert_eq!(seconds_for("● Recording started. Press Ctrl+Alt+Shift+C to stop, Ctrl+Alt+Shift+V to talk."), 4);
-        assert_eq!(seconds_for("■ Recording stopped: 3 events saved."), 4);
+        assert_eq!(seconds_for("● Contextualizing. Press Ctrl+Alt+Shift+C to stop, Ctrl+Alt+Shift+V to talk."), 4);
+        assert_eq!(seconds_for("■ Stopped contextualizing: 3 moments saved."), 4);
         assert_eq!(seconds_for("● Recording started. Press X to stop, Y to talk. More screens? Menu → Add another screen."), 5);
         assert_eq!(seconds_for("Screen added: 2 screens shared."), 3);
     }

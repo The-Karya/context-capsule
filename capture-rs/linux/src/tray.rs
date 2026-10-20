@@ -7,7 +7,6 @@ use context_capsule_core::look::{self, LEVEL_FRAMES};
 use context_capsule_core::{Indicator, Msg, ProjectItem, Status, Voice};
 use ksni::menu::{CheckmarkItem, StandardItem, SubMenu};
 use ksni::{MenuItem, TrayMethods};
-use std::path::PathBuf;
 use std::sync::mpsc::Sender;
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, SystemTime};
@@ -22,7 +21,6 @@ pub const VOICE_KEY: &str = "Ctrl+Alt+Shift+V";
 pub struct CapsuleTray {
     tx: Sender<Msg>,
     notifier: Notifier,
-    sessions: PathBuf,
     status: Status,
     indicator: Indicator,
     /// The listening step (`look::level_frame`).
@@ -32,27 +30,27 @@ pub struct CapsuleTray {
 /// The menu's first line, as of `now` (the running time).
 pub fn info_line(status: &Status, now: SystemTime, time: &dyn Fn(SystemTime) -> String) -> String {
     match (&status.session_id, status.started_at) {
-        (Some(id), Some(started)) if status.recording => {
+        (Some(_), Some(started)) if status.recording => {
             let n = status.events;
             let elapsed = look::elapsed(status, now).unwrap_or_default();
-            format!("● Recording {elapsed} — since {} — {} event{} — {}", time(started), n, if n == 1 { "" } else { "s" }, id)
+            format!("● Contextualizing {elapsed} — since {} — {} moment{}", time(started), n, if n == 1 { "" } else { "s" })
         }
-        _ if status.picking => "Pick a window or screen to record…".into(),
-        _ => "Not recording".into(),
+        _ if status.picking => "Pick a window or screen…".into(),
+        _ => "Not contextualizing".into(),
     }
 }
 
 pub fn toggle_label(status: &Status) -> &'static str {
     if status.recording {
-        "Stop recording"
+        "Stop contextualizing"
     } else if status.picking {
         "Cancel picking"
     } else {
-        "Start recording…"
+        "Start contextualizing…"
     }
 }
 
-/// The tray's title: the running time while recording.
+/// The tray's title: the running time while contextualizing.
 pub fn title_text(status: &Status, now: SystemTime) -> String {
     match look::elapsed(status, now) {
         Some(time) => format!("Context Capsule ● {time}"),
@@ -66,9 +64,9 @@ pub fn tooltip_text(indicator: Indicator, status: &Status, now: SystemTime) -> S
         Indicator::Listening => format!("Listening — press {VOICE_KEY} to finish the voice note"),
         Indicator::Recording => {
             let time = look::elapsed(status, now).unwrap_or_default();
-            format!("● Recording {time} — {RECORD_KEY} to stop, {VOICE_KEY} for a voice note")
+            format!("● Contextualizing {time} — {RECORD_KEY} to stop, {VOICE_KEY} to talk")
         }
-        _ => format!("Context Capsule ({RECORD_KEY} to record)"),
+        _ => format!("Context Capsule ({RECORD_KEY} to start contextualizing)"),
     }
 }
 
@@ -142,12 +140,6 @@ impl ksni::Tray for CapsuleTray {
             }
             .into(),
             self.project_menu(),
-            StandardItem {
-                label: "Show recordings folder".into(),
-                activate: Box::new(|t: &mut Self| open_folder(&t.sessions)),
-                ..Default::default()
-            }
-            .into(),
             MenuItem::Separator,
             StandardItem { label: "Quit Context Capsule".into(), activate: send(Msg::Quit), ..Default::default() }
                 .into(),
@@ -205,14 +197,6 @@ fn keys(key: &str) -> Vec<String> {
     ["Control", "Alt", "Shift", key].iter().map(|s| s.to_string()).collect()
 }
 
-fn open_folder(dir: &std::path::Path) {
-    let _ = std::fs::create_dir_all(dir);
-    match std::process::Command::new("xdg-open").arg(dir).spawn() {
-        Ok(mut child) => drop(std::thread::spawn(move || child.wait())),
-        Err(e) => eprintln!("Context Capsule: cannot open {}: {e}", dir.display()),
-    }
-}
-
 /// What the refresh task needs to know: recording or listening, and what it last showed.
 #[derive(Default)]
 struct Look {
@@ -229,8 +213,8 @@ pub struct Tray {
 
 impl Tray {
     /// Show the tray icon. On GNOME this needs the AppIndicator extension; without it we log and go on.
-    pub fn spawn(rt: &Handle, tx: Sender<Msg>, notifier: Notifier, sessions: PathBuf) -> Tray {
-        let tray = CapsuleTray { tx, notifier, sessions, status: Status::default(), indicator: Indicator::Idle, level: 0 };
+    pub fn spawn(rt: &Handle, tx: Sender<Msg>, notifier: Notifier) -> Tray {
+        let tray = CapsuleTray { tx, notifier, status: Status::default(), indicator: Indicator::Idle, level: 0 };
         let handle = match rt.block_on(tray.spawn()) {
             Ok(h) => Some(h),
             Err(e) => {
@@ -374,11 +358,11 @@ mod tests {
         let t = |_: SystemTime| "10:01".to_string();
         let now = SystemTime::now();
         let mut s = Status::default();
-        assert_eq!(info_line(&s, now, &t), "Not recording");
-        assert_eq!(toggle_label(&s), "Start recording…");
+        assert_eq!(info_line(&s, now, &t), "Not contextualizing");
+        assert_eq!(toggle_label(&s), "Start contextualizing…");
         assert_eq!(title_text(&s, now), "Context Capsule");
         s.picking = true;
-        assert_eq!(info_line(&s, now, &t), "Pick a window or screen to record…");
+        assert_eq!(info_line(&s, now, &t), "Pick a window or screen…");
         assert_eq!(toggle_label(&s), "Cancel picking");
         s = Status {
             recording: true,
@@ -389,12 +373,12 @@ mod tests {
             ..Default::default()
         };
         let later = now + Duration::from_secs(754);
-        assert_eq!(info_line(&s, later, &t), "● Recording 12:34 — since 10:01 — 1 event — 20261019-100103");
-        assert_eq!(toggle_label(&s), "Stop recording");
+        assert_eq!(info_line(&s, later, &t), "● Contextualizing 12:34 — since 10:01 — 1 moment");
+        assert_eq!(toggle_label(&s), "Stop contextualizing");
         assert_eq!(title_text(&s, later), "Context Capsule ● 12:34");
         assert_eq!(
             tooltip_text(Indicator::Recording, &s, later),
-            "● Recording 12:34 — Ctrl+Alt+Shift+C to stop, Ctrl+Alt+Shift+V for a voice note"
+            "● Contextualizing 12:34 — Ctrl+Alt+Shift+C to stop, Ctrl+Alt+Shift+V to talk"
         );
         assert!(tooltip_text(Indicator::Listening, &s, later).starts_with("Listening"));
     }

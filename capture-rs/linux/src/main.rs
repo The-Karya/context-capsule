@@ -1,6 +1,7 @@
 // context-capsule — linux: the Linux recorder — tray, hotkeys and portal on a small async runtime; the
 // shared core engine on its own thread, fed through one message channel. Writes the same files as macOS.
 
+mod autostart;
 mod apps;
 mod atspi_front;
 mod atspi_text;
@@ -48,6 +49,11 @@ fn main() {
     let session = SessionKind::detect(&env);
     let locale = os_locale(&env);
     let probe = std::env::args().any(|a| a == "--probe");
+    if !probe {
+        if let Some(line) = autostart::install_once(&paths.root, &env) {
+            eprintln!("Context Capsule: {line}");
+        }
+    }
     let rt = match tokio::runtime::Builder::new_multi_thread().worker_threads(2).enable_all().build() {
         Ok(rt) => rt,
         Err(e) => {
@@ -68,9 +74,9 @@ fn main() {
     let (tx, rx) = mpsc::channel::<Msg>();
     let changed = Arc::new(Mutex::new(None));
     let notifier = notify::Notifier::new(handle.clone());
-    let tray = if probe { tray::Tray::none(&handle) } else { tray::Tray::spawn(&handle, tx.clone(), notifier.clone(), paths.sessions()) };
+    let tray = if probe { tray::Tray::none(&handle) } else { tray::Tray::spawn(&handle, tx.clone(), notifier.clone()) };
     if !probe && !tray.is_shown() {
-        notifier.toast("Context Capsule is running, but this desktop shows no tray icon (on GNOME, install the AppIndicator extension). Use the hotkeys: Ctrl+Alt+Shift+C to record.");
+        notifier.toast("Context Capsule is running, but this desktop shows no tray icon (on GNOME, install the AppIndicator extension). Use the hotkeys: Ctrl+Alt+Shift+C to start contextualizing.");
     }
     if !probe {
         hotkeys::start(&handle, session, tx.clone(), changed.clone());

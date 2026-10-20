@@ -25,7 +25,7 @@ pub fn message_for(id: &str) -> Option<Msg> {
 /// The two shortcuts, with the preferred triggers in the XDG shortcuts format.
 pub fn shortcuts() -> Vec<NewShortcut> {
     vec![
-        NewShortcut::new(RECORD_ID, "Start or stop recording").preferred_trigger("CTRL+ALT+SHIFT+c"),
+        NewShortcut::new(RECORD_ID, "Start or stop contextualizing").preferred_trigger("CTRL+ALT+SHIFT+c"),
         NewShortcut::new(VOICE_ID, "Add or finish a voice note").preferred_trigger("CTRL+ALT+SHIFT+v"),
     ]
 }

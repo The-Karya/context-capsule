@@ -182,7 +182,7 @@ mod whisper {
                 });
                 *download.lock().unwrap() = Download::Idle;
                 match result {
-                    Ok(()) => notifier.toast(&format!("Voice notes are ready. Press {voice_key} while recording.")),
+                    Ok(()) => notifier.toast(&format!("Voice notes are ready. Press {voice_key} while contextualizing.")),
                     Err(e) => notifier.toast(&format!("Speech model: {e}")),
                 }
             });

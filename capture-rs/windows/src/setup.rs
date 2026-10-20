@@ -36,6 +36,8 @@ const WS_EX_APPWINDOW: u32 = 0x0004_0000;
 /// The registry key and value that say the setup window was shown once.
 pub const APP_KEY: &str = r"Software\Context Capsule";
 pub const SEEN_VALUE: &str = "SetupShown";
+/// Set once the app has turned "open at login" on by itself.
+pub const LOGIN_SET_VALUE: &str = "LoginSet";
 
 /// One setup step.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -106,7 +108,7 @@ impl Done {
 
 /// The "Use" list: what, then the keys (or where).
 pub fn uses() -> [(&'static str, &'static str); 3] {
-    [("Record", RECORD_LABEL), ("Talk", VOICE_LABEL), ("Make my capsules", "in Claude")]
+    [("Start contextualizing", RECORD_LABEL), ("Talk", VOICE_LABEL), ("Make my capsules", "in Claude")]
 }
 
 // MARK: open at login (HKCU\...\Run)
@@ -202,7 +204,7 @@ pub fn template() -> Vec<u16> {
 }
 
 #[cfg(windows)]
-pub use win::{seen, show, window};
+pub use win::{open_at_login_once, seen, show, window};
 
 #[cfg(windows)]
 mod win {
@@ -236,6 +238,17 @@ mod win {
     pub fn window() -> Option<HWND> {
         let h = WINDOW.get();
         (h != 0).then_some(HWND(h as *mut core::ffi::c_void))
+    }
+
+    /// Open at login by default, so people never forget to start the app — once only: if they turn it off
+    /// (Task Manager → Startup apps, or Settings), it stays off.
+    pub fn open_at_login_once(log: &AppLog) {
+        if win::reg_dword(APP_KEY, LOGIN_SET_VALUE) == Some(1) {
+            return;
+        }
+        let _ = win::set_reg_dword(APP_KEY, LOGIN_SET_VALUE, 1);
+        let on = win::set_reg_string(RUN_KEY, RUN_VALUE, &run_command(&exe()));
+        log.write(if on { "open at login: on (first launch)" } else { "open at login: cannot change" });
     }
 
     /// Shown once already (first launch shows it by itself).
@@ -452,7 +465,7 @@ mod tests {
         assert_eq!(Step::from_button(ID_BUTTON + 1), Some(Step::Claude));
         assert_eq!(Step::from_button(ID_BUTTON + 3), None);
         assert_eq!(Step::from_button(ID_DONE), None);
-        assert_eq!(uses()[0], ("Record", "Ctrl+Alt+Shift+C"));
+        assert_eq!(uses()[0], ("Start contextualizing", "Ctrl+Alt+Shift+C"));
         assert_eq!(uses()[1], ("Talk", "Ctrl+Alt+Shift+V"));
         assert_eq!(uses()[2], ("Make my capsules", "in Claude"));
         let d = Done { voice: true, claude: false, login: true };
@@ -479,7 +492,7 @@ mod tests {
         let t = template();
         assert_eq!(t[4] as usize, c.len(), "control count in the header");
         let s = String::from_utf16_lossy(&t);
-        for word in ["Context Capsule", "Set up", "Voice notes", "Connect Claude", "Open at login", "Use", "Record", "Talk", "Done"] {
+        for word in ["Context Capsule", "Set up", "Voice notes", "Connect Claude", "Open at login", "Use", "Start contextualizing", "Talk", "Done"] {
             assert!(s.contains(word), "{word}");
         }
     }

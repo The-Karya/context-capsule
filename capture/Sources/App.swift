@@ -82,7 +82,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         }
         recorder.onBusyListening = { [weak self] in
             guard let self else { return }
-            self.toast.show("Finish the voice note first: press ⌥V. Then ⌥C stops recording.", under: self.statusItem.button, seconds: 4)
+            self.toast.show("Finish the voice note first: press ⌥V. Then ⌥C stops contextualizing.", under: self.statusItem.button, seconds: 4)
         }
         recorder.onAskProject = { [weak self] window in self?.askProject(window) }
         voice.onIndicator = { [weak self] on in
@@ -117,6 +117,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         recorder.writeState()
         refresh()
 
+        // Open at login by default, so people never forget to start the app. Once only: if they turn it off
+        // (Setup or System Settings → General → Login Items), it stays off.
+        if !UserDefaults.standard.bool(forKey: "loginItemSet") {
+            UserDefaults.standard.set(true, forKey: "loginItemSet")
+            Setup.setLaunchAtLogin(true)
+        }
+
         welcome.onAccessibility = { [weak self] in self?.askAccessibility() }
         if !WelcomeWindow.seen { welcome.show() }
         daily.onMake = { [weak self] in self?.makeCapsules() }
@@ -129,7 +136,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
 
         // For testing: open a window at launch.
         if CommandLine.arguments.contains("--show-library") { library.show() }
-        if CommandLine.arguments.contains("--show-recordings") { library.model.tab = 2; library.show() }
         if CommandLine.arguments.contains("--show-welcome") { welcome.show() }
         if CommandLine.arguments.contains("--show-reminder") { daily.show() }
     }
@@ -184,25 +190,25 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         }
         announce(recording: recording, listening: listening)
         statusItem.button?.toolTip = listening ? "Listening — press ⌥V to finish the voice note"
-            : recording ? "Context Capsule is recording (⌥C to stop, ⌥V for a voice note)" : "Context Capsule (⌥C to record)"
+            : recording ? "Contextualizing (⌥C to stop, ⌥V to talk)" : "Context Capsule (⌥C to start contextualizing)"
         voiceItem.title = listening ? "Finish voice note" : "Add voice note"
         addScreenItem.isHidden = !recording || NSScreen.screens.count < 2
         addScreenItem.isEnabled = recorder.canAddScreen
         addScreenItem.title = recorder.sharedScreens > 1 ? "Add another screen… (\(recorder.sharedScreens) shared)" : "Add another screen…"
         buildProjectMenu()
 
-        if let id = recorder.sessionID, let started = recorder.startedAt {
+        if recorder.sessionID != nil, let started = recorder.startedAt {
             let time = DateFormatter.localizedString(from: started, dateStyle: .none, timeStyle: .short)
             let n = recorder.eventCount
-            infoItem.title = "Recording since \(time) — \(n) event\(n == 1 ? "" : "s") — \(id)"
+            infoItem.title = "Contextualizing since \(time) — \(n) moment\(n == 1 ? "" : "s")"
         } else if recorder.isPicking {
-            infoItem.title = "Pick a window or screen to record…"
+            infoItem.title = "Pick a window or screen…"
         } else {
-            infoItem.title = "Not recording"
+            infoItem.title = "Not contextualizing"
         }
         skipItem.isHidden = !(recording && recorder.lastSkip != nil)
         skipItem.title = "Skipping: \(recorder.lastSkip?.message ?? "")"
-        toggleItem.title = recording ? "Stop recording" : recorder.isPicking ? "Cancel picking" : "Start recording…"
+        toggleItem.title = recording ? "Stop contextualizing" : recorder.isPicking ? "Cancel picking" : "Start contextualizing…"
         axItem.state = AXReader.trusted ? .on : .off
     }
 
@@ -311,7 +317,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
                     .foregroundColor: NSColor.systemRed,
                 ])
             }
-            button.setAccessibilityLabel("Context Capsule: recording, \(time)")
+            button.setAccessibilityLabel("Context Capsule: contextualizing, \(time)")
         } else {
             let image = NSImage(systemSymbolName: "circle", accessibilityDescription: "Context Capsule")
             image?.isTemplate = true
@@ -330,10 +336,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
             wasRecording = recording
             if recording {
                 let more = NSScreen.screens.count > 1 ? " More screens? Menu → Add another screen." : ""
-                toast.show("● Recording started. ⌥C stops, ⌥V to talk.\(more)", under: statusItem.button, seconds: 5)
+                toast.show("● Contextualizing. ⌥C stops, ⌥V to talk.\(more)", under: statusItem.button, seconds: 5)
             } else {
                 let n = recorder.eventCount
-                toast.show("■ Recording stopped: \(n) event\(n == 1 ? "" : "s") saved.", under: statusItem.button, seconds: 4)
+                toast.show("■ Stopped contextualizing: \(n) moment\(n == 1 ? "" : "s") saved.", under: statusItem.button, seconds: 4)
             }
         }
         wasListening = listening // the menu-bar icon shows listening; no banner
@@ -352,8 +358,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     /// A session ended with no events: say why, so it is not a silent empty file.
     private func warnEmpty(_ why: Skip?) {
         let alert = NSAlert()
-        alert.messageText = "Nothing was recorded"
-        let reason = why.map { "Every few seconds, \($0.message)." } ?? "The session was too short to take a sample."
+        alert.messageText = "Nothing was saved"
+        let reason = why.map { "Every few seconds, \($0.message)." } ?? "It stopped too soon to save anything."
         alert.informativeText = reason + "\n\nContext Capsule only reads the window in front, and only if it is "
             + "part of the window or screen you picked. Next time, pick the screen you work on (or the window), "
             + "and keep that window in front."

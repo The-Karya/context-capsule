@@ -96,21 +96,21 @@ pub struct MenuModel {
 /// The menu as of `now` (the running time).
 pub fn menu_model(s: &Status, now: SystemTime, short_time: &dyn Fn(SystemTime) -> String) -> MenuModel {
     let info = match (&s.session_id, s.started_at) {
-        (Some(id), Some(at)) if s.recording => {
+        (Some(_), Some(at)) if s.recording => {
             let n = s.events;
             let time = look::elapsed(s, now).unwrap_or_default();
-            format!("● Recording {time} — since {} — {n} event{} — {id}", short_time(at), if n == 1 { "" } else { "s" })
+            format!("● Contextualizing {time} — since {} — {n} moment{}", short_time(at), if n == 1 { "" } else { "s" })
         }
-        _ if s.picking => "Pick a window or screen to record…".into(),
-        _ => "Not recording".into(),
+        _ if s.picking => "Pick a window or screen…".into(),
+        _ => "Not contextualizing".into(),
     };
     let skip = s.skip.filter(|_| s.recording).map(|k| format!("Skipping: {}", k.message()));
     let toggle = if s.recording {
-        format!("Stop recording\t{RECORD_LABEL}")
+        format!("Stop contextualizing\t{RECORD_LABEL}")
     } else if s.picking {
         format!("Cancel picking\t{RECORD_LABEL}")
     } else {
-        format!("Start recording…\t{RECORD_LABEL}")
+        format!("Start contextualizing…\t{RECORD_LABEL}")
     };
     let voice = if s.listening { format!("Finish voice note\t{VOICE_LABEL}") } else { format!("Add voice note\t{VOICE_LABEL}") };
     let add_screen = s.recording.then(|| (s.add_screen_label(), s.can_add_screen()));
@@ -127,9 +127,9 @@ pub fn tooltip(s: &Status, now: SystemTime) -> String {
     let t = if s.listening {
         format!("Listening — press {VOICE_LABEL} to finish the voice note")
     } else if let Some(time) = look::elapsed(s, now) {
-        format!("● Recording {time} — {RECORD_LABEL} to stop, {VOICE_LABEL} for a voice note")
+        format!("● Contextualizing {time} — {RECORD_LABEL} to stop, {VOICE_LABEL} to talk")
     } else {
-        format!("Context Capsule ({RECORD_LABEL} to record)")
+        format!("Context Capsule ({RECORD_LABEL} to start contextualizing)")
     };
     t.chars().take(127).collect()
 }
@@ -356,13 +356,13 @@ mod tests {
         let t = |_: SystemTime| "14:57".to_string();
         let now = SystemTime::UNIX_EPOCH + Duration::from_secs(755);
         let idle = menu_model(&Status::default(), now, &t);
-        assert_eq!(idle.info, "Not recording");
-        assert_eq!(idle.toggle, "Start recording…\tCtrl+Alt+Shift+C");
+        assert_eq!(idle.info, "Not contextualizing");
+        assert_eq!(idle.toggle, "Start contextualizing…\tCtrl+Alt+Shift+C");
         assert_eq!(idle.voice, "Add voice note\tCtrl+Alt+Shift+V");
         assert_eq!(idle.skip, None);
 
         let picking = Status { picking: true, ..Default::default() };
-        assert_eq!(menu_model(&picking, now, &t).info, "Pick a window or screen to record…");
+        assert_eq!(menu_model(&picking, now, &t).info, "Pick a window or screen…");
         assert!(menu_model(&picking, now, &t).toggle.starts_with("Cancel picking"));
         assert_eq!(idle.add_screen, None, "hidden when not recording");
 
@@ -377,13 +377,13 @@ mod tests {
             ..Default::default()
         };
         let m = menu_model(&rec, now, &t);
-        assert_eq!(m.info, "● Recording 12:34 — since 14:57 — 12 events — 20261019-145700");
+        assert_eq!(m.info, "● Contextualizing 12:34 — since 14:57 — 12 moments");
         assert_eq!(m.add_screen, Some(("Add another screen…".to_string(), true)));
         assert_eq!(m.skip.as_deref(), Some("Skipping: the front window is not in what you picked"));
-        assert!(m.toggle.starts_with("Stop recording"));
+        assert!(m.toggle.starts_with("Stop contextualizing"));
         assert!(m.voice.starts_with("Finish voice note"));
         let one = Status { events: 1, skip: None, sources: 4, ..rec };
-        assert_eq!(menu_model(&one, now, &t).info, "● Recording 12:34 — since 14:57 — 1 event — 20261019-145700");
+        assert_eq!(menu_model(&one, now, &t).info, "● Contextualizing 12:34 — since 14:57 — 1 moment");
         assert_eq!(menu_model(&one, now, &t).skip, None);
         assert_eq!(menu_model(&one, now, &t).add_screen, Some(("Add another screen… (4 shared)".to_string(), false)), "4 at most");
 
@@ -411,7 +411,7 @@ mod tests {
         }
         assert_eq!(
             tooltip(&rec, start + Duration::from_secs(754)),
-            "● Recording 12:34 — Ctrl+Alt+Shift+C to stop, Ctrl+Alt+Shift+V for a voice note"
+            "● Contextualizing 12:34 — Ctrl+Alt+Shift+C to stop, Ctrl+Alt+Shift+V to talk"
         );
     }
 }

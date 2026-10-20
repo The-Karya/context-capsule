@@ -20,7 +20,7 @@ screen. Soft sounds when recording or the mic starts and stops (`pw-play`, `papl
 `"sounds": false` in config.json turns them off). Menu: status line with the time, "Skipping: …"
 (why the last sample wrote nothing), Start / Stop recording, Add / Finish voice note, Add another
 screen… (while recording: the sharing dialog again, up to 4 monitors or windows, one portal
-session each; each sample uses the one holding the focused window), Show recordings folder, Quit.
+session each; each sample uses the one holding the focused window), Quit.
 A session that ends with nothing written shows a message saying why. Each sample saves only the
 lines not already saved for that window in the recording (no size limit; a 100,000-character
 safety net).

@@ -26,11 +26,11 @@ use windows::Win32::System::Console::{AttachConsole, ATTACH_PARENT_PROCESS};
 use windows::Win32::System::LibraryLoader::GetModuleHandleW;
 use windows::Win32::System::Threading::CreateMutexW;
 use windows::Win32::UI::HiDpi::{SetProcessDpiAwarenessContext, DPI_AWARENESS_CONTEXT_PER_MONITOR_AWARE_V2};
-use windows::Win32::UI::Shell::{ShellExecuteW, NINF_KEY, NIN_SELECT};
+use windows::Win32::UI::Shell::{NINF_KEY, NIN_SELECT};
 use windows::Win32::UI::WindowsAndMessaging::{
     AppendMenuW, CreatePopupMenu, CreateWindowExW, DefWindowProcW, DestroyMenu, DestroyWindow, DispatchMessageW, GetCursorPos,
     GetMessageW, PostMessageW, PostQuitMessage, RegisterClassW, RegisterWindowMessageW, SetForegroundWindow, TrackPopupMenu,
-    IsDialogMessageW, TranslateMessage, HMENU, MF_CHECKED, MF_GRAYED, MF_POPUP, MF_SEPARATOR, MF_STRING, MSG, SW_SHOWNORMAL, TPM_BOTTOMALIGN, TPM_NONOTIFY,
+    IsDialogMessageW, TranslateMessage, HMENU, MF_CHECKED, MF_GRAYED, MF_POPUP, MF_SEPARATOR, MF_STRING, MSG, TPM_BOTTOMALIGN, TPM_NONOTIFY,
     TPM_RETURNCMD, TPM_RIGHTBUTTON, WINDOW_EX_STYLE, WM_APP, WM_CONTEXTMENU, WM_DESTROY, WM_ENDSESSION, WM_HOTKEY, WM_NULL,
     WM_QUERYENDSESSION, WM_SETTINGCHANGE, WM_TIMER, WNDCLASSW, WS_EX_TOOLWINDOW, WS_POPUP, KillTimer, SetTimer,
 };
@@ -40,7 +40,6 @@ const WM_CMD: u32 = WM_APP + 2;
 
 const ID_TOGGLE: u32 = 10;
 const ID_VOICE: u32 = 11;
-const ID_OPEN: u32 = 12;
 const ID_QUIT: u32 = 13;
 const ID_SETUP: u32 = 14;
 const ID_ADD_SCREEN: u32 = 15;
@@ -172,6 +171,7 @@ pub fn run() {
     hotkeys::register(hwnd);
     changes::install();
     let engine = spawn_engine(paths.clone(), ui, capture.clone(), tx.clone(), rx, log.clone());
+    setup::open_at_login_once(&log);
     if !setup::seen() {
         setup::show(&log); // first launch
     }
@@ -379,7 +379,7 @@ fn handle(hwnd: HWND, cmd: UiCmd) {
                 reminder::ask_and_make(Ui::of(hwnd), log);
             }
         }
-        // Quitting: let an open alert (e.g. "Nothing was recorded") be read first.
+        // Quitting: let an open alert (e.g. "Nothing was saved") be read first.
         UiCmd::EngineDone if ALERTS.get() > 0 => CLOSE_PENDING.set(true),
         UiCmd::EngineDone => close(hwnd),
     }
@@ -475,7 +475,6 @@ fn show_menu(hwnd: HWND) {
             // The submenu is destroyed with the menu.
             let _ = AppendMenuW(menu, MF_STRING | MF_POPUP, sub.0 as usize, &HSTRING::from(model.project.as_str()));
         }
-        item(menu, ID_OPEN, "Show recordings folder", true);
         item(menu, ID_SETUP, "Set up Context Capsule…", true);
         let _ = AppendMenuW(menu, MF_SEPARATOR, 0, None);
         item(menu, ID_QUIT, "Quit Context Capsule", true);
@@ -494,7 +493,6 @@ fn show_menu(hwnd: HWND) {
         ID_TOGGLE => send(Msg::ToggleRecord),
         ID_VOICE => send(Msg::ToggleVoice),
         ID_ADD_SCREEN => send(Msg::AddScreen),
-        ID_OPEN => open_sessions(),
         ID_SETUP => {
             if let Some(log) = with_app(|a| a.log.clone()) {
                 setup::show(&log);
@@ -547,15 +545,6 @@ fn new_project(hwnd: HWND, status: &Status) {
 
 fn send(msg: Msg) {
     with_app(|a| a.tx.send(msg));
-}
-
-fn open_sessions() {
-    let Some(dir) = with_app(|a| a.paths.sessions()) else { return };
-    let _ = std::fs::create_dir_all(&dir);
-    // SAFETY: opens a folder in Explorer.
-    unsafe {
-        ShellExecuteW(None, w!("open"), &HSTRING::from(dir.as_os_str()), None, None, SW_SHOWNORMAL);
-    }
 }
 
 /// Quit: the engine ends any session and writes state.json, then tells us to close (`EngineDone`).

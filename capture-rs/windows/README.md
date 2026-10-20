@@ -28,7 +28,7 @@ the time, the event count and, when a sample is skipped, why. If a recording end
 written, a message says why. Menu: Start / Stop recording, Add / Finish voice note, Add another
 screen… (while recording: the picker again, up to 4 screens or windows; each sample uses the
 one holding the window you type in), Project (Auto-detect, your projects, New project from this
-window… — works without a recording too), Show recordings folder, Set up Context Capsule…, Quit.
+window… — works without a recording too), Set up Context Capsule…, Quit.
 
 Each sample saves only the lines not already saved for that window in this recording, so long
 documents are kept whole as you scroll (no size limit; a 100,000-character safety net).

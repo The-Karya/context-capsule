@@ -327,7 +327,7 @@ mod whisper {
         match result {
             Ok(ctx) => {
                 set(ModelState::Ready(ctx));
-                notify(format!("Voice notes are ready. Press {hotkey} while recording."));
+                notify(format!("Voice notes are ready. Press {hotkey} while contextualizing."));
             }
             Err(e) => {
                 set(ModelState::Missing);

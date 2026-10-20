@@ -29,7 +29,7 @@ use std::sync::mpsc::{Receiver, RecvTimeoutError};
 use std::sync::Arc;
 use std::time::{Duration, Instant, SystemTime};
 
-/// One sample every 3 s while recording.
+/// One sample every 3 s while contextualizing.
 pub const INTERVAL: Duration = Duration::from_secs(3);
 /// The control file is checked twice a second.
 pub const POLL: Duration = Duration::from_millis(500);
@@ -60,7 +60,7 @@ pub fn empty_session_alert(why: Option<Skip>) -> (String, String) {
     let body = reason
         + "\n\nContext Capsule only reads the window in front, and only if it is part of the window or screen \
            you picked. Next time, pick the screen you work on (or the window), and keep that window in front.";
-    ("Nothing was recorded".to_string(), body)
+    ("Nothing was saved".to_string(), body)
 }
 
 /// Watches the `control` file. Each new `at` is acted on once; a command left over from before we
@@ -663,7 +663,7 @@ impl<P: Platform> Engine<P> {
         project
     }
 
-    /// The current project, as (id, by). The platform hears about a new id while recording.
+    /// The current project, as (id, by). The platform hears about a new id while contextualizing.
     fn set_current(&mut self, next: Option<(String, String)>) {
         if next == self.current_project {
             return;
@@ -716,7 +716,7 @@ impl<P: Platform> Engine<P> {
         self.changed();
     }
 
-    /// Voice hotkey: start talking, press again to stop. Only while recording.
+    /// Voice hotkey: start talking, press again to stop. Only while contextualizing.
     pub fn toggle_voice(&mut self) {
         // The voice locale from config.json, else the user's.
         let locale = Config::load(&self.paths.config()).voice_locale.unwrap_or_else(|| self.opts.locale.clone());
