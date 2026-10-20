@@ -25,7 +25,7 @@ pub fn opener(link_registered: bool, app: Option<&Path>) -> ClaudeOpener {
 }
 
 #[cfg(windows)]
-pub use win::ask_and_make;
+pub use win::{ask_and_make, make};
 
 #[cfg(windows)]
 mod win {
@@ -58,12 +58,12 @@ mod win {
         });
     }
 
-    fn make(ui: &Ui, log: &AppLog) {
+    pub fn make(ui: &Ui, log: &AppLog) {
         let how = opener(link_registered(), installed_app().as_deref());
         if how == ClaudeOpener::Missing {
             log.write("make capsules: the Claude app is not installed");
             let body = "Context Capsule makes your capsules with the Claude desktop app. Download it, sign in and \
-                        connect Context Capsule (tray menu → Settings).\n\nOpen the download page now?";
+                        connect Context Capsule (tray menu → Open Context Capsule → Settings).\n\nOpen the download page now?";
             if win::ask_yes_no("Install the Claude app first", body) {
                 win::open(connect::DOWNLOAD_URL);
             }

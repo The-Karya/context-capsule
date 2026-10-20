@@ -57,7 +57,7 @@ impl Appearance {
 
     pub fn label(self) -> &'static str {
         match self {
-            Appearance::System => "Match my computer",
+            Appearance::System => "System",
             Appearance::Light => "Light",
             Appearance::Dark => "Dark",
         }
@@ -292,7 +292,7 @@ mod tests {
     fn appearance() {
         assert_eq!(Appearance::parse("dark"), Appearance::Dark);
         assert_eq!(Appearance::parse("purple"), Appearance::System);
-        assert_eq!(Appearance::ALL.map(|a| a.label()), ["Match my computer", "Light", "Dark"]);
+        assert_eq!(Appearance::ALL.map(|a| a.label()), ["System", "Light", "Dark"]);
         assert!(Appearance::System.is_dark(true) && !Appearance::Light.is_dark(true) && Appearance::Dark.is_dark(false));
         let dir = std::env::temp_dir().join(format!("cc-appearance-{}", std::process::id()));
         let path = dir.join("config.json");

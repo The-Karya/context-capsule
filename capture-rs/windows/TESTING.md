@@ -23,26 +23,33 @@ your PC, in `C:\Users\<you>\.context-capsule\`.
    test build is not signed yet.)
 4. ✅ A small **circle icon** appears in the system tray, bottom right. It may be hidden
    under the **^** arrow.
-5. ✅ The **Context Capsule** setup window opens by itself (only the first time).
+5. ✅ The **Context Capsule** window opens by itself on **Settings** (only the first time).
 
 ## 1. Set up
 
-The setup window has three rows. Each row has one button, and shows a ✓ instead once
-that step is done.
+In the window's **Settings**, the **Set up** card has three rows. Each row has one button,
+and shows a ✓ instead once that step is done.
 
 1. **Voice notes**: if it shows **Allow**, click it. Windows Settings opens on the
    Microphone page. Turn on *Microphone access* and *Let desktop apps access your
-   microphone*. ✅ Back in the setup window, the row shows a ✓ within a second or two.
+   microphone*. ✅ Back in Context Capsule, the row shows a ✓ within a second or two.
 2. **Connect Claude**: click **Connect**. ✅ The Claude app opens and asks to install
    Context Capsule. Click **Install** in Claude. ✅ The row shows a ✓.
    - No Claude app yet? It offers to open the download page. Install Claude, sign in,
      then click **Connect** again.
 3. **Open at login**: click **Turn On**. ✅ The row shows a ✓. (To undo later:
    Settings → Apps → Startup.)
-4. The **Use** list says: Record = Alt+C, Talk = Alt+V, Make my
-   capsules = in Claude. Click **Done**.
-5. Right-click the tray icon → **Settings** ✅ The window opens again.
-   Close it.
+4. **Your name**: type your first name. ✅ Go to **Home**: it says *Good morning,
+   <your name>.* (or afternoon / evening).
+5. Under **Every day**, **Appearance** and **Never record**, try each control once:
+   ✅ every change sticks after you close and reopen the window. **Appearance → Dark**
+   turns the window dark at once; set it back to **System**.
+6. Close the window (✕). Right-click the tray icon → **Open Context Capsule**
+   ✅ The window opens again, on Home. Make it very narrow, then very wide:
+   ✅ nothing overlaps or gets cut off; when wide, **Shortcuts**, **Working on** and
+   **Make today's capsules** sit on the right.
+7. Press **Tab** a few times ✅ a ring moves from button to button; **Enter** presses it.
+8. **Help** shows the shortcuts (Alt+C, Alt+V), how it works and privacy.
 
 ## 2. Start and cancel
 
@@ -131,6 +138,14 @@ Context Capsule sorts your work into projects by itself. You can also name one.
 4. Start a recording of the whole screen, and go back to that same window.
    ✅ Within a few seconds a message says *Project: Test project*.
 5. Stop the recording.
+6. Open the window → **Home**. ✅ *Working on* lists *Find by itself* and *Test project*;
+   clicking one puts the check mark on it (the tray's **Project** menu agrees).
+   ✅ **Today** shows a bar for *Test project* with its time.
+7. **Projects** → *Test project* → **Edit**: change the name, add a word after a comma in
+   *Found by*, **Save** ✅ the row shows the new name and words. **Delete** asks first;
+   click **Cancel**.
+8. Tell us if you can find the raw recording (the saved text) anywhere in the window:
+   you should not be able to — only times, projects and capsules are shown.
 
 ## 8. Voice notes
 
@@ -183,6 +198,10 @@ after 7 days instead of 30; capsules are never deleted).
 3. ✅ Claude reads today's recordings and writes your capsules. If Claude asks to allow
    Context Capsule's tools, click **Allow**.
 4. Tell us: did it work, and did the capsules match what you did?
+5. Back in Context Capsule (tray → **Open Context Capsule**): ✅ **Home → Recent capsules**
+   lists them; **Capsules** groups them by project (*Whole project* first). On one capsule,
+   click **⋯** → **Copy file** and paste into a chat or a folder ✅ the file arrives;
+   **Copy text**, **Save a copy…**, **Show in folder** and **Open** work too.
 
 ## 11. Send us the results
 

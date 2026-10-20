@@ -35,7 +35,7 @@ written, a message says why. Menu: Start / Stop recording, Add / Finish voice no
 screen… (while recording: the picker again, up to 4 screens or windows; each sample uses the
 one holding the window you type in; picking one that's already shared says "That screen is
 already shared. Pick a different one."), Project (Auto-detect, your projects, New project from this
-window… — works without a recording too), Settings, Check for updates, Quit.
+window… — works without a recording too), Open Context Capsule, Make today's capsules, Check for updates, Quit.
 
 Each sample saves only the lines not already saved for that window in this recording, so long
 documents are kept whole as you scroll (no size limit; a 100,000-character safety net).
@@ -70,18 +70,45 @@ The download is one file, `Context-Capsule-<version>-windows.exe`. No admin, no 
   to update.* **Restart now** renames the running exe to `.old` (Windows allows that), moves the new
   one in, starts it and quits; the new one waits for the old one to end and deletes `.old`. Any
   failure keeps the current version and is only logged (shown only after **Check for updates**,
-  in the tray menu). No network = no update, silently. Nothing about you is sent.
-- For the Settings window: `update::check_now()`, `update::auto_update()`,
-  `update::set_auto_update(on)`.
+  in the tray menu and in Settings → Updates). No network = no update, silently. Nothing about you is sent.
+- Settings → Updates: *Update automatically* (`auto_update`), the version, and **Check for updates**.
 
-## Setup window
+## The Context Capsule window
 
-Shown on first launch and from the tray menu (**Settings**): Voice notes
-(microphone allowed? **Allow** opens the Windows microphone settings), Connect Claude (opens
-`context-capsule.mcpb`, written next to the exe from inside it, with the Claude app, which asks to install it;
-without the Claude app it offers the download page), Open at login (a `Run` entry under
-HKCU). Each row shows a check mark when done. Connected means the extension is in Claude's
-`Claude Extensions` folder or `claude_desktop_config.json` has a `context-capsule` server.
+Everything in one place, like the Mac's window: tray menu → **Open Context Capsule**. The first
+launch opens it by itself on **Settings**. A sidebar in two groups, *Your work* (Home, Capsules,
+Projects) and *Context Capsule* (Settings, Help); the page title and a small status pill
+("● 0:12" while contextualizing, else "Today 2 m") at the top.
+
+- **Home**: "Good evening, Saachi." and the date; one panel with Today (time contextualized),
+  This week (time, capsules made) and Streak (days in a row); the status card (Start
+  contextualizing / Stop, Speak a note, Add a screen); Today's time per project as bars;
+  Recent capsules (the 3 newest, See all). Beside it when wide (below when narrow): Shortcuts
+  (Alt+C, Alt+V), Working on (Find by itself, your projects, New project), and Make today's
+  capsules.
+- **Capsules**: by project, the growing *Whole project* capsule first, then days, newest first.
+  Open, and ⋯ → Copy file (paste it into a chat, an email or a folder), Copy text, Save a copy…,
+  Show in folder.
+- **Projects**: rename, change the words they're found by, delete (asks first).
+- **Settings**: your name (config.json `author`; it goes on your capsules), Set up (Voice notes:
+  microphone allowed? **Allow** opens the Windows microphone settings; Connect Claude: opens
+  `context-capsule.mcpb`, written next to the exe from inside it, with the Claude app, which asks to install
+  it, or offers the download page; Open at login: a `Run` entry under HKCU — each row shows a
+  check mark when done), Every day (evening reminder and its time, when to delete old
+  recordings, sounds), Voice notes language, Appearance (System / Light / Dark, `appearance`),
+  Never record (pick an open app, or find its .exe), Updates (Update automatically, the version,
+  Check for updates). Every change is saved at once.
+- **Help**: shortcuts, how it works, privacy.
+
+Raw recordings are never shown in the window: only time per project, counts and capsules.
+Time per project follows the same rules as the Mac and Claude (core `WorkStats`). Connected
+means the extension is in Claude's `Claude Extensions` folder or `claude_desktop_config.json`
+has a `context-capsule` server.
+
+Look: drawn in code with Windows 11's colors and the system accent, Segoe UI Variable (Segoe
+UI on Windows 10), light or dark following Windows (or the Appearance setting), a dark title
+bar and dark menus in dark mode. Text boxes are real edit controls; choices are standard
+popup menus. Keyboard: Tab / Shift+Tab, Enter or Space, arrows and Page Up / Down scroll.
 
 ## Hotkeys
 
@@ -147,7 +174,8 @@ if set, else `%USERPROFILE%\.context-capsule` (the same rule as the MCP server).
 ## Tests
 
 The pure rules (which window or screen was picked, UI Automation roles, window classes for
-toasts and overviews, 16 kHz resampling, model checks, menu text, toast placement) run on any OS:
+toasts and overviews, 16 kHz resampling, model checks, menu text, toast placement, the window's
+layout at any size) run on any OS:
 
 ```sh
 cd capture-rs && cargo test -p context-capsule-windows
@@ -162,7 +190,10 @@ cd capture-rs && cargo test -p context-capsule-windows
 | `src/update.rs` | update checks, "ready, restart to update", restart into the new exe |
 | `src/net.rs` | https downloads through WinINet (the speech model, updates) |
 | `src/app.rs` | the UI thread: hidden owner window, tray menu, cues, alerts; starts the engine thread |
-| `src/setup.rs` | the setup window (voice notes, Connect Claude, open at login) |
+| `src/main_window.rs` | the Context Capsule window: messages, scrolling, keyboard, actions, text boxes |
+| `src/layout.rs` | what goes where in the window (pure, tested on any OS) |
+| `src/paint.rs` | drawing: Windows 11 colors, fonts, GDI text and GDI+ shapes |
+| `src/setup.rs` | setting up: voice notes, Connect Claude, open at login (the Settings rows) |
 | `src/connect.rs` | Connect Claude: the extension next to the exe, connected or not |
 | `src/platform.rs` | the core's `Platform` for Windows |
 | `src/picker.rs` | `GraphicsCapturePicker`, which item was picked, the capture and its latest frame |

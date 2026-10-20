@@ -183,3 +183,135 @@ pub fn play_cue(cue: context_capsule_core::Cue) {
         let _ = PlaySoundW(PCWSTR(wavs[at].as_ptr() as *const u16), None, SND_MEMORY | SND_ASYNC | SND_NODEFAULT);
     }
 }
+
+/// Put a file on the clipboard, as File Explorer's Copy does (paste it into a chat, an email or a folder).
+pub fn copy_file(path: &std::path::Path) -> bool {
+    use windows::Win32::Foundation::{GlobalFree, HANDLE, HGLOBAL};
+    use windows::Win32::System::DataExchange::{CloseClipboard, EmptyClipboard, OpenClipboard, SetClipboardData};
+    use windows::Win32::System::Memory::{GlobalAlloc, GlobalLock, GlobalUnlock, GMEM_MOVEABLE, GMEM_ZEROINIT};
+    use windows::Win32::UI::Shell::DROPFILES;
+    const CF_HDROP: u32 = 15;
+    let name: Vec<u16> = path.as_os_str().to_string_lossy().encode_utf16().chain([0, 0]).collect();
+    let head = std::mem::size_of::<DROPFILES>();
+    // SAFETY: as in `copy_text`: the memory is ours until SetClipboardData takes it; DROPFILES is followed by
+    // the double-NUL-terminated wide path, inside the allocation.
+    unsafe {
+        if OpenClipboard(None).is_err() {
+            return false;
+        }
+        let ok = (|| -> Option<()> {
+            EmptyClipboard().ok()?;
+            let mem: HGLOBAL = GlobalAlloc(GMEM_MOVEABLE | GMEM_ZEROINIT, head + name.len() * 2).ok()?;
+            let dst = GlobalLock(mem) as *mut u8;
+            if dst.is_null() {
+                let _ = GlobalFree(Some(mem));
+                return None;
+            }
+            let drop = DROPFILES { pFiles: head as u32, fWide: true.into(), ..Default::default() };
+            std::ptr::copy_nonoverlapping(&drop as *const DROPFILES as *const u8, dst, head);
+            std::ptr::copy_nonoverlapping(name.as_ptr() as *const u8, dst.add(head), name.len() * 2);
+            let _ = GlobalUnlock(mem);
+            if SetClipboardData(CF_HDROP, Some(HANDLE(mem.0))).is_err() {
+                let _ = GlobalFree(Some(mem));
+                return None;
+            }
+            Some(())
+        })()
+        .is_some();
+        let _ = CloseClipboard();
+        ok
+    }
+}
+
+/// File Explorer, with the file selected.
+pub fn show_in_folder(path: &std::path::Path) -> bool {
+    open_with("explorer.exe", Some(&format!("/select,\"{}\"", path.display())))
+}
+
+/// The standard Save dialog. None: cancelled.
+pub fn save_dialog(owner: HWND, file_name: &str) -> Option<std::path::PathBuf> {
+    file_dialog(owner, file_name, true, "Capsule (*.md)\0*.md\0All files\0*.*\0\0", "md", None)
+}
+
+/// The standard Open dialog for an app (.exe). None: cancelled.
+pub fn open_app_dialog(owner: HWND) -> Option<std::path::PathBuf> {
+    let programs = std::env::var("ProgramFiles").unwrap_or_else(|_| r"C:\Program Files".into());
+    file_dialog(owner, "", false, "Apps (*.exe)\0*.exe\0\0", "exe", Some(&programs))
+}
+
+fn file_dialog(owner: HWND, file_name: &str, save: bool, filter: &str, ext: &str, dir: Option<&str>) -> Option<std::path::PathBuf> {
+    use windows::core::PWSTR;
+    use windows::Win32::UI::Controls::Dialogs::{
+        GetOpenFileNameW, GetSaveFileNameW, OFN_FILEMUSTEXIST, OFN_NOCHANGEDIR, OFN_OVERWRITEPROMPT, OFN_PATHMUSTEXIST, OPENFILENAMEW,
+    };
+    let mut buf = [0u16; 1024];
+    for (d, s) in buf.iter_mut().zip(file_name.encode_utf16().take(1000)) {
+        *d = s;
+    }
+    let filter: Vec<u16> = filter.encode_utf16().collect();
+    let ext: Vec<u16> = ext.encode_utf16().chain(Some(0)).collect();
+    let dir: Option<Vec<u16>> = dir.map(|d| d.encode_utf16().chain(Some(0)).collect());
+    let mut ofn = OPENFILENAMEW {
+        lStructSize: std::mem::size_of::<OPENFILENAMEW>() as u32,
+        hwndOwner: owner,
+        lpstrFilter: PCWSTR(filter.as_ptr()),
+        lpstrFile: PWSTR(buf.as_mut_ptr()),
+        nMaxFile: buf.len() as u32,
+        lpstrDefExt: PCWSTR(ext.as_ptr()),
+        lpstrInitialDir: dir.as_ref().map_or(PCWSTR::null(), |d| PCWSTR(d.as_ptr())),
+        Flags: OFN_NOCHANGEDIR | OFN_PATHMUSTEXIST | if save { OFN_OVERWRITEPROMPT } else { OFN_FILEMUSTEXIST },
+        ..Default::default()
+    };
+    // SAFETY: every buffer the struct points to lives until the call returns.
+    let ok = unsafe { if save { GetSaveFileNameW(&mut ofn) } else { GetOpenFileNameW(&mut ofn) } }.as_bool();
+    if !ok {
+        return None;
+    }
+    let end = buf.iter().position(|c| *c == 0).unwrap_or(buf.len());
+    Some(std::path::PathBuf::from(String::from_utf16_lossy(&buf[..end])))
+}
+
+/// The account's display name ("Saachi Badal"), else the user name.
+pub fn display_name() -> String {
+    use windows::core::PWSTR;
+    use windows::Win32::Security::Authentication::Identity::{GetUserNameExW, NameDisplay};
+    let mut buf = [0u16; 256];
+    let mut len = buf.len() as u32;
+    // SAFETY: writes at most `len` chars into `buf`.
+    let ok = unsafe { GetUserNameExW(NameDisplay, Some(PWSTR(buf.as_mut_ptr())), &mut len) };
+    if ok && len > 0 {
+        let name = String::from_utf16_lossy(&buf[..(len as usize).min(buf.len())]).trim().to_string();
+        if !name.is_empty() {
+            return name;
+        }
+    }
+    std::env::var("USERNAME").unwrap_or_default()
+}
+
+fn locale_info(kind: u32) -> Option<String> {
+    use windows::Win32::Globalization::GetLocaleInfoEx;
+    let mut buf = [0u16; 128];
+    // SAFETY: writes at most buf.len() chars; a null locale is the user's.
+    let n = unsafe { GetLocaleInfoEx(PCWSTR::null(), kind, Some(&mut buf)) };
+    (n > 1).then(|| String::from_utf16_lossy(&buf[..n as usize - 1]))
+}
+
+/// Weeks start on Sunday in the user's region format.
+pub fn sunday_first() -> bool {
+    locale_info(windows::Win32::Globalization::LOCALE_IFIRSTDAYOFWEEK).is_some_and(|d| d.trim() == "6")
+}
+
+/// Today as the user's long date, without the year ("Tuesday, 20 October").
+pub fn long_date_today() -> String {
+    use windows::Win32::Globalization::{GetDateFormatEx, ENUM_DATE_FORMATS_FLAGS, LOCALE_SLONGDATE};
+    let pattern = locale_info(LOCALE_SLONGDATE).map(|p| crate::layout::without_year(&p)).unwrap_or_else(|| "dddd, d MMMM".into());
+    let picture: Vec<u16> = pattern.encode_utf16().chain(Some(0)).collect();
+    let mut buf = [0u16; 128];
+    // SAFETY: writes at most buf.len() chars; null date = today, null locale = the user's.
+    let n = unsafe { GetDateFormatEx(PCWSTR::null(), ENUM_DATE_FORMATS_FLAGS(0), None, PCWSTR(picture.as_ptr()), Some(&mut buf), PCWSTR::null()) };
+    if n > 1 {
+        String::from_utf16_lossy(&buf[..n as usize - 1])
+    } else {
+        chrono::Local::now().format("%A, %-d %B").to_string()
+    }
+}

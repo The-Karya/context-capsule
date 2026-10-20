@@ -1,5 +1,5 @@
 // context-capsule — windows: the UI thread — a hidden owner window for the tray, hotkeys, menu, toasts,
-// alerts, the setup window, the capture picker and the evening reminder; it starts the core engine on its own
+// alerts, the Context Capsule window, the capture picker and the evening reminder; it starts the core engine on its own
 // thread and relays messages. Start / stop cues (a short message and a soft sound) come from status changes;
 // while recording or listening a timer keeps the tray's time and voice bars moving.
 
@@ -9,7 +9,7 @@ use crate::platform::WinPlatform;
 use crate::toast::Toast;
 use crate::tray::{self, menu_text, Tray};
 use crate::uia::Uia;
-use crate::{changes, input, reminder, setup, voice, win, windows_list};
+use crate::{changes, input, main_window, reminder, setup, voice, win, windows_list};
 use context_capsule_core::{
     hotkeys_taken_message, look, recording_started_message, recording_stopped_message, AppLog, Config, Cue, Engine, Exclusion, Front, Indicator, Location,
     Msg, Options, Paths, PlatformText, ProjectItem, Projects, Redactor, Status, Voice,
@@ -30,7 +30,7 @@ use windows::Win32::UI::Shell::{NINF_KEY, NIN_SELECT};
 use windows::Win32::UI::WindowsAndMessaging::{
     AppendMenuW, CreatePopupMenu, CreateWindowExW, DefWindowProcW, DestroyMenu, DestroyWindow, DispatchMessageW, GetCursorPos,
     GetMessageW, PostMessageW, PostQuitMessage, RegisterClassW, RegisterWindowMessageW, SetForegroundWindow, TrackPopupMenu,
-    IsDialogMessageW, TranslateMessage, HMENU, MF_CHECKED, MF_GRAYED, MF_POPUP, MF_SEPARATOR, MF_STRING, MSG, TPM_BOTTOMALIGN, TPM_NONOTIFY,
+    TranslateMessage, HMENU, MF_CHECKED, MF_GRAYED, MF_POPUP, MF_SEPARATOR, MF_STRING, MSG, TPM_BOTTOMALIGN, TPM_NONOTIFY,
     TPM_RETURNCMD, TPM_RIGHTBUTTON, WINDOW_EX_STYLE, WM_APP, WM_CLOSE, WM_CONTEXTMENU, WM_DESTROY, WM_ENDSESSION, WM_HOTKEY, WM_NULL,
     WM_QUERYENDSESSION, WM_SETTINGCHANGE, WM_TIMER, WNDCLASSW, WS_EX_TOOLWINDOW, WS_POPUP, KillTimer, SetTimer,
 };
@@ -41,7 +41,8 @@ const WM_CMD: u32 = WM_APP + 2;
 const ID_TOGGLE: u32 = 10;
 const ID_VOICE: u32 = 11;
 const ID_QUIT: u32 = 13;
-const ID_SETUP: u32 = 14;
+const ID_OPEN: u32 = 14;
+const ID_MAKE: u32 = 17;
 const ID_ADD_SCREEN: u32 = 15;
 const ID_UPDATES: u32 = 16;
 const ID_PROJECT_AUTO: u32 = 20;
@@ -69,6 +70,8 @@ pub enum UiCmd {
     AddSource,
     /// Evening: "Make today's capsules?"
     Remind,
+    /// Fresh numbers and lists for the Context Capsule window, read off the UI thread.
+    WindowData(Box<crate::layout::Data>),
     EngineDone,
 }
 
@@ -174,9 +177,7 @@ pub fn run() {
     let engine = spawn_engine(paths.clone(), ui, capture.clone(), tx.clone(), rx, log.clone());
     setup::open_at_login_once(&log);
     crate::update::start(hwnd, log.clone());
-    if !setup::seen() {
-        setup::show(&log); // first launch
-    }
+    main_window::apply_menu_mode(&paths);
 
     APP.with(|a| {
         *a.borrow_mut() = Some(App {
@@ -194,6 +195,9 @@ pub fn run() {
             look_timer: false,
         })
     });
+    if !setup::seen() {
+        open_window(hwnd, Some(context_capsule_core::window::Section::Settings)); // first launch
+    }
     if !taken.is_empty() {
         // Once, at launch: the keys don't work, the tray menu does.
         with_app(|a| a.log.write(&format!("hotkeys taken by another app: {}", taken.join(", "))));
@@ -201,12 +205,9 @@ pub fn run() {
     }
 
     let mut msg = MSG::default();
-    // SAFETY: the standard message loop for this thread; the setup window gets Tab / Enter / Esc.
+    // SAFETY: the standard message loop for this thread.
     unsafe {
         while GetMessageW(&mut msg, None, 0, 0).as_bool() {
-            if setup::window().is_some_and(|d| IsDialogMessageW(d, &msg).as_bool()) {
-                continue;
-            }
             let _ = TranslateMessage(&msg);
             DispatchMessageW(&msg);
         }
@@ -355,6 +356,7 @@ fn handle(hwnd: HWND, cmd: UiCmd) {
                 cues(a, &s);
                 a.status = *s;
                 look_tick(hwnd, a);
+                main_window::set_status(&a.status);
             });
         }
         UiCmd::Toast(text) => {
@@ -389,6 +391,7 @@ fn handle(hwnd: HWND, cmd: UiCmd) {
                 reminder::ask_and_make(Ui::of(hwnd), log);
             }
         }
+        UiCmd::WindowData(data) => main_window::set_data(*data),
         // Quitting: let an open alert (e.g. "Nothing was saved") be read first.
         UiCmd::EngineDone if ALERTS.get() > 0 => CLOSE_PENDING.set(true),
         UiCmd::EngineDone => close(hwnd),
@@ -432,6 +435,7 @@ fn look_tick(hwnd: HWND, a: &mut App) {
 }
 
 fn close(hwnd: HWND) {
+    main_window::close();
     with_app(|a| a.tray.remove());
     // SAFETY: our own window; WM_DESTROY ends the loop.
     unsafe {
@@ -485,7 +489,8 @@ fn show_menu(hwnd: HWND) {
             // The submenu is destroyed with the menu.
             let _ = AppendMenuW(menu, MF_STRING | MF_POPUP, sub.0 as usize, &HSTRING::from(model.project.as_str()));
         }
-        item(menu, ID_SETUP, "Settings", true);
+        item(menu, ID_OPEN, context_capsule_core::window::OPEN_WINDOW, true);
+        item(menu, ID_MAKE, context_capsule_core::window::MAKE_TODAYS, true);
         item(menu, ID_UPDATES, context_capsule_core::update::CHECK_LABEL, true);
         let _ = AppendMenuW(menu, MF_SEPARATOR, 0, None);
         item(menu, ID_QUIT, "Quit", true);
@@ -504,9 +509,11 @@ fn show_menu(hwnd: HWND) {
         ID_TOGGLE => send(Msg::ToggleRecord),
         ID_VOICE => send(Msg::ToggleVoice),
         ID_ADD_SCREEN => send(Msg::AddScreen),
-        ID_SETUP => {
+        ID_OPEN => open_window(hwnd, None),
+        ID_MAKE => {
             if let Some(log) = with_app(|a| a.log.clone()) {
-                setup::show(&log);
+                let ui = Ui::of(hwnd);
+                std::thread::spawn(move || reminder::make(&ui, &log));
             }
         }
         ID_UPDATES => crate::update::check_now(),
@@ -553,6 +560,16 @@ fn new_project(hwnd: HWND, status: &Status) {
     if let Some(name) = input::ask(hwnd, "New project", &shown.new_project_prompt(), &initial) {
         send(Msg::NewProject { name, clue });
     }
+}
+
+/// Open the Context Capsule window (on `section`, when given), or bring it to the front.
+fn open_window(hwnd: HWND, section: Option<context_capsule_core::window::Section>) {
+    let Some((ctx, status)) = with_app(|a| {
+        (main_window::Ctx { ui: Ui::of(hwnd), tx: a.tx.clone(), log: a.log.clone(), paths: a.paths.clone() }, a.status.clone())
+    }) else {
+        return;
+    };
+    main_window::show(section, ctx, &status);
 }
 
 fn send(msg: Msg) {

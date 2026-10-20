@@ -135,7 +135,7 @@ pub fn tooltip(s: &Status, now: SystemTime) -> String {
 }
 
 #[cfg(windows)]
-pub use win::Tray;
+pub use win::{window_icon, Tray};
 
 #[cfg(windows)]
 mod win {
@@ -277,6 +277,12 @@ mod win {
             // SAFETY: reads our own icon's rect.
             unsafe { Shell_NotifyIconGetRect(&id) }.ok()
         }
+    }
+
+    /// The window's icon (title bar, taskbar, Alt+Tab): the idle ring, dark on a light taskbar.
+    pub fn window_icon(size: usize) -> Option<HICON> {
+        let light = reg_dword(THEME_KEY, "SystemUsesLightTheme") == Some(1);
+        make_icon(&glyph_pixels(Glyph::Ring, size, glyph_color(Glyph::Ring, light)), size)
     }
 
     /// A 32-bit icon with alpha from BGRA pixels.
