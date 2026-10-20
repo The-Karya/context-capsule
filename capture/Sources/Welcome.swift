@@ -96,7 +96,7 @@ private struct StepRow: View {
             if done {
                 Image(systemName: "checkmark").font(.system(size: 13, weight: .semibold)).foregroundStyle(.secondary)
             } else {
-                Button(button, action: action).controlSize(.regular)
+                Button(button, action: action).controlSize(.regular).modifier(GlassButton())
             }
         }
         .padding(.horizontal, 14)
@@ -119,13 +119,43 @@ private struct Shortcut: View {
     }
 }
 
+/// A rounded panel of glass (Liquid Glass on macOS 26, a frosted material before).
 private struct Group<Content: View>: View {
     @ViewBuilder var content: Content
     var body: some View {
-        VStack(spacing: 0) { content }
-            .background(RoundedRectangle(cornerRadius: 10, style: .continuous).fill(Color(nsColor: .controlBackgroundColor)))
-            .overlay(RoundedRectangle(cornerRadius: 10, style: .continuous).strokeBorder(Color.primary.opacity(0.08)))
+        let shape = RoundedRectangle(cornerRadius: 18, style: .continuous)
+        if #available(macOS 26, *) {
+            VStack(spacing: 0) { content }.glassEffect(.regular, in: shape)
+        } else {
+            VStack(spacing: 0) { content }
+                .background(shape.fill(.regularMaterial))
+                .overlay(shape.strokeBorder(Color.white.opacity(0.18)))
+        }
     }
+}
+
+/// Glass buttons on macOS 26 (prominent = the main action), normal ones before.
+private struct GlassButton: ViewModifier {
+    var prominent = false
+    func body(content: Content) -> some View {
+        if #available(macOS 26, *) {
+            if prominent { content.buttonStyle(.glassProminent) } else { content.buttonStyle(.glass) }
+        } else {
+            if prominent { content.buttonStyle(.borderedProminent) } else { content.buttonStyle(.bordered) }
+        }
+    }
+}
+
+/// The desktop, blurred, behind the whole window.
+struct WindowGlass: NSViewRepresentable {
+    func makeNSView(context: Context) -> NSVisualEffectView {
+        let view = NSVisualEffectView()
+        view.material = .underWindowBackground
+        view.blendingMode = .behindWindow
+        view.state = .active
+        return view
+    }
+    func updateNSView(_ view: NSVisualEffectView, context: Context) {}
 }
 
 struct WelcomeView: View {
@@ -176,10 +206,12 @@ struct WelcomeView: View {
 
             HStack {
                 Spacer()
-                Button("Done", action: onDone).keyboardShortcut(.defaultAction).controlSize(.large)
+                Button(action: onDone) { Text("Done").fontWeight(.semibold).padding(.horizontal, 12) }
+                    .keyboardShortcut(.defaultAction).controlSize(.large).modifier(GlassButton())
             }
         }
         .padding(24)
+        .padding(.top, 6)
         .frame(width: 380)
     }
 }
@@ -217,12 +249,13 @@ final class WelcomeWindow: NSObject, NSWindowDelegate {
         }
         let view = WelcomeView(status: status, onAccessibility: { [weak self] in self?.onAccessibility() },
                                onDone: { [weak self] in self?.window?.close() })
-        let window = NSWindow(contentViewController: NSHostingController(rootView: view))
+        let window = NSWindow(contentViewController: NSHostingController(rootView: view.background(WindowGlass().ignoresSafeArea())))
         window.title = ""
         window.styleMask = [.titled, .closable, .fullSizeContentView]
         window.titlebarAppearsTransparent = true
         window.isMovableByWindowBackground = true
-        window.backgroundColor = .windowBackgroundColor
+        window.isOpaque = false
+        window.backgroundColor = .clear
         window.isReleasedWhenClosed = false
         window.delegate = self
         window.center()

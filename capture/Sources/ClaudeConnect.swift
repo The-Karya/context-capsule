@@ -12,15 +12,15 @@ enum ClaudeConnect {
         Bundle.main.url(forResource: "context-capsule", withExtension: "mcpb")
     }
 
-    /// Connected in Claude Desktop (extension or config entry) or in Claude Code.
+    /// Connected in the Claude app (Claude Desktop): the extension, or a config entry. Claude Code doesn't
+    /// count here — the welcome screen is about the Claude app.
     static var isConnected: Bool {
         let fm = FileManager.default
         let support = fm.homeDirectoryForCurrentUser.appendingPathComponent("Library/Application Support/Claude")
         let extensions = support.appendingPathComponent("Claude Extensions")
         if let names = try? fm.contentsOfDirectory(atPath: extensions.path),
            names.contains(where: { $0.lowercased().contains("context-capsule") }) { return true }
-        if hasServer(in: support.appendingPathComponent("claude_desktop_config.json")) { return true }
-        return hasServer(in: fm.homeDirectoryForCurrentUser.appendingPathComponent(".claude.json"))
+        return hasServer(in: support.appendingPathComponent("claude_desktop_config.json"))
     }
 
     /// Any "mcpServers" object (at any depth) with a "context-capsule" entry.
