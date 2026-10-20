@@ -30,6 +30,56 @@ const OVERLAY_CLASSES: &[&str] = &[
     "TaskSwitcherOverlayWnd",
 ];
 
+/// Windows' own UI that is never "the app you work in": the taskbar, Start, Search, the notification
+/// and action centers, Quick Settings, the language and emoji pickers, Alt-Tab and Task View. When
+/// one is in front (you clicked the taskbar or the tray), the work window is the top normal window of
+/// a real app. File Explorer runs in explorer.exe too, so the taskbar is told apart by class.
+const SHELL_UI_CLASSES: &[&str] = &[
+    "Shell_TrayWnd",
+    "Shell_SecondaryTrayWnd",
+    "NotifyIconOverflowWindow",
+    "TopLevelWindowForOverflowXamlIsland",
+    "Xaml_WindowedPopupClass",
+    "Shell_InputSwitchTopLevelWindow",
+    "ControlCenterWindow",
+    "MultitaskingViewFrame",
+    "XamlExplorerHostIslandWindow",
+    "TaskSwitcherWnd",
+    "TaskSwitcherOverlayWnd",
+    "ForegroundStaging",
+];
+
+/// Processes that only draw Windows' own UI (Start, Search, flyouts, Quick Settings, the emoji panel).
+const SHELL_UI_HOSTS: &[&str] = &[
+    "startmenuexperiencehost.exe",
+    "searchhost.exe",
+    "searchapp.exe",
+    "searchui.exe",
+    "shellexperiencehost.exe",
+    "shellhost.exe",
+    "textinputhost.exe",
+];
+
+/// Is this window part of Windows' own UI (see `SHELL_UI_CLASSES`)? `exe` is the file name.
+pub fn is_shell_ui(class: &str, exe: &str) -> bool {
+    SHELL_UI_CLASSES.contains(&class) || SHELL_UI_HOSTS.contains(&exe.to_ascii_lowercase().as_str())
+}
+
+/// The window (id, pid) the user works in. Normally the foreground window; when that is Windows' own
+/// UI, the top normal window that isn't (a private app on top is returned, so its sample is skipped).
+/// None: only shell UI is on screen.
+pub fn work_window(
+    foreground: (u64, u32),
+    foreground_is_shell: bool,
+    list: &[context_capsule_core::ListedWindow],
+    is_shell: &dyn Fn(u64) -> bool,
+) -> Option<(u64, u32)> {
+    if !foreground_is_shell {
+        return Some(foreground);
+    }
+    context_capsule_core::WindowList::top_regular(list, &|w| is_shell(w.id)).map(|w| (w.id, w.pid))
+}
+
 /// Processes that draw notification toasts and the notification center.
 const NOTIFICATION_HOSTS: &[&str] = &["shellexperiencehost.exe"];
 
@@ -79,7 +129,7 @@ mod win {
     use super::*;
     use crate::picker::MonitorCandidate;
     use context_capsule_core::{Front, ListedWindow, Rect, WindowList};
-    use std::collections::HashMap;
+    use std::collections::{HashMap, HashSet};
     use windows::core::{BOOL, PCWSTR, PWSTR};
     use windows::Win32::Foundation::{CloseHandle, HWND, LPARAM, RECT};
     use windows::Win32::Graphics::Dwm::{DwmGetWindowAttribute, DWMWA_CLOAKED, DWMWA_EXTENDED_FRAME_BOUNDS};
@@ -345,10 +395,14 @@ mod win {
     pub fn front(apps: &mut Apps, is_excluded: &dyn Fn(Option<&str>, &str) -> bool) -> Option<Front> {
         let (fg_id, fg_pid, fg_class) = foreground()?;
         let raws = on_screen();
+        let mut shell = HashSet::new();
         let list: Vec<ListedWindow> = raws
             .iter()
             .map(|r| {
                 let (exe, name) = apps.info(r.pid);
+                if is_shell_ui(&r.class, exe.as_deref().unwrap_or("")) {
+                    shell.insert(r.id);
+                }
                 ListedWindow {
                     id: r.id,
                     pid: r.pid,
@@ -364,6 +418,9 @@ mod win {
             .collect();
         // An overview is in front: it is the foreground window or tops the z-order.
         let overlay = is_overlay_class(&fg_class) || raws.first().is_some_and(|r| is_overlay_class(&r.class));
+        // The taskbar, Start, a flyout…: use the window of the app the user works in.
+        let fg_exe = apps.info(fg_pid).0.unwrap_or_default();
+        let (fg_id, fg_pid) = work_window((fg_id, fg_pid), is_shell_ui(&fg_class, &fg_exe), &list, &|id| shell.contains(&id))?;
         let (app_id, app_name) = apps.info(fg_pid);
         // The foreground window itself when it is a normal one, else the app's front window.
         let window = list
@@ -398,6 +455,38 @@ mod tests {
         }
         assert!(!is_overlay_class("Chrome_WidgetWin_1"));
         assert!(!is_overlay_class("multitaskingviewframe"), "class names are exact");
+    }
+
+    #[test]
+    fn shell_ui() {
+        for class in ["Shell_TrayWnd", "Shell_SecondaryTrayWnd", "XamlExplorerHostIslandWindow", "MultitaskingViewFrame", "ControlCenterWindow"] {
+            assert!(is_shell_ui(class, "explorer.exe"), "{class}");
+        }
+        for exe in ["StartMenuExperienceHost.exe", "SearchHost.exe", "ShellExperienceHost.exe", "ShellHost.exe", "SearchApp.exe"] {
+            assert!(is_shell_ui(CORE_WINDOW_CLASS, exe), "{exe}");
+        }
+        assert!(!is_shell_ui("CabinetWClass", "explorer.exe"), "File Explorer is a real app");
+        assert!(!is_shell_ui("Chrome_WidgetWin_1", "chrome.exe"));
+        assert!(!is_shell_ui("Progman", "explorer.exe"), "the desktop is not skipped over");
+        assert!(!is_shell_ui(CORE_WINDOW_CLASS, "LockApp.exe"), "the lock screen stays in front (and private)");
+    }
+
+    #[test]
+    fn work_window_skips_shell_ui() {
+        use context_capsule_core::{ListedWindow, Rect};
+        let w = |id: u64, pid: u32, layer: i32| ListedWindow { layer, ..ListedWindow::new(id, pid, Rect::new(0.0, 0.0, 800.0, 600.0)) };
+        let taskbar = w(1, 10, 1);
+        let start = w(2, 11, 0); // a top-level CoreWindow reported as normal by mistake
+        let whatsapp = ListedWindow { excluded: true, ..w(3, 20, 0) };
+        let chrome = w(4, 30, 0);
+        let shell = |id: u64| id == 1 || id == 2;
+        let list = [taskbar.clone(), start.clone(), chrome.clone()];
+        assert_eq!(work_window((4, 30), false, &list, &shell), Some((4, 30)), "a real app in front is kept");
+        assert_eq!(work_window((1, 10), true, &list, &shell), Some((4, 30)), "taskbar in front: the top real app");
+        assert_eq!(work_window((2, 11), true, &list, &shell), Some((4, 30)), "Start in front: the top real app");
+        let with_private = [taskbar.clone(), whatsapp, chrome];
+        assert_eq!(work_window((1, 10), true, &with_private, &shell), Some((3, 20)), "a private app on top is kept (then skipped)");
+        assert_eq!(work_window((1, 10), true, &[taskbar, start], &shell), None, "only shell UI: none");
     }
 
     #[test]

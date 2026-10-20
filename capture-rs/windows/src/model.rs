@@ -69,8 +69,8 @@ pub fn consent_text(dir: &Path) -> String {
 /// What a voice note says until the model is there.
 pub fn missing_text(voice_hotkey: &str, dir: &Path) -> String {
     format!(
-        "voice notes need the speech model (one-time download, about {}). Press {voice_hotkey} while recording \
-         and choose Yes, or put {FILE_NAME} in {}",
+        "Voice notes need the speech model (one-time download, about {}). Press {voice_hotkey} while recording \
+         and choose Yes, or put {FILE_NAME} in {}.",
         size_label(SIZE),
         dir.display()
     )

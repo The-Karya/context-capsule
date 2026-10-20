@@ -1,13 +1,18 @@
 // context-capsule — windows: the UI thread — a hidden owner window for the tray, hotkeys, menu, toasts,
-// alerts and the capture picker; it starts the core engine on its own thread and relays messages.
+// alerts, the setup window and the capture picker; it starts the core engine on its own thread and relays
+// messages. Start / stop / listening cues are shown here when the engine's status changes.
 
 use crate::hotkeys::{self, RECORD_LABEL, VOICE_LABEL};
 use crate::picker::Capture;
 use crate::platform::WinPlatform;
 use crate::toast::Toast;
 use crate::tray::{self, menu_text, Tray};
-use crate::{changes, input, voice, win};
-use context_capsule_core::{Engine, Indicator, Msg, Options, Paths, PlatformText, ProjectItem, Status};
+use crate::uia::Uia;
+use crate::{changes, input, setup, voice, win, windows_list};
+use context_capsule_core::{
+    listening_message, recording_started_message, recording_stopped_message, AppLog, Config, Engine, Exclusion, Front, Indicator,
+    Location, Msg, Options, Paths, PlatformText, ProjectItem, Projects, Redactor, Status,
+};
 use std::cell::{Cell, RefCell};
 use std::sync::atomic::{AtomicU32, Ordering};
 use std::sync::mpsc::{channel, Receiver, Sender};
@@ -24,7 +29,7 @@ use windows::Win32::UI::Shell::{ShellExecuteW, NINF_KEY, NIN_SELECT};
 use windows::Win32::UI::WindowsAndMessaging::{
     AppendMenuW, CreatePopupMenu, CreateWindowExW, DefWindowProcW, DestroyMenu, DestroyWindow, DispatchMessageW, GetCursorPos,
     GetMessageW, PostMessageW, PostQuitMessage, RegisterClassW, RegisterWindowMessageW, SetForegroundWindow, TrackPopupMenu,
-    TranslateMessage, HMENU, MF_CHECKED, MF_GRAYED, MF_POPUP, MF_SEPARATOR, MF_STRING, MSG, SW_SHOWNORMAL, TPM_BOTTOMALIGN, TPM_NONOTIFY,
+    IsDialogMessageW, TranslateMessage, HMENU, MF_CHECKED, MF_GRAYED, MF_POPUP, MF_SEPARATOR, MF_STRING, MSG, SW_SHOWNORMAL, TPM_BOTTOMALIGN, TPM_NONOTIFY,
     TPM_RETURNCMD, TPM_RIGHTBUTTON, WINDOW_EX_STYLE, WM_APP, WM_CONTEXTMENU, WM_DESTROY, WM_ENDSESSION, WM_HOTKEY, WM_NULL,
     WM_QUERYENDSESSION, WM_SETTINGCHANGE, WNDCLASSW, WS_EX_TOOLWINDOW, WS_POPUP,
 };
@@ -36,6 +41,7 @@ const ID_TOGGLE: u32 = 10;
 const ID_VOICE: u32 = 11;
 const ID_OPEN: u32 = 12;
 const ID_QUIT: u32 = 13;
+const ID_SETUP: u32 = 14;
 const ID_PROJECT_AUTO: u32 = 20;
 const ID_PROJECT_NEW: u32 = 21;
 /// Projects are 100, 101, … in list order.
@@ -43,7 +49,8 @@ const ID_PROJECT_FIRST: u32 = 100;
 const MAX_PROJECTS: usize = 500;
 
 /// User-facing words for Windows (our hotkeys use Ctrl too: Alt+Shift alone switches keyboard layouts).
-pub const TEXT: PlatformText = PlatformText { record_hotkey: RECORD_LABEL, voice_hotkey: VOICE_LABEL, ..PlatformText::WINDOWS };
+pub const TEXT: PlatformText =
+    PlatformText { record_hotkey: RECORD_LABEL, voice_hotkey: VOICE_LABEL, mic_privacy: voice::MIC_SETTINGS, ..PlatformText::WINDOWS };
 
 /// What the engine thread asks the UI thread to do.
 pub enum UiCmd {
@@ -85,6 +92,12 @@ struct App {
     tx: Sender<Msg>,
     status: Status,
     engine: Option<std::thread::JoinHandle<()>>,
+    log: AppLog,
+    /// For "New project from this window…": the window in front when the menu opened.
+    apps: windows_list::Apps,
+    menu_front: Option<Front>,
+    /// UI Automation on this thread, made the first time a browser's address is needed.
+    uia: Option<Option<Uia>>,
 }
 
 thread_local! {
@@ -129,6 +142,8 @@ pub fn run() {
 
     let paths = Paths::standard();
     let _ = std::fs::create_dir_all(paths.sessions());
+    let log = AppLog::new(paths.log());
+    log.write(&format!("app started: version {}", env!("CARGO_PKG_VERSION")));
     let (tx, rx) = channel();
     let capture = Capture::new(tx.clone());
     let ui = Ui { hwnd: hwnd.0 as usize };
@@ -138,17 +153,34 @@ pub fn run() {
     tray.add();
     hotkeys::register(hwnd);
     changes::install();
-    let engine = spawn_engine(paths.clone(), ui, capture.clone(), tx.clone(), rx);
+    let engine = spawn_engine(paths.clone(), ui, capture.clone(), tx.clone(), rx, log.clone());
+    if !setup::seen() {
+        setup::show(&log); // first launch
+    }
 
     APP.with(|a| {
-        *a.borrow_mut() =
-            Some(App { paths, tray, toast: Toast::new(), capture, tx, status: Status::default(), engine: Some(engine) })
+        *a.borrow_mut() = Some(App {
+            paths,
+            tray,
+            toast: Toast::new(),
+            capture,
+            tx,
+            status: Status::default(),
+            engine: Some(engine),
+            log,
+            apps: Default::default(),
+            menu_front: None,
+            uia: None,
+        })
     });
 
     let mut msg = MSG::default();
-    // SAFETY: the standard message loop for this thread.
+    // SAFETY: the standard message loop for this thread; the setup window gets Tab / Enter / Esc.
     unsafe {
         while GetMessageW(&mut msg, None, 0, 0).as_bool() {
+            if setup::window().is_some_and(|d| IsDialogMessageW(d, &msg).as_bool()) {
+                continue;
+            }
             let _ = TranslateMessage(&msg);
             DispatchMessageW(&msg);
         }
@@ -186,14 +218,21 @@ fn create_window() -> Option<HWND> {
     }
 }
 
-fn spawn_engine(paths: Paths, ui: Ui, capture: Arc<Capture>, tx: Sender<Msg>, rx: Receiver<Msg>) -> std::thread::JoinHandle<()> {
+fn spawn_engine(
+    paths: Paths,
+    ui: Ui,
+    capture: Arc<Capture>,
+    tx: Sender<Msg>,
+    rx: Receiver<Msg>,
+    log: AppLog,
+) -> std::thread::JoinHandle<()> {
     std::thread::Builder::new()
         .name("engine".into())
         .spawn(move || {
             win::init_com(false);
             let toast_ui = ui.clone();
             let notify: voice::Notify = Arc::new(move |text: String| toast_ui.post(UiCmd::Toast(text)));
-            let voice = voice::engine(&paths.root, TEXT.voice_hotkey, notify);
+            let voice = voice::engine(&paths.root, TEXT.voice_hotkey, notify, log);
             let opts = Options { own_app_id: own_app_id(), text: TEXT, locale: user_locale() };
             let mut engine = Engine::new(paths, WinPlatform::new(ui.clone(), capture), voice, opts);
             engine.set_voice_wake(Arc::new(move || {
@@ -281,6 +320,7 @@ fn handle(hwnd: HWND, cmd: UiCmd) {
         UiCmd::Status(s) => {
             with_app(|a| {
                 a.tray.set_tip(tray::tooltip(&s));
+                cues(a, &s);
                 a.status = *s;
             });
         }
@@ -312,6 +352,20 @@ fn handle(hwnd: HWND, cmd: UiCmd) {
     }
 }
 
+/// Clear cues when recording or listening starts or stops (Mac parity): a short message, and a
+/// "Listening…" banner that stays up until the note ends, however it ends.
+fn cues(a: &App, next: &Status) {
+    let Some(toast) = &a.toast else { return };
+    let icon = a.tray.rect();
+    if next.listening != a.status.listening {
+        toast.set_banner(next.listening.then(|| listening_message(&TEXT)).as_deref(), icon);
+    }
+    if next.recording != a.status.recording {
+        let text = if next.recording { recording_started_message(&TEXT) } else { recording_stopped_message(next.events) };
+        toast.show(&text, icon);
+    }
+}
+
 fn close(hwnd: HWND) {
     with_app(|a| a.tray.remove());
     // SAFETY: our own window; WM_DESTROY ends the loop.
@@ -321,7 +375,13 @@ fn close(hwnd: HWND) {
 }
 
 fn show_menu(hwnd: HWND) {
-    let Some((model, status)) = with_app(|a| (tray::menu_model(&a.status, &short_time), a.status.clone())) else { return };
+    let Some((model, status)) = with_app(|a| {
+        // Clicking the tray puts the taskbar in front; this finds the app the user works in.
+        a.menu_front = front_now(a);
+        (tray::menu_model(&a.status, &short_time), a.status.clone())
+    }) else {
+        return;
+    };
     let projects = status.project_items();
     // SAFETY: a popup menu we build, show and destroy here. TrackPopupMenu runs a nested loop, so the
     // app is not borrowed meanwhile.
@@ -358,6 +418,7 @@ fn show_menu(hwnd: HWND) {
             let _ = AppendMenuW(menu, MF_STRING | MF_POPUP, sub.0 as usize, &HSTRING::from(model.project.as_str()));
         }
         item(menu, ID_OPEN, "Open sessions folder", true);
+        item(menu, ID_SETUP, "Set up Context Capsule…", true);
         let _ = AppendMenuW(menu, MF_SEPARATOR, 0, None);
         item(menu, ID_QUIT, "Quit Context Capsule", true);
 
@@ -375,6 +436,11 @@ fn show_menu(hwnd: HWND) {
         ID_TOGGLE => send(Msg::ToggleRecord),
         ID_VOICE => send(Msg::ToggleVoice),
         ID_OPEN => open_sessions(),
+        ID_SETUP => {
+            if let Some(log) = with_app(|a| a.log.clone()) {
+                setup::show(&log);
+            }
+        }
         ID_QUIT => quit(hwnd),
         ID_PROJECT_AUTO => send(Msg::PickProject(None)),
         ID_PROJECT_NEW => new_project(hwnd, &status),
@@ -387,12 +453,35 @@ fn show_menu(hwnd: HWND) {
     }
 }
 
+/// The front app and window right now (the taskbar and other shell UI skipped), never-record apps marked.
+fn front_now(a: &mut App) -> Option<Front> {
+    let own = own_app_id();
+    let user = Config::load(&a.paths.config()).exclude_apps;
+    let is_excluded = |id: Option<&str>, name: &str| (id.is_some() && id == own.as_deref()) || Exclusion::is_excluded(id, Some(name), &user);
+    windows_list::front(&mut a.apps, &is_excluded)
+        .filter(|f| f.window.is_some() && !is_excluded(f.app_id.as_deref(), &f.app_name))
+}
+
+/// A clue from the window that was in front when the menu opened (works without a recording); else
+/// the latest sample's. Same cleaning as recorded events.
+fn current_clue(a: &mut App) -> Option<String> {
+    let Some(front) = a.menu_front.take() else { return a.status.new_project_clue.clone() };
+    let window = front.window.as_ref()?;
+    let title = Redactor::clean(&windows_list::title(window.id));
+    let address = crate::uia::browser_for(front.app_id.as_deref()).and_then(|browser| {
+        let uia = a.uia.get_or_insert_with(Uia::new).as_ref()?;
+        uia.address(HWND(window.id as usize as *mut core::ffi::c_void), browser)
+    });
+    Projects::clue(&title, &Location::clean(address.as_deref())).or_else(|| a.status.new_project_clue.clone())
+}
+
 /// Ask for a name (prefilled with the window's clue); the engine saves it and remembers the clue.
 fn new_project(hwnd: HWND, status: &Status) {
-    let clue = status.new_project_clue.clone();
+    let clue = with_app(current_clue).flatten();
+    let shown = Status { new_project_clue: clue.clone(), ..status.clone() };
     let initial = clue.clone().unwrap_or_default();
     // Outside the app borrow: the dialog runs a nested message loop.
-    if let Some(name) = input::ask(hwnd, "New project", &status.new_project_prompt(), &initial) {
+    if let Some(name) = input::ask(hwnd, "New project", &shown.new_project_prompt(), &initial) {
         send(Msg::NewProject { name, clue });
     }
 }
@@ -421,6 +510,7 @@ fn quit(hwnd: HWND) {
 /// Windows is logging off: stop now and wait (briefly) for the engine to write its files.
 fn quit_now() {
     let engine = with_app(|a| {
+        a.log.write("windows is signing out");
         let _ = a.tx.send(Msg::Quit);
         a.tray.remove();
         a.engine.take()

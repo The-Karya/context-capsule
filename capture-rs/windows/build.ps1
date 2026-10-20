@@ -23,4 +23,12 @@ $cargo.WaitForExit()
 if ($cargo.ExitCode -ne 0) { exit $cargo.ExitCode }
 
 $exe = Join-Path (Get-Location) "target\release\context-capsule.exe"
+# The Claude extension ships next to the exe ("Connect Claude" opens it). Built by mcp/extension/build.sh.
+$mcpb = Join-Path (Get-Location) "..\mcp\dist-ext\context-capsule.mcpb"
+if (Test-Path $mcpb) {
+    Copy-Item $mcpb (Split-Path $exe) -Force
+    Write-Host "Copied context-capsule.mcpb next to the exe"
+} else {
+    Write-Warning "$mcpb is missing: build it with mcp/extension/build.sh, or Connect Claude won't work"
+}
 Write-Host "Built $exe"

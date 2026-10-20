@@ -5,6 +5,7 @@
 //! A port of `capture/Sources/Recorder.swift`. Single-threaded: file writes and OCR happen inline on
 //! the engine's thread (the platform gives it its own), so a slow OCR only delays the next message.
 
+use crate::applog::AppLog;
 use crate::clock;
 use crate::events::{Event, EventLog};
 use crate::exclusion::{Config, Exclusion};
@@ -17,7 +18,7 @@ use crate::projects::{Location, Project, ProjectChoice, Projects};
 use crate::redact::Redactor;
 use crate::state::{session_json, ControlCommand, ControlKind, StateJson};
 use crate::text::{TextSource, UiText};
-use crate::voice::{PlatformText, Voice, VoiceEngine, VoiceNotes, VoicePhase, VoiceSignal, VoiceTarget};
+use crate::voice::{busy_listening_message, PlatformText, Voice, VoiceEngine, VoiceNotes, VoicePhase, VoiceSignal, VoiceTarget};
 use std::path::PathBuf;
 use std::sync::mpsc::{Receiver, RecvTimeoutError};
 use std::sync::Arc;
@@ -125,13 +126,17 @@ pub struct Engine<P: Platform> {
     /// The front window as of the latest sample (title, where, app): what "New project from this
     /// window" uses.
     last_window: Option<(String, String, String)>,
+    /// app.log: counts, reasons and error codes only.
+    log: AppLog,
 }
 
 impl<P: Platform> Engine<P> {
     /// Reads the control file once, so a command left from before launch is never run.
     pub fn new(paths: Paths, platform: P, voice: Box<dyn VoiceEngine>, opts: Options) -> Self {
         let control = ControlWatcher::new(paths.control());
+        let log = AppLog::new(paths.log());
         Engine {
+            log,
             paths,
             platform,
             opts,
@@ -177,6 +182,10 @@ impl<P: Platform> Engine<P> {
     }
     pub fn paths(&self) -> &Paths {
         &self.paths
+    }
+    /// app.log (platforms may write to it too).
+    pub fn log(&self) -> &AppLog {
+        &self.log
     }
     pub fn is_recording(&self) -> bool {
         self.session.is_some()
@@ -297,7 +306,14 @@ impl<P: Platform> Engine<P> {
     // MARK: start / stop
 
     pub fn toggle_record(&mut self) {
+        if self.is_recording() && self.voice.phase() == VoicePhase::Listening {
+            // A voice note is open: the record key waits until it is finished, so one key never ends both.
+            self.log.write("record key while a voice note is open: waiting");
+            let message = busy_listening_message(&self.opts.text);
+            return self.platform.toast(&message);
+        }
         if self.is_recording() {
+            self.log.write("stop: hotkey or menu");
             self.stop()
         } else if self.is_picking() {
             self.cancel_picking()
@@ -331,6 +347,9 @@ impl<P: Platform> Engine<P> {
 
     /// Quitting: end any session, then a last state.json.
     pub fn shutdown(&mut self) {
+        if self.is_recording() {
+            self.log.write("stop: quit");
+        }
         self.stop();
         self.changed();
     }
@@ -353,17 +372,23 @@ impl<P: Platform> Engine<P> {
                     self.platform.stop_capture(); // a pick after the user cancelled: not wanted
                 }
             }
-            PickOutcome::Cancelled => self.last_error = Some("cancelled".into()),
+            PickOutcome::Cancelled => {
+                self.log.write("picker: cancelled");
+                self.last_error = Some("cancelled".into())
+            }
             PickOutcome::Failed(message) => {
-                eprintln!("Context Capsule: {message}");
+                self.log.write(&format!("start failed: {message}"));
                 if self.is_recording() {
                     self.end_session();
                 }
                 self.last_error = Some(message);
             }
             PickOutcome::Stopped(message) => {
-                if let Some(m) = &message {
-                    eprintln!("Context Capsule: capture stopped: {m}");
+                if self.is_recording() {
+                    self.log.write(&match &message {
+                        Some(m) => format!("stop: capture error: {m}"),
+                        None => "stop: capture closed (sharing was stopped from the system)".into(),
+                    });
                 }
                 self.end_session();
                 self.last_error = message.map(|m| format!("capture: {m}"));
@@ -385,7 +410,7 @@ impl<P: Platform> Engine<P> {
         let log = match opened {
             Ok(log) => log,
             Err(e) => {
-                eprintln!("Context Capsule: cannot create session {id}: {e}");
+                self.log.write(&format!("cannot create session {id}: {e}"));
                 self.platform.stop_capture();
                 self.last_error = Some(format!("cannot create session: {e}"));
                 return;
@@ -399,6 +424,12 @@ impl<P: Platform> Engine<P> {
         self.changed_at = Some(now);
         self.reload_projects(true);
         self.current_project = self.choice.pinned.clone().map(|id| (id, ProjectChoice::YOU.to_string()));
+        let picked = match self.platform.picked().map(|p| p.style) {
+            Some(PickStyle::Display) => "a screen",
+            Some(PickStyle::Window) => "a window",
+            None => "unknown",
+        };
+        self.log.write(&format!("recording started: {id}, picked {picked}"));
         self.session = Some(Session { id, started_at: now, dir, log, next_tick: Instant::now() + INTERVAL });
     }
 
@@ -413,6 +444,13 @@ impl<P: Platform> Engine<P> {
         let ended = (self.now)();
         let host = self.platform.host_name();
         let _ = write_atomically(&s.dir.join("session.json"), &session_json(&s.id, s.started_at, Some(ended), &host));
+        let skips: Vec<String> = Skip::ALL
+            .iter()
+            .filter(|k| self.skip_counts[k.index()] > 0)
+            .map(|k| format!("{} {}", k.as_str(), self.skip_counts[k.index()]))
+            .collect();
+        let skipped = if skips.is_empty() { String::new() } else { format!(", skipped: {}", skips.join(", ")) };
+        self.log.write(&format!("recording ended: {}, {} events{skipped}", s.id, s.log.appended()));
         if s.log.appended() == 0 {
             // The most common skip; ties go to the first in `Skip::ALL`.
             let top = Skip::ALL
@@ -467,8 +505,16 @@ impl<P: Platform> Engine<P> {
     pub fn poll_control(&mut self) {
         let Some(cmd) = self.control.poll() else { return };
         match cmd.kind {
-            ControlKind::Start => self.start(),
-            ControlKind::Stop => self.stop(),
+            ControlKind::Start => {
+                self.log.write("start: control file (Claude / MCP)");
+                self.start()
+            }
+            ControlKind::Stop => {
+                if self.is_recording() {
+                    self.log.write("stop: control file (Claude / MCP)");
+                }
+                self.stop()
+            }
             ControlKind::Note => {
                 if let Some(text) = cmd.text {
                     self.add_typed_note(&text, cmd.at)
@@ -502,10 +548,8 @@ impl<P: Platform> Engine<P> {
     pub fn pin_project(&mut self, id: Option<&str>) {
         self.reload_projects(false);
         self.choice.pinned = id.filter(|id| self.projects.iter().any(|p| p.id == *id)).map(String::from);
-        match &self.choice.pinned {
-            Some(p) => eprintln!("Context Capsule: project pinned: {p}"),
-            None => eprintln!("Context Capsule: project: auto-detect"),
-        }
+        // No project names in the log.
+        self.log.write(if self.choice.pinned.is_some() { "project: picked by you" } else { "project: auto-detect" });
         if let Some(pinned) = self.choice.pinned.clone() {
             self.set_current(Some((pinned, ProjectChoice::YOU.into())));
         } else if self.current_project.as_ref().is_some_and(|c| c.1 == ProjectChoice::YOU) {
@@ -534,7 +578,7 @@ impl<P: Platform> Engine<P> {
             self.projects.push(Project { id: id.clone(), name: name.to_string(), clues });
         }
         if let Err(e) = Projects::save(&self.projects, &self.paths.projects()) {
-            eprintln!("Context Capsule: cannot save projects.json: {e}");
+            self.log.write(&format!("cannot save projects.json: {e}"));
             self.reload_projects(true);
             return None;
         }
@@ -608,11 +652,11 @@ impl<P: Platform> Engine<P> {
             event.project_by = by.clone();
         }
         if let Err(e) = s.log.record(&event) {
-            eprintln!("Context Capsule: cannot write note: {e}");
+            self.log.write(&format!("cannot write note: {e}"));
         }
         self.note_at = Some(at);
         self.event_count = s.log.appended();
-        eprintln!("Context Capsule: typed note saved: {} chars", crate::redact::char_count(&event.text));
+        self.log.write(&format!("typed note saved: {} chars", crate::redact::char_count(&event.text)));
         self.changed();
     }
 
@@ -668,6 +712,7 @@ impl<P: Platform> Engine<P> {
                     }
                 }
                 VoiceSignal::Outcome(outcome) => {
+                    self.log.write(&outcome.log_summary());
                     let message = outcome.message(&self.opts.text);
                     self.platform.toast(&message);
                 }
@@ -686,7 +731,7 @@ impl<P: Platform> Engine<P> {
                 .and_then(|mut log| log.record(event).map(|_| ())),
         };
         if let Err(e) = result {
-            eprintln!("Context Capsule: cannot write note: {e}");
+            self.log.write(&format!("cannot write note: {e}"));
         }
         self.changed();
     }
@@ -766,7 +811,7 @@ impl<P: Platform> Engine<P> {
         let window = (event.title.clone(), event.location.clone(), front.app_name.clone());
         let Some(s) = &mut self.session else { return };
         if let Err(e) = s.log.record(&event) {
-            eprintln!("Context Capsule: cannot write event: {e}");
+            self.log.write(&format!("cannot write event: {e}"));
         }
         let count = s.log.appended();
         self.sampled(None, count);

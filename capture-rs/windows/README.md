@@ -15,16 +15,32 @@ toasts painted out. OCR never uses a frame from before the last app or desktop s
 nothing is read while Task View or Alt-Tab is open. Only text is saved, in
 `%USERPROFILE%\.context-capsule\sessions\`. Frames stay in memory and are never written to disk.
 
-Tray icon: hollow circle = idle, filled circle = recording, microphone = listening. The menu
-shows the event count and, when a sample is skipped, why. If a recording ends with nothing
-written, a message says why. Menu: Start / Stop recording, Add / Finish voice note, Open
-sessions folder, Quit.
+The taskbar, Start, Search, the notification and action centers, Quick Settings, Alt-Tab and
+Task View are never "the app you work in": when one is in front, the top window of a real app
+is used instead (a private app on top still means nothing is read).
+
+Tray icon: hollow circle = idle, **red** filled circle = recording, **red** microphone =
+listening. A short message says "● Recording started…" / "■ Recording stopped: N events
+saved.", and "Listening… press Ctrl+Alt+Shift+V to finish" stays on screen for as long as the
+mic is on. The menu shows the event count and, when a sample is skipped, why. If a recording
+ends with nothing written, a message says why. Menu: Start / Stop recording, Add / Finish
+voice note, Project (Auto-detect, your projects, New project from this window… — works without
+a recording too), Open sessions folder, Set up Context Capsule…, Quit.
+
+## Setup window
+
+Shown on first launch and from the tray menu (**Set up Context Capsule…**): Voice notes
+(microphone allowed? **Allow** opens the Windows microphone settings), Connect Claude (opens
+`context-capsule.mcpb`, shipped next to the exe, with the Claude app, which asks to install it;
+without the Claude app it offers the download page), Open at login (a `Run` entry under
+HKCU). Each row shows a check mark when done. Connected means the extension is in Claude's
+`Claude Extensions` folder or `claude_desktop_config.json` has a `context-capsule` server.
 
 ## Hotkeys
 
 | keys | does |
 |---|---|
-| Ctrl+Alt+Shift+C | start (opens the picker) / cancel the picker / stop recording |
+| Ctrl+Alt+Shift+C | start (opens the picker) / cancel the picker / stop recording (waits while a voice note listens) |
 | Ctrl+Alt+Shift+V | start / finish a voice note (only while recording) |
 
 If another app already uses one of them, Context Capsule logs it and the tray menu still works.
@@ -48,8 +64,9 @@ While recording, press **Ctrl+Alt+Shift+V**, talk, press it again.
   listens. No audio is written anywhere and nothing is sent to any server.
 - Language: your Windows locale (region format), or `"voice_locale"` in
   `%USERPROFILE%\.context-capsule\config.json` (e.g. `"de-DE"`).
-- Silent or very short clips are dropped ("Didn't catch that"). Logs say only counts and
-  durations, never the words.
+- Silent or very short clips are dropped ("Didn't catch that"). A real fault says what it is
+  (microphone blocked and where to turn it on, no sound from the device, the model missing).
+  Logs say only counts, durations and error codes, never the words.
 
 ## Permissions
 
@@ -70,7 +87,10 @@ cd capture-rs\windows
 ..\target\release\context-capsule.exe
 ```
 
-Started from a terminal, it prints its log lines there. Data folder: `CONTEXT_CAPSULE_HOME`
+Both build scripts copy `mcp/dist-ext/context-capsule.mcpb` next to the exe (build it first
+with `mcp/extension/build.sh`). Started from a terminal, it prints its log lines there; the
+same lines go to `app.log` in the data folder (counts, reasons and error codes only, capped at
+256 KB). Data folder: `CONTEXT_CAPSULE_HOME`
 if set, else `%USERPROFILE%\.context-capsule` (the same rule as the MCP server).
 
 ## Tests
@@ -87,7 +107,9 @@ cd capture-rs && cargo test -p context-capsule-windows
 | file | does |
 |---|---|
 | `src/main.rs` | entry point |
-| `src/app.rs` | the UI thread: hidden owner window, tray menu, alerts; starts the engine thread |
+| `src/app.rs` | the UI thread: hidden owner window, tray menu, cues, alerts; starts the engine thread |
+| `src/setup.rs` | the setup window (voice notes, Connect Claude, open at login) |
+| `src/connect.rs` | Connect Claude: the extension next to the exe, connected or not |
 | `src/platform.rs` | the core's `Platform` for Windows |
 | `src/picker.rs` | `GraphicsCapturePicker`, which item was picked, the capture and its latest frame |
 | `src/windows_list.rs` | front app, on-screen windows (EnumWindows + DWM), monitors, toast / overview rules |

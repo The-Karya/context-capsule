@@ -577,7 +577,7 @@ fn stopping_mid_note_saves_it_and_resets() {
     let mut r = Rig::new("voice-stop");
     let id = r.record();
     r.engine.toggle_voice();
-    r.engine.toggle_record();
+    r.engine.stop(); // Claude (the control file) or quitting stops mid-note
     assert!(!r.engine.is_listening() && !r.engine.is_recording());
     assert_eq!(r.engine.platform().indicators.last(), Some(&Indicator::Idle));
     assert_eq!(r.events(&id).len(), 1, "finished and saved into the session");
@@ -586,12 +586,69 @@ fn stopping_mid_note_saves_it_and_resets() {
 }
 
 #[test]
+fn record_key_waits_while_a_voice_note_listens() {
+    let mut r = Rig::new("voice-busy");
+    let id = r.record();
+    r.engine.toggle_voice();
+    r.engine.toggle_record();
+    assert!(r.engine.is_recording() && r.engine.is_listening(), "neither recording nor the note ends");
+    assert_eq!(
+        r.engine.platform().toasts,
+        ["Finish the voice note first: press Ctrl+Alt+Shift+V. Then Ctrl+Alt+Shift+C stops recording."]
+    );
+    r.engine.toggle_voice(); // the note ends
+    r.engine.toggle_record(); // now recording stops
+    assert!(!r.engine.is_recording());
+    assert_eq!(r.events(&id).len(), 1);
+}
+
+#[test]
+fn app_log_has_reasons_and_counts_never_words() {
+    let mut r = Rig::new("applog");
+    r.scene();
+    r.engine.toggle_record();
+    r.engine.on_pick(PickOutcome::Cancelled);
+    let id = r.record();
+    r.engine.tick();
+    r.p().front = None;
+    r.engine.tick();
+    r.engine.toggle_voice();
+    r.engine.toggle_voice();
+    r.engine.toggle_record();
+    let id2 = r.record();
+    r.engine.on_pick(PickOutcome::Stopped(None));
+    std::fs::write(r.root.join("control"), r#"{"command":"start","at":5}"#).unwrap();
+    r.engine.poll_control();
+    r.engine.on_pick(PickOutcome::Picked);
+    std::fs::write(r.root.join("control"), r#"{"command":"stop","at":6}"#).unwrap();
+    r.engine.poll_control();
+    r.record();
+    r.engine.shutdown();
+
+    let log = std::fs::read_to_string(r.root.join("app.log")).unwrap();
+    let lines: Vec<&str> = log.lines().map(|l| l.split_once(' ').unwrap().1).collect();
+    assert_eq!(lines[0], "picker: cancelled");
+    assert_eq!(lines[1], format!("recording started: {id}, picked a screen"));
+    assert_eq!(lines[2], "voice note saved: 19 chars, 4.0 s");
+    assert_eq!(lines[3], "stop: hotkey or menu");
+    assert_eq!(lines[4], format!("recording ended: {id}, 2 events, skipped: no_window 1"));
+    assert_eq!(lines[5], format!("recording started: {id2}, picked a screen"));
+    assert_eq!(lines[6], "stop: capture closed (sharing was stopped from the system)");
+    assert!(lines.contains(&"start: control file (Claude / MCP)"));
+    assert!(lines.contains(&"stop: control file (Claude / MCP)"));
+    assert_eq!(lines[lines.len() - 2], "stop: quit");
+    for secret in ["Pricing", "Linear", "three tiers", "sk-proj"] {
+        assert!(!log.contains(secret), "no screen text, titles or words in app.log: {secret}");
+    }
+}
+
+#[test]
 fn late_transcript_goes_to_its_session() {
     let mut r = Rig::new("voice-late");
     r.voice.borrow_mut().hold = true;
     let id = r.record();
     r.engine.toggle_voice();
-    r.engine.toggle_record(); // the mic closes; the transcript is still coming
+    r.engine.stop(); // the mic closes; the transcript is still coming
     assert!(!r.engine.is_listening());
     assert_eq!(r.engine.voice_phase(), VoicePhase::Finishing);
     let reply = r.voice.borrow_mut().pending.take().unwrap();

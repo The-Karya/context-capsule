@@ -1,6 +1,7 @@
 #!/bin/sh
 # context-capsule — windows: build context-capsule.exe on a Mac (cargo-xwin + LLVM), with voice notes,
-# the C/C++ runtime built in (runs on any Windows 10/11 PC, no extra installs).
+# the C/C++ runtime built in (runs on any Windows 10/11 PC, no extra installs), and copy the Claude
+# extension (context-capsule.mcpb) next to it.
 # Needs: brew install llvm lld ninja cmake; cargo install cargo-xwin; rustup target add x86_64-pc-windows-msvc.
 # Running it accepts Microsoft's licence for the Windows SDK/CRT files cargo-xwin downloads (XWIN_ACCEPT_LICENSE).
 set -eu
@@ -28,5 +29,13 @@ nice -n 19 cargo xwin build --release --target $TARGET -p context-capsule-window
 EXE=target-xwin/$TARGET/release/context-capsule.exe
 if llvm-objdump -p "$EXE" | grep "DLL Name" | grep -qiE "msvcp|vcruntime|api-ms-win-crt"; then
   echo "warning: $EXE still needs the Visual C++ runtime DLLs" >&2
+fi
+# The Claude extension ships next to the exe ("Connect Claude" opens it). Built by mcp/extension/build.sh.
+MCPB=../mcp/dist-ext/context-capsule.mcpb
+if [ -f "$MCPB" ]; then
+  cp "$MCPB" "$(dirname "$EXE")/"
+  echo "copied $(basename "$MCPB") next to the exe"
+else
+  echo "warning: $MCPB is missing: run mcp/extension/build.sh first, or Connect Claude won't work" >&2
 fi
 echo "built $EXE"

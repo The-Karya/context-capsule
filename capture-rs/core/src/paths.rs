@@ -61,6 +61,10 @@ impl Paths {
     pub fn state(&self) -> PathBuf {
         self.root.join("state.json")
     }
+    /// Diagnostics: counts, durations, reasons and error codes only (see `AppLog`).
+    pub fn log(&self) -> PathBuf {
+        self.root.join("app.log")
+    }
     /// The user's projects (written by the app and the MCP server, editable by hand).
     pub fn projects(&self) -> PathBuf {
         self.root.join("projects.json")
@@ -146,5 +150,6 @@ mod tests {
         assert_eq!(p.config(), Path::new("/r/config.json"));
         assert_eq!(p.capsules(), Path::new("/r/capsules"));
         assert_eq!(p.projects(), Path::new("/r/projects.json"));
+        assert_eq!(p.log(), Path::new("/r/app.log"));
     }
 }

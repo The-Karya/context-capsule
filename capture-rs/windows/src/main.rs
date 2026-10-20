@@ -1,10 +1,11 @@
 // context-capsule — windows: entry point — the tray app on the UI thread, the core engine on its own thread.
-//! Pure rules (picked-item matching, UIA roles, window classes, resampling, model checks, menu text)
-//! build and test on any OS; everything that calls Windows is behind `cfg(windows)`.
+//! Pure rules (picked-item matching, UIA roles, window classes, resampling, model checks, menu text,
+//! the setup window's layout, Claude detection) build and test on any OS; everything that calls Windows is behind `cfg(windows)`.
 
 #![cfg_attr(windows, windows_subsystem = "windows")]
 #![cfg_attr(not(windows), allow(dead_code))]
 
+mod connect;
 mod hotkeys;
 mod input;
 // Only used by voice notes.
@@ -12,6 +13,7 @@ mod input;
 mod model;
 mod ocr;
 mod picker;
+mod setup;
 mod tray;
 mod toast;
 mod uia;

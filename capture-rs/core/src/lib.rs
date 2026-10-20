@@ -5,6 +5,7 @@
 
 #![forbid(unsafe_code)]
 
+pub mod applog;
 pub mod clock;
 pub mod engine;
 pub mod events;
@@ -21,6 +22,7 @@ pub mod state;
 pub mod text;
 pub mod voice;
 
+pub use applog::AppLog;
 pub use engine::{Engine, Options};
 pub use events::{Event, EventLog, Recorded};
 pub use exclusion::{Config, Exclusion};
@@ -30,12 +32,15 @@ pub use membership::{
     Freshness, ListedWindow, Membership, OcrDecision, PickStyle, PickedContent, Skip, WindowList,
 };
 pub use paths::Paths;
-pub use platform::{project_message, Frame, Front, Indicator, Msg, PickOutcome, Platform, ProjectItem, Status};
+pub use platform::{
+    listening_message, project_message, recording_started_message, recording_stopped_message, Frame, Front, Indicator, Msg, PickOutcome,
+    Platform, ProjectItem, Status,
+};
 pub use projects::{Location, Project, ProjectChoice, Projects};
 pub use redact::Redactor;
 pub use state::{session_json, ControlCommand, ControlKind, StateJson};
 pub use text::{NodeKind, TextNode, TextSource, UiText};
 pub use voice::{
-    PlatformText, Replier, Voice, VoiceClip, VoiceEngine, VoiceNotes, VoiceOutcome, VoicePermission,
+    busy_listening_message, PlatformText, Replier, Voice, VoiceClip, VoiceEngine, VoiceNotes, VoiceOutcome, VoicePermission,
     VoicePhase, VoiceReply, VoiceSignal, VoiceTarget,
 };

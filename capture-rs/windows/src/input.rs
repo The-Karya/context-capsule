@@ -10,37 +10,37 @@ pub const ID_PROMPT: u16 = 101;
 pub const MAX_CHARS: usize = 100;
 
 // Window and control styles (WinUser.h), as plain numbers.
-const WS_POPUP: u32 = 0x8000_0000;
+pub(crate) const WS_POPUP: u32 = 0x8000_0000;
 const WS_CHILD: u32 = 0x4000_0000;
 const WS_VISIBLE: u32 = 0x1000_0000;
-const WS_CAPTION: u32 = 0x00C0_0000;
+pub(crate) const WS_CAPTION: u32 = 0x00C0_0000;
 const WS_BORDER: u32 = 0x0080_0000;
-const WS_SYSMENU: u32 = 0x0008_0000;
-const WS_TABSTOP: u32 = 0x0001_0000;
+pub(crate) const WS_SYSMENU: u32 = 0x0008_0000;
+pub(crate) const WS_TABSTOP: u32 = 0x0001_0000;
 const WS_EX_TOPMOST: u32 = 0x0000_0008;
-const DS_SETFONT: u32 = 0x40;
-const DS_MODALFRAME: u32 = 0x80;
+pub(crate) const DS_SETFONT: u32 = 0x40;
+pub(crate) const DS_MODALFRAME: u32 = 0x80;
 const DS_SETFOREGROUND: u32 = 0x200;
-const DS_CENTER: u32 = 0x800;
-const SS_NOPREFIX: u32 = 0x80;
+pub(crate) const DS_CENTER: u32 = 0x800;
+pub(crate) const SS_NOPREFIX: u32 = 0x80;
 const ES_AUTOHSCROLL: u32 = 0x80;
-const BS_DEFPUSHBUTTON: u32 = 0x1;
+pub(crate) const BS_DEFPUSHBUTTON: u32 = 0x1;
 // Predefined control classes (ordinal atoms).
-const BUTTON: u16 = 0x0080;
+pub(crate) const BUTTON: u16 = 0x0080;
 const EDIT: u16 = 0x0081;
-const STATIC: u16 = 0x0082;
+pub(crate) const STATIC: u16 = 0x0082;
 
-fn push_u32(t: &mut Vec<u16>, v: u32) {
+pub(crate) fn push_u32(t: &mut Vec<u16>, v: u32) {
     t.extend([(v & 0xFFFF) as u16, (v >> 16) as u16]);
 }
 
-fn push_str(t: &mut Vec<u16>, s: &str) {
+pub(crate) fn push_str(t: &mut Vec<u16>, s: &str) {
     t.extend(s.encode_utf16().filter(|c| *c != 0));
     t.push(0);
 }
 
 /// One control: DWORD aligned; style, ex style, x, y, cx, cy (dialog units), id, class atom, text.
-fn push_item(t: &mut Vec<u16>, style: u32, rect: [i16; 4], id: u16, class: u16, text: &str) {
+pub(crate) fn push_item(t: &mut Vec<u16>, style: u32, rect: [i16; 4], id: u16, class: u16, text: &str) {
     if t.len() % 2 == 1 {
         t.push(0);
     }

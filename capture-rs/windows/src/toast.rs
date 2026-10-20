@@ -1,5 +1,7 @@
 // context-capsule — windows: a small message near the tray icon that fades by itself ("Voice note saved",
-// "Start recording first (Ctrl+Alt+Shift+C)"). A topmost borderless window: no notification permission.
+// "Start recording first (Ctrl+Alt+Shift+C)"), and the "Listening…" banner that stays up until the voice
+// note ends (other messages show over it, then it comes back). A topmost borderless window: no
+// notification permission.
 
 /// Seconds on screen before fading (like the Mac: short for good news and project changes, longer
 /// for problems).
@@ -8,9 +10,22 @@ pub fn seconds_for(text: &str) -> u32 {
         2
     } else if text.starts_with("Project: ") {
         3
+    } else if text.starts_with("● ") || text.starts_with("■ ") {
+        4 // recording started / stopped
     } else {
         6
     }
+}
+
+/// After a message's time is up: show the banner again if one is up, else fade out.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum AfterHold {
+    Banner,
+    Fade,
+}
+
+pub fn after_hold(banner_up: bool) -> AfterHold {
+    if banner_up { AfterHold::Banner } else { AfterHold::Fade }
 }
 
 /// Where a `w`×`h` toast goes: next to the tray icon on the taskbar's side, inside the work area.
@@ -68,10 +83,22 @@ mod win {
         font: HFONT,
         pad: i32,
         alpha: u8,
+        /// The banner that stays up (listening), and whether it is what's on screen now.
+        banner: Option<String>,
+        showing_banner: bool,
+        icon: Option<RECT>,
     }
 
     thread_local! {
-        static STATE: RefCell<State> = RefCell::new(State { text: vec![], font: HFONT::default(), pad: 12, alpha: OPAQUE });
+        static STATE: RefCell<State> = RefCell::new(State {
+            text: vec![],
+            font: HFONT::default(),
+            pad: 12,
+            alpha: OPAQUE,
+            banner: None,
+            showing_banner: false,
+            icon: None,
+        });
     }
 
     pub struct Toast {
@@ -111,51 +138,94 @@ mod win {
             }
         }
 
-        /// Show `text` near the tray icon for a few seconds, then fade.
+        /// Show `text` near the tray icon for a few seconds, then fade (or go back to the banner).
         pub fn show(&self, text: &str, icon: Option<RECT>) {
-            let seconds = seconds_for(text);
-            let anchor = icon.map(|r| POINT { x: (r.left + r.right) / 2, y: (r.top + r.bottom) / 2 }).unwrap_or_default();
-            // SAFETY: monitor and DPI queries; GDI objects are released or kept in STATE until replaced.
+            present(self.hwnd, text, icon);
+            STATE.with(|s| s.borrow_mut().showing_banner = false);
+            // SAFETY: a timer on our own window.
             unsafe {
-                let monitor = match icon {
-                    Some(r) => MonitorFromRect(&r, MONITOR_DEFAULTTOPRIMARY),
-                    None => MonitorFromPoint(anchor, MONITOR_DEFAULTTOPRIMARY),
-                };
-                let mut info = MONITORINFO { cbSize: std::mem::size_of::<MONITORINFO>() as u32, ..Default::default() };
-                let _ = GetMonitorInfoW(monitor, &mut info);
-                let (mut dx, mut dy) = (96u32, 96u32);
-                let _ = GetDpiForMonitor(monitor, MDT_EFFECTIVE_DPI, &mut dx, &mut dy);
-                let scale = |v: i32| v * dx as i32 / 96;
-
-                let font = CreateFontW(-scale(14), 0, 0, 0, 400, 0, 0, 0, DEFAULT_CHARSET, Default::default(), Default::default(),
-                    FONT_QUALITY(5), 0, w!("Segoe UI"));
-                let mut text: Vec<u16> = text.encode_utf16().collect();
-                let mut measure = RECT { left: 0, top: 0, right: scale(320), bottom: 0 };
-                let dc = GetDC(Some(self.hwnd));
-                let old = SelectObject(dc, font.into());
-                DrawTextW(dc, &mut text, &mut measure, DT_CALCRECT | DT_WORDBREAK | DT_NOPREFIX);
-                SelectObject(dc, old);
-                ReleaseDC(Some(self.hwnd), dc);
-
-                let pad = scale(12);
-                let (w, h) = (measure.right + pad * 2, measure.bottom + pad * 2);
-                let work = info.rcWork;
-                let icon_rect = icon.map(|r| (r.left, r.top, r.right, r.bottom));
-                let (x, y) = origin(icon_rect, (work.left, work.top, work.right, work.bottom), w, h, scale(8));
-
-                STATE.with(|s| {
-                    let mut s = s.borrow_mut();
-                    if !s.font.is_invalid() {
-                        let _ = DeleteObject(s.font.into());
-                    }
-                    *s = State { text, font, pad, alpha: OPAQUE };
-                });
-                let _ = KillTimer(Some(self.hwnd), FADE);
-                let _ = SetLayeredWindowAttributes(self.hwnd, COLORREF(0), OPAQUE, LWA_ALPHA);
-                let _ = SetWindowPos(self.hwnd, Some(HWND_TOPMOST), x, y, w, h, SWP_NOACTIVATE | SWP_SHOWWINDOW);
-                let _ = InvalidateRect(Some(self.hwnd), None, true);
-                SetTimer(Some(self.hwnd), HOLD, seconds * 1000, None);
+                SetTimer(Some(self.hwnd), HOLD, seconds_for(text) * 1000, None);
             }
+        }
+
+        /// Put up a banner that stays until `None` (the voice note ended), or take it down.
+        pub fn set_banner(&self, text: Option<&str>, icon: Option<RECT>) {
+            let showing = STATE.with(|s| {
+                let mut s = s.borrow_mut();
+                s.banner = text.map(str::to_string);
+                s.icon = icon;
+                s.showing_banner
+            });
+            match text {
+                Some(text) => {
+                    // SAFETY: timers on our own window.
+                    unsafe {
+                        let _ = KillTimer(Some(self.hwnd), HOLD);
+                    }
+                    present(self.hwnd, text, icon);
+                    STATE.with(|s| s.borrow_mut().showing_banner = true);
+                }
+                // A message on screen fades when its time is up; the banner fades now.
+                None if showing => fade(self.hwnd),
+                None => {}
+            }
+        }
+    }
+
+    /// Size, place and show `text` (fully opaque, no timer).
+    fn present(hwnd: HWND, text: &str, icon: Option<RECT>) {
+        let anchor = icon.map(|r| POINT { x: (r.left + r.right) / 2, y: (r.top + r.bottom) / 2 }).unwrap_or_default();
+        // SAFETY: monitor and DPI queries; GDI objects are released or kept in STATE until replaced.
+        unsafe {
+            let monitor = match icon {
+                Some(r) => MonitorFromRect(&r, MONITOR_DEFAULTTOPRIMARY),
+                None => MonitorFromPoint(anchor, MONITOR_DEFAULTTOPRIMARY),
+            };
+            let mut info = MONITORINFO { cbSize: std::mem::size_of::<MONITORINFO>() as u32, ..Default::default() };
+            let _ = GetMonitorInfoW(monitor, &mut info);
+            let (mut dx, mut dy) = (96u32, 96u32);
+            let _ = GetDpiForMonitor(monitor, MDT_EFFECTIVE_DPI, &mut dx, &mut dy);
+            let scale = |v: i32| v * dx as i32 / 96;
+
+            let font = CreateFontW(-scale(14), 0, 0, 0, 400, 0, 0, 0, DEFAULT_CHARSET, Default::default(), Default::default(),
+                FONT_QUALITY(5), 0, w!("Segoe UI"));
+            let mut text: Vec<u16> = text.encode_utf16().collect();
+            let mut measure = RECT { left: 0, top: 0, right: scale(320), bottom: 0 };
+            let dc = GetDC(Some(hwnd));
+            let old = SelectObject(dc, font.into());
+            DrawTextW(dc, &mut text, &mut measure, DT_CALCRECT | DT_WORDBREAK | DT_NOPREFIX);
+            SelectObject(dc, old);
+            ReleaseDC(Some(hwnd), dc);
+
+            let pad = scale(12);
+            let (w, h) = (measure.right + pad * 2, measure.bottom + pad * 2);
+            let work = info.rcWork;
+            let icon_rect = icon.map(|r| (r.left, r.top, r.right, r.bottom));
+            let (x, y) = origin(icon_rect, (work.left, work.top, work.right, work.bottom), w, h, scale(8));
+
+            STATE.with(|s| {
+                let mut s = s.borrow_mut();
+                if !s.font.is_invalid() {
+                    let _ = DeleteObject(s.font.into());
+                }
+                s.text = text;
+                s.font = font;
+                s.pad = pad;
+                s.alpha = OPAQUE;
+            });
+            let _ = KillTimer(Some(hwnd), FADE);
+            let _ = SetLayeredWindowAttributes(hwnd, COLORREF(0), OPAQUE, LWA_ALPHA);
+            let _ = SetWindowPos(hwnd, Some(HWND_TOPMOST), x, y, w, h, SWP_NOACTIVATE | SWP_SHOWWINDOW);
+            let _ = InvalidateRect(Some(hwnd), None, true);
+        }
+    }
+
+    fn fade(hwnd: HWND) {
+        STATE.with(|s| s.borrow_mut().showing_banner = false);
+        // SAFETY: timers on our own window.
+        unsafe {
+            let _ = KillTimer(Some(hwnd), HOLD);
+            SetTimer(Some(hwnd), FADE, 30, None);
         }
     }
 
@@ -198,15 +268,25 @@ mod win {
         });
     }
 
-    /// Hold, then fade out over about half a second.
+    /// Hold, then the banner again or fade out over about half a second.
     fn tick(hwnd: HWND, id: usize) {
+        if id == HOLD {
+            let (banner, icon) = STATE.with(|s| (s.borrow().banner.clone(), s.borrow().icon));
+            match (after_hold(banner.is_some()), banner) {
+                (AfterHold::Banner, Some(text)) => {
+                    // SAFETY: a timer on our own window.
+                    unsafe {
+                        let _ = KillTimer(Some(hwnd), HOLD);
+                    }
+                    present(hwnd, &text, icon);
+                    STATE.with(|s| s.borrow_mut().showing_banner = true);
+                }
+                _ => fade(hwnd),
+            }
+            return;
+        }
         // SAFETY: timers and attributes of our own window.
         unsafe {
-            if id == HOLD {
-                let _ = KillTimer(Some(hwnd), HOLD);
-                SetTimer(Some(hwnd), FADE, 30, None);
-                return;
-            }
             let alpha = STATE.with(|s| {
                 let mut s = s.borrow_mut();
                 s.alpha = s.alpha.saturating_sub(16);
@@ -233,6 +313,14 @@ mod tests {
         assert_eq!(seconds_for("Voice note saved"), 2);
         assert_eq!(seconds_for("Start recording first (Ctrl+Alt+Shift+C)"), 6);
         assert_eq!(seconds_for("Project: Client report"), 3);
+        assert_eq!(seconds_for("● Recording started. Press Ctrl+Alt+Shift+C to stop, Ctrl+Alt+Shift+V to talk."), 4);
+        assert_eq!(seconds_for("■ Recording stopped: 3 events saved."), 4);
+    }
+
+    #[test]
+    fn banner_comes_back_after_a_message() {
+        assert_eq!(after_hold(true), AfterHold::Banner);
+        assert_eq!(after_hold(false), AfterHold::Fade);
     }
 
     #[test]

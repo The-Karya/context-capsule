@@ -7,6 +7,7 @@ use crate::engine::empty_session_alert;
 use crate::image::Image;
 use crate::membership::{ListedWindow, PickedContent, Skip};
 use crate::projects::Project;
+use crate::voice::PlatformText;
 use std::sync::Arc;
 use std::time::SystemTime;
 
@@ -144,6 +145,21 @@ pub fn project_message(project: Option<&Project>) -> String {
     format!("Project: {}", project.map_or("not sure yet", |p| p.name.as_str()))
 }
 
+/// The short message when recording starts (Mac parity: "● Recording started…").
+pub fn recording_started_message(t: &PlatformText) -> String {
+    format!("● Recording started. Press {} to stop, {} to talk.", t.record_hotkey, t.voice_hotkey)
+}
+
+/// The short message when recording stops.
+pub fn recording_stopped_message(events: usize) -> String {
+    format!("■ Recording stopped: {events} event{} saved.", if events == 1 { "" } else { "s" })
+}
+
+/// The banner that stays up while a voice note listens.
+pub fn listening_message(t: &PlatformText) -> String {
+    format!("Listening… press {} to finish", t.voice_hotkey)
+}
+
 /// What the platform sends the engine's thread.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum Msg {
@@ -236,3 +252,20 @@ pub trait Platform {
 /// Both seams must stay object-safe (platforms may hold `Box<dyn …>`).
 #[allow(dead_code)]
 fn object_safe(_: &dyn Platform, _: &dyn crate::voice::VoiceEngine) {}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn cue_messages() {
+        let t = PlatformText::WINDOWS;
+        assert_eq!(
+            recording_started_message(&t),
+            "● Recording started. Press Ctrl+Alt+Shift+C to stop, Ctrl+Alt+Shift+V to talk."
+        );
+        assert_eq!(recording_stopped_message(12), "■ Recording stopped: 12 events saved.");
+        assert_eq!(recording_stopped_message(1), "■ Recording stopped: 1 event saved.");
+        assert_eq!(listening_message(&t), "Listening… press Ctrl+Alt+Shift+V to finish");
+    }
+}

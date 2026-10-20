@@ -61,9 +61,63 @@ pub fn whisper_lang(locale: &str) -> Option<String> {
     Some(code.to_string())
 }
 
-/// Windows' microphone privacy switches (all apps, and desktop apps) as stored in the registry.
-pub fn mic_denied(all_apps: Option<&str>, desktop_apps: Option<&str>) -> bool {
-    [all_apps, desktop_apps].iter().any(|v| v.is_some_and(|v| v.eq_ignore_ascii_case("deny")))
+/// Windows' microphone privacy switches as stored in the registry (the device, all apps, desktop apps,
+/// this app). Any one set to "Deny" blocks the mic; never set means allowed.
+pub fn mic_denied(values: &[Option<&str>]) -> bool {
+    values.iter().any(|v| v.is_some_and(|v| v.eq_ignore_ascii_case("deny")))
+}
+
+/// The registry key name Windows uses for one desktop app's microphone switch: its exe path with
+/// every "\" written as "#".
+pub fn app_consent_key(exe_path: &str) -> String {
+    exe_path.replace('\\', "#")
+}
+
+/// Where to turn the microphone on, in plain words.
+pub const MIC_SETTINGS: &str = "Settings → Privacy & security → Microphone (turn on “Let desktop apps access your microphone”)";
+/// Opens that page.
+pub const MIC_SETTINGS_URI: &str = "ms-settings:privacy-microphone";
+
+/// Is the microphone blocked for us by a Windows privacy switch?
+#[cfg(windows)]
+pub fn mic_blocked() -> bool {
+    use crate::win::{reg_string, reg_string_machine};
+    const CONSENT: &str = r"Software\Microsoft\Windows\CurrentVersion\CapabilityAccessManager\ConsentStore\microphone";
+    let app = std::env::current_exe().ok().map(|e| format!(r"{CONSENT}\NonPackaged\{}", app_consent_key(&e.to_string_lossy())));
+    let values = [
+        reg_string_machine(CONSENT, "Value"),
+        reg_string(CONSENT, "Value"),
+        reg_string(&format!(r"{CONSENT}\NonPackaged"), "Value"),
+        app.and_then(|k| reg_string(&k, "Value")),
+    ];
+    mic_denied(&values.iter().map(Option::as_deref).collect::<Vec<_>>())
+}
+
+/// Why the mic gave nothing usable, when it is a fault rather than silence: blocked by privacy settings
+/// (Windows then sends silence), a stream error, or no sound arriving at all. None: an ordinary clip.
+pub fn mic_problem(callbacks: usize, peak: f32, stream_error: Option<&str>, blocked: bool) -> Option<String> {
+    if blocked && peak == 0.0 {
+        return Some(format!("the microphone is blocked. Turn it on in {MIC_SETTINGS}"));
+    }
+    if let Some(e) = stream_error.filter(|_| peak < context_capsule_core::Voice::SILENT_PEAK) {
+        return Some(format!("the microphone stopped ({e}). Check Settings → System → Sound → Input"));
+    }
+    if callbacks == 0 {
+        return Some("no sound came from the microphone at all. Check Settings → System → Sound → Input".into());
+    }
+    None
+}
+
+/// One app.log line about a clip: numbers and error codes, never the words.
+pub fn clip_log_line(rate: u32, callbacks: usize, seconds: f64, peak: f32, chars: Option<usize>, error: Option<&str>) -> String {
+    let mut line = format!("voice clip: input {rate} Hz, {callbacks} buffers, {seconds:.1} s, peak {peak:.3}");
+    if let Some(n) = chars {
+        line += &format!(", {n} chars");
+    }
+    if let Some(e) = error {
+        line += &format!(", error {e}");
+    }
+    line
 }
 
 /// whisper's segments → the note. Markers it makes up for silence or noise ("[BLANK_AUDIO]",
@@ -92,12 +146,17 @@ mod builder {
     pub type Notify = Arc<dyn Fn(String) + Send + Sync>;
 
     /// The voice engine for this build.
-    pub fn engine(root: &Path, voice_hotkey: &'static str, notify: Notify) -> Box<dyn context_capsule_core::VoiceEngine> {
+    pub fn engine(
+        root: &Path,
+        voice_hotkey: &'static str,
+        notify: Notify,
+        log: context_capsule_core::AppLog,
+    ) -> Box<dyn context_capsule_core::VoiceEngine> {
         #[cfg(feature = "voice")]
-        return Box::new(super::whisper::WhisperVoice::new(root, voice_hotkey, notify));
+        return Box::new(super::whisper::WhisperVoice::new(root, voice_hotkey, notify, log));
         #[cfg(not(feature = "voice"))]
         {
-            let _ = (root, voice_hotkey, notify);
+            let _ = (root, voice_hotkey, notify, log);
             Box::new(NoVoice)
         }
     }
@@ -130,7 +189,7 @@ mod whisper {
     use super::builder::Notify;
     use super::*;
     use crate::{model, win};
-    use context_capsule_core::{Replier, Voice, VoiceClip, VoiceEngine, VoiceOutcome, VoicePermission, VoiceReply};
+    use context_capsule_core::{AppLog, Replier, Voice, VoiceClip, VoiceEngine, VoiceOutcome, VoicePermission, VoiceReply};
     use cpal::traits::{DeviceTrait, HostTrait, StreamTrait};
     use cpal::{FromSample, SampleFormat, SizedSample};
     use std::path::{Path, PathBuf};
@@ -141,7 +200,6 @@ mod whisper {
 
     /// Give up on a transcription that takes longer than this.
     const MAX_TRANSCRIBE: Duration = Duration::from_secs(60);
-    const CONSENT: &str = r"Software\Microsoft\Windows\CurrentVersion\CapabilityAccessManager\ConsentStore\microphone";
 
     enum ModelState {
         Missing,
@@ -151,12 +209,15 @@ mod whisper {
         Ready(Arc<WhisperContext>),
     }
 
-    /// What the mic gave so far (mono, at the device rate).
+    /// What the mic gave so far (mono, at the device rate), and how the stream went.
     #[derive(Default)]
     struct Clip {
         samples: Vec<f32>,
         rate: u32,
         peak: f32,
+        callbacks: usize,
+        /// The first error the stream reported while open.
+        error: Option<String>,
     }
 
     pub struct WhisperVoice {
@@ -167,10 +228,11 @@ mod whisper {
         lang: String,
         stream: Option<cpal::Stream>,
         clip: Arc<Mutex<Clip>>,
+        log: AppLog,
     }
 
     impl WhisperVoice {
-        pub fn new(root: &Path, voice_hotkey: &'static str, notify: Notify) -> WhisperVoice {
+        pub fn new(root: &Path, voice_hotkey: &'static str, notify: Notify, log: AppLog) -> WhisperVoice {
             whisper_rs::install_logging_hooks(); // whisper.cpp prints nothing (and never the words)
             WhisperVoice {
                 root: root.to_path_buf(),
@@ -180,6 +242,7 @@ mod whisper {
                 lang: "en".into(),
                 stream: None,
                 clip: Arc::new(Mutex::new(Clip::default())),
+                log,
             }
         }
 
@@ -192,11 +255,11 @@ mod whisper {
             let mut state = self.model.lock().unwrap_or_else(|e| e.into_inner());
             match &*state {
                 ModelState::Ready(_) => reply.send(VoiceReply::Prepared(None)),
-                ModelState::Loading => reply.send(failed("the speech model is loading, try again in a moment")),
-                ModelState::Asking => reply.send(failed("answer the speech model question first")),
+                ModelState::Loading => reply.send(notice("The speech model is loading. Try again in a moment.")),
+                ModelState::Asking => reply.send(notice("Answer the speech model question first.")),
                 ModelState::Downloading(done) => {
                     let pct = done.load(Ordering::Relaxed) * 100 / model::SIZE;
-                    reply.send(failed(&format!("the speech model is still downloading ({pct}%)")));
+                    reply.send(notice(&format!("The speech model is still downloading ({pct}%). Voice notes work when it's done.")));
                 }
                 ModelState::Missing if model::path(&self.root).is_file() => {
                     *state = ModelState::Loading;
@@ -230,6 +293,11 @@ mod whisper {
         VoiceReply::Prepared(Some(VoiceOutcome::Failed(why.to_string())))
     }
 
+    /// Not an error: what the user needs to know or do first (shown as is).
+    fn notice(text: &str) -> VoiceReply {
+        VoiceReply::Prepared(Some(VoiceOutcome::Notice(text.to_string())))
+    }
+
     /// Verify, then load. A file that does not check out is removed (it is downloaded again next time).
     fn load(path: &Path) -> Result<Arc<WhisperContext>, String> {
         if !model::verify(path, model::SIZE, model::SHA256) {
@@ -246,12 +314,12 @@ mod whisper {
         let set = |s: ModelState| *shared.lock().unwrap_or_else(|e| e.into_inner()) = s;
         if !win::ask_yes_no("Download the speech model?", &model::consent_text(dir)) {
             set(ModelState::Missing);
-            return reply.send(failed(&model::missing_text(hotkey, dir)));
+            return reply.send(notice(&model::missing_text(hotkey, dir)));
         }
         let done = Arc::new(AtomicU64::new(0));
         set(ModelState::Downloading(done.clone()));
-        reply.send(failed(&format!(
-            "downloading the speech model ({}). Voice notes will work when it is done",
+        reply.send(notice(&format!(
+            "Downloading the speech model ({}). Voice notes will work when it's done.",
             model::size_label(model::SIZE)
         )));
         eprintln!("Context Capsule: downloading the speech model");
@@ -283,15 +351,22 @@ mod whisper {
         let cap = config.sample_rate as usize * (Voice::MAX_DURATION.as_secs() as usize + 10);
         device.build_input_stream(
             config,
-            move |data: &[T], _: &cpal::InputCallbackInfo| {
-                let samples: Vec<f32> = data.iter().map(|s| s.to_sample::<f32>()).collect();
-                let mono = downmix(&samples, channels);
-                let mut clip = clip.lock().unwrap_or_else(|e| e.into_inner());
-                clip.peak = clip.peak.max(Voice::peak(&mono));
-                let room = cap.saturating_sub(clip.samples.len());
-                clip.samples.extend_from_slice(&mono[..mono.len().min(room)]);
+            {
+                let clip = clip.clone();
+                move |data: &[T], _: &cpal::InputCallbackInfo| {
+                    let samples: Vec<f32> = data.iter().map(|s| s.to_sample::<f32>()).collect();
+                    let mono = downmix(&samples, channels);
+                    let mut clip = clip.lock().unwrap_or_else(|e| e.into_inner());
+                    clip.callbacks += 1;
+                    clip.peak = clip.peak.max(Voice::peak(&mono));
+                    let room = cap.saturating_sub(clip.samples.len());
+                    clip.samples.extend_from_slice(&mono[..mono.len().min(room)]);
+                }
             },
-            |e| eprintln!("Context Capsule: microphone error: {e}"),
+            move |e| {
+                let mut clip = clip.lock().unwrap_or_else(|e| e.into_inner());
+                clip.error.get_or_insert_with(|| e.to_string());
+            },
             Some(Duration::from_secs(5)),
         )
     }
@@ -320,8 +395,7 @@ mod whisper {
 
     impl VoiceEngine for WhisperVoice {
         fn prepare(&mut self, locale: &str, reply: Replier) {
-            let (all, desktop) = (win::reg_string(CONSENT, "Value"), win::reg_string(&format!(r"{CONSENT}\NonPackaged"), "Value"));
-            if mic_denied(all.as_deref(), desktop.as_deref()) {
+            if mic_blocked() {
                 return reply.send(VoiceReply::Prepared(Some(VoiceOutcome::Denied(VoicePermission::Microphone))));
             }
             let Some(lang) = whisper_lang(locale).filter(|l| whisper_rs::get_lang_id(l).is_some()) else {
@@ -329,7 +403,7 @@ mod whisper {
             };
             self.lang = lang;
             if input_device().is_none() {
-                return reply.send(failed("no microphone found. Check Settings → System → Sound → Input"));
+                return reply.send(failed("no microphone found. Plug one in, or check Settings → System → Sound → Input"));
             }
             self.prepare_model(reply);
         }
@@ -338,7 +412,7 @@ mod whisper {
             let device = input_device().ok_or("no microphone found")?;
             let supported = device.default_input_config().map_err(|e| format!("the microphone could not start ({e})"))?;
             let config = supported.config();
-            *self.clip.lock().unwrap_or_else(|e| e.into_inner()) = Clip { samples: vec![], rate: config.sample_rate, peak: 0.0 };
+            *self.clip.lock().unwrap_or_else(|e| e.into_inner()) = Clip { rate: config.sample_rate, ..Default::default() };
             let clip = self.clip.clone();
             let stream = match supported.sample_format() {
                 SampleFormat::F32 => build::<f32>(&device, config, clip),
@@ -348,12 +422,12 @@ mod whisper {
                 other => return Err(format!("the microphone uses an unsupported format ({other})")),
             }
             .map_err(|e| match e.kind() {
-                cpal::ErrorKind::PermissionDenied => {
-                    "the microphone is blocked. Turn it on in Settings → Privacy & security → Microphone".to_string()
-                }
+                _ if mic_blocked() => format!("the microphone is blocked. Turn it on in {MIC_SETTINGS}"),
+                cpal::ErrorKind::PermissionDenied => format!("the microphone is blocked. Turn it on in {MIC_SETTINGS}"),
                 _ => format!("the microphone could not start ({e})"),
             })?;
             stream.play().map_err(|e| format!("the microphone could not start ({e})"))?;
+            self.log.write(&format!("voice: microphone open, {} Hz, {} channels", config.sample_rate, config.channels));
             self.stream = Some(stream);
             Ok(())
         }
@@ -367,15 +441,32 @@ mod whisper {
                 _ => None,
             };
             let lang = self.lang.clone();
+            let log = self.log.clone();
             std::thread::spawn(move || {
+                let numbers = |chars: Option<usize>, error: Option<&str>| {
+                    log.write(&clip_log_line(clip.rate, clip.callbacks, seconds, clip.peak, chars, error))
+                };
                 let empty = VoiceClip { text: String::new(), peak: clip.peak, seconds };
-                // Silent or too short: nothing to recognize.
+                // The real reason when the mic gave nothing, never a vague "didn't catch that".
+                if let Some(why) = mic_problem(clip.callbacks, clip.peak, clip.error.as_deref(), mic_blocked()) {
+                    numbers(None, clip.error.as_deref().or(Some("no sound")));
+                    return reply.send(VoiceReply::Finished(Err(why)));
+                }
+                // Silent or too short: nothing to recognize ("Didn't catch that…").
                 if clip.peak < Voice::SILENT_PEAK || seconds < Voice::MIN_SECONDS {
+                    numbers(None, None);
                     return reply.send(VoiceReply::Finished(Ok(empty)));
                 }
-                let Some(ctx) = ctx else { return reply.send(VoiceReply::Finished(Err("the speech model is not loaded".into()))) };
+                let Some(ctx) = ctx else {
+                    numbers(None, Some("model not loaded"));
+                    return reply.send(VoiceReply::Finished(Err("the speech model is not loaded".into())));
+                };
                 let audio = resample(&clip.samples, clip.rate, WHISPER_RATE);
                 let result = transcribe(&ctx, &lang, &audio).map(|text| VoiceClip { text, ..empty });
+                match &result {
+                    Ok(c) => numbers(Some(c.text.chars().count()), None),
+                    Err(e) => numbers(None, Some(e)),
+                }
                 reply.send(VoiceReply::Finished(result));
             });
         }
@@ -436,10 +527,33 @@ mod tests {
 
     #[test]
     fn mic_privacy() {
-        assert!(!mic_denied(Some("Allow"), Some("Allow")));
-        assert!(!mic_denied(None, None), "never set: allowed");
-        assert!(mic_denied(Some("Deny"), Some("Allow")), "off for all apps");
-        assert!(mic_denied(Some("Allow"), Some("Deny")), "off for desktop apps");
+        assert!(!mic_denied(&[Some("Allow"), Some("Allow")]));
+        assert!(!mic_denied(&[None, None, None, None]), "never set: allowed");
+        assert!(mic_denied(&[Some("Deny"), Some("Allow")]), "off for the device or all apps");
+        assert!(mic_denied(&[Some("Allow"), Some("Allow"), Some("deny")]), "off for desktop apps");
+        assert!(mic_denied(&[None, None, None, Some("Deny")]), "off for this app");
+        assert_eq!(app_consent_key(r"C:\Users\s\Desktop\kit\context-capsule.exe"), "C:#Users#s#Desktop#kit#context-capsule.exe");
+    }
+
+    #[test]
+    fn mic_faults_are_named() {
+        let blocked = mic_problem(40, 0.0, None, true).unwrap();
+        assert!(blocked.contains("blocked") && blocked.contains("Privacy & security → Microphone"), "{blocked}");
+        assert_eq!(mic_problem(40, 0.2, None, true), None, "sound came through after all");
+        let stopped = mic_problem(3, 0.0, Some("The device is no longer available"), false).unwrap();
+        assert!(stopped.contains("no longer available"), "{stopped}");
+        assert!(mic_problem(0, 0.0, None, false).unwrap().contains("no sound came"));
+        assert_eq!(mic_problem(40, 0.0, None, false), None, "plain silence: \"Didn't catch that\"");
+        assert_eq!(mic_problem(40, 0.3, Some("glitch"), false), None, "an error after good sound still keeps the words");
+    }
+
+    #[test]
+    fn clip_log_has_numbers_only() {
+        assert_eq!(
+            clip_log_line(48_000, 120, 3.24, 0.1234, Some(42), None),
+            "voice clip: input 48000 Hz, 120 buffers, 3.2 s, peak 0.123, 42 chars"
+        );
+        assert_eq!(clip_log_line(44_100, 0, 0.0, 0.0, None, Some("no sound")), "voice clip: input 44100 Hz, 0 buffers, 0.0 s, peak 0.000, error no sound");
     }
 
     #[test]

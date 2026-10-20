@@ -1,5 +1,5 @@
-// context-capsule — windows: the tray icon (hollow circle idle, filled recording, mic listening, drawn in
-// code to match the taskbar theme) and the words of its menu and tooltip.
+// context-capsule — windows: the tray icon (hollow circle idle, red filled circle recording, red mic
+// listening, drawn in code; idle matches the taskbar theme) and the words of its menu and tooltip.
 
 use crate::hotkeys::{RECORD_LABEL, VOICE_LABEL};
 use context_capsule_core::{Indicator, Status};
@@ -42,9 +42,16 @@ impl Glyph {
     }
 }
 
-/// White glyph on a dark taskbar, near-black on a light one.
-pub fn glyph_color(light_taskbar: bool) -> [u8; 3] {
-    if light_taskbar { [0x20, 0x20, 0x20] } else { [0xFF, 0xFF, 0xFF] }
+/// Red while recording or listening, so it's obvious at a glance (Mac parity).
+pub const RED: [u8; 3] = [0xE8, 0x11, 0x23];
+
+/// Idle: white on a dark taskbar, near-black on a light one. Recording and listening: red.
+pub fn glyph_color(glyph: Glyph, light_taskbar: bool) -> [u8; 3] {
+    match glyph {
+        Glyph::Disc | Glyph::Mic => RED,
+        Glyph::Ring if light_taskbar => [0x20, 0x20, 0x20],
+        Glyph::Ring => [0xFF, 0xFF, 0xFF],
+    }
 }
 
 /// A `size`×`size` BGRA image (straight alpha, top row first), anti-aliased by 4×4 supersampling.
@@ -160,7 +167,7 @@ mod win {
             // SAFETY: as above.
             let size = unsafe { GetSystemMetricsForDpi(SM_CXSMICON, dpi) }.max(16) as usize;
             for glyph in [Glyph::Ring, Glyph::Disc, Glyph::Mic] {
-                if let Some(icon) = make_icon(&glyph_pixels(glyph, size, glyph_color(light)), size) {
+                if let Some(icon) = make_icon(&glyph_pixels(glyph, size, glyph_color(glyph, light)), size) {
                     self.icons.push((glyph, icon));
                 }
             }
@@ -301,8 +308,13 @@ mod tests {
         assert_eq!(alpha(&mic, s, 16, 8), 255, "mic body");
         assert_eq!(alpha(&mic, s, 16, 25), 255, "mic stem");
         assert_eq!(alpha(&mic, s, 3, 3), 0);
-        let dark = glyph_pixels(Glyph::Disc, 16, glyph_color(true));
-        assert_eq!(&dark[(8 * 16 + 8) * 4..(8 * 16 + 8) * 4 + 3], &[0x20, 0x20, 0x20]);
+        let idle = glyph_pixels(Glyph::Ring, 16, glyph_color(Glyph::Ring, true));
+        let px = |p: &[u8], x: usize, y: usize| p[(y * 16 + x) * 4..(y * 16 + x) * 4 + 3].to_vec();
+        assert_eq!(px(&idle, 8, 2), [0x20, 0x20, 0x20], "idle: dark ring on a light taskbar (BGR)");
+        let rec = glyph_pixels(Glyph::Disc, 16, glyph_color(Glyph::Disc, false));
+        assert_eq!(px(&rec, 8, 8), [0x23, 0x11, 0xE8], "recording: red (BGR)");
+        assert_eq!(glyph_color(Glyph::Mic, true), RED, "listening: red on any taskbar");
+        assert_eq!(glyph_color(Glyph::Ring, false), [0xFF, 0xFF, 0xFF]);
     }
 
     #[test]

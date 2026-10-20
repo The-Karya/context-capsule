@@ -299,6 +299,22 @@ fn front_window_choice() {
     assert_eq!(id(&[dialog, chrome_main]), Some(6), "separate front window kept");
 }
 
+#[test]
+fn system_ui_is_never_the_work_window() {
+    // Swift: WindowList.topRegularPid. Pid 10 is the OS's own UI (a menu, the taskbar's flyout…).
+    let system = ListedWindow { owner: "Control Center".into(), ..ListedWindow::new(1, 10, r(0.0, 0.0, 300.0, 400.0)) };
+    let private = ListedWindow { owner: "WhatsApp".into(), excluded: true, ..ListedWindow::new(2, 20, r(0.0, 30.0, 800.0, 600.0)) };
+    let chrome = ListedWindow { owner: "Chrome".into(), ..ListedWindow::new(3, 30, r(0.0, 30.0, 1400.0, 800.0)) };
+    let is_system = |w: &ListedWindow| w.pid == 10;
+    let top = |l: &[ListedWindow]| WindowList::top_regular(l, &is_system).map(|w| w.id);
+    assert_eq!(top(&[system.clone(), private.clone(), chrome.clone()]), Some(2), "a private app on top is kept (then skipped as private)");
+    assert_eq!(top(&[system.clone(), chrome.clone()]), Some(3), "top real app found");
+    assert_eq!(top(std::slice::from_ref(&system)), None, "only system UI: none");
+    let tiny = ListedWindow::new(4, 40, r(0.0, 0.0, 20.0, 20.0));
+    let panel = ListedWindow { layer: 1, ..ListedWindow::new(5, 50, r(0.0, 0.0, 500.0, 500.0)) };
+    assert_eq!(top(&[tiny, panel, chrome]), Some(3), "tiny windows and panels are not the work window");
+}
+
 // MARK: freshness
 
 #[test]

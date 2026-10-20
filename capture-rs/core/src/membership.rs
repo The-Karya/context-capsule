@@ -145,6 +145,13 @@ impl WindowList {
         Some(holder.unwrap_or(first))
     }
 
+    /// The top normal window that is not the OS's own UI (taskbar, Start, menus…): what the user works
+    /// in while a system surface is in front. A private app's window is NOT skipped: if it is on top,
+    /// it is what the user is looking at, and the sample is then skipped as private.
+    pub fn top_regular<'a>(list: &'a [ListedWindow], is_system: &dyn Fn(&ListedWindow) -> bool) -> Option<&'a ListedWindow> {
+        list.iter().find(|w| Self::is_normal(w) && !is_system(w))
+    }
+
     /// Never to be read: windows of never-record apps, and notification banners.
     pub fn is_private(w: &ListedWindow) -> bool {
         w.excluded || w.notification

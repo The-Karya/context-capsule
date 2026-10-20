@@ -85,6 +85,11 @@ impl PlatformText {
     };
 }
 
+/// The record hotkey was pressed while a voice note listens: recording waits, so one key never ends both.
+pub fn busy_listening_message(t: &PlatformText) -> String {
+    format!("Finish the voice note first: press {}. Then {} stops recording.", t.voice_hotkey, t.record_hotkey)
+}
+
 /// How a voice note ended. Every case turns the mic indicator off.
 #[derive(Clone, Debug, PartialEq)]
 pub enum VoiceOutcome {
@@ -137,7 +142,8 @@ impl VoiceOutcome {
             VoiceOutcome::NotRecording => "voice note: not recording".into(),
             VoiceOutcome::Denied(p) => format!("voice note: {} permission denied", p.as_str()),
             VoiceOutcome::Unavailable { .. } => "voice note: on-device recognition unavailable".into(),
-            VoiceOutcome::Failed(_) => "voice note: failed".into(),
+            // Our own or the system's error text, never the user's words.
+            VoiceOutcome::Failed(why) => format!("voice note: failed ({why})"),
             VoiceOutcome::Discarded => "voice note: discarded".into(),
             VoiceOutcome::Notice(_) => "voice note: notice".into(),
         }
@@ -448,8 +454,8 @@ impl<E: VoiceEngine> VoiceNotes<E> {
         self.report(outcome);
     }
 
+    /// The owner logs it (`VoiceOutcome::log_summary`) and shows it.
     fn report(&mut self, outcome: VoiceOutcome) {
-        eprintln!("Context Capsule: {}", outcome.log_summary());
         self.signals.push(VoiceSignal::Outcome(outcome));
     }
 }
@@ -469,5 +475,15 @@ mod notice_tests {
     fn windows_and_linux_hotkeys() {
         assert_eq!(VoiceOutcome::NotRecording.message(&PlatformText::WINDOWS), "Start recording first (Ctrl+Alt+Shift+C)");
         assert_eq!(PlatformText::LINUX.voice_hotkey, "Ctrl+Alt+Shift+V");
+    }
+
+    #[test]
+    fn busy_and_failure_texts() {
+        assert_eq!(
+            busy_listening_message(&PlatformText::WINDOWS),
+            "Finish the voice note first: press Ctrl+Alt+Shift+V. Then Ctrl+Alt+Shift+C stops recording."
+        );
+        let f = VoiceOutcome::Failed("the microphone could not start (0x80070005)".into());
+        assert_eq!(f.log_summary(), "voice note: failed (the microphone could not start (0x80070005))", "keeps the error code");
     }
 }
