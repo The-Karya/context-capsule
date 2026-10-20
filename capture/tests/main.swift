@@ -738,6 +738,15 @@ try! #"{"assign":[{"project":"chat","from":"2026-10-19T10:31:00Z","to":"2026-10-
     .write(to: statDir.appendingPathComponent("assign.json"), atomically: true, encoding: .utf8)
 let sorted = WorkStats.totals(sessions: statRoot, from: dayStart, to: dayStart.addingTimeInterval(86_400))
 check(sorted.byProject.map(\.id) == ["web", "chat"], "Claude's corrections count", "\(sorted.byProject)")
+var utcCal = Calendar(identifier: .gregorian)
+utcCal.timeZone = TimeZone(identifier: "UTC")!
+let noon20 = Date(timeIntervalSince1970: 1_792_497_600) // 2026-10-20T12:00:00Z
+check(WorkStats.streak(sessionIDs: ["20261018-090000", "20261019-100000", "20261020-080000", "20261020-120000"], today: noon20, calendar: utcCal) == 3,
+      "streak: three days in a row")
+check(WorkStats.streak(sessionIDs: ["20261018-090000", "20261019-100000"], today: noon20, calendar: utcCal) == 2,
+      "streak: nothing yet today still counts up to yesterday")
+check(WorkStats.streak(sessionIDs: ["20261017-090000", "20261020-100000"], today: noon20, calendar: utcCal) == 1, "streak: a gap breaks it")
+check(WorkStats.streak(sessionIDs: ["20261015-090000", "x"], today: noon20, calendar: utcCal) == 0, "streak: none")
 try? FileManager.default.removeItem(at: statDir.appendingPathComponent("assign.json"))
 let byClue = WorkStats.totals(sessions: statRoot, from: dayStart, to: dayStart.addingTimeInterval(86_400),
                               projects: [Project(id: "team", name: "Team", match: ["Slack"])])

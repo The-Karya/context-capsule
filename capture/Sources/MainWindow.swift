@@ -24,7 +24,8 @@ final class AppModel: ObservableObject {
     @Published var today = WorkStats.Totals()
     @Published var week = WorkStats.Totals()
     @Published var weekCapsules = 0
-    @Published var latestCapsule: CapsuleSummary?
+    @Published var recentCapsules: [CapsuleSummary] = []
+    @Published var streak = 0
 
     var toggleRecord: () -> Void = {}
     var toggleVoice: () -> Void = {}
@@ -74,19 +75,22 @@ struct MainView: View {
     var body: some View {
         NavigationSplitView {
             List(selection: $nav.section) {
-                ForEach(Section.allCases) { s in
-                    Label(s.title, systemImage: s.icon).tag(s)
+                SwiftUI.Section("Your work") {
+                    ForEach([Section.home, .capsules, .projects]) { s in Label(s.title, systemImage: s.icon).tag(s) }
+                }
+                SwiftUI.Section("Context Capsule") {
+                    ForEach([Section.settings, .help]) { s in Label(s.title, systemImage: s.icon).tag(s) }
                 }
             }
-            .navigationSplitViewColumnWidth(min: 170, ideal: 180, max: 220)
+            .navigationSplitViewColumnWidth(min: 170, ideal: 190, max: 240)
         } detail: {
-            // The content widens with the window up to a comfortable reading width, and stays centred;
-            // on wide windows Home puts Today and This week side by side.
+            // The content widens with the window up to a comfortable width, and stays centred;
+            // on wide windows Home gets a second column.
             GeometryReader { geo in
                 ScrollView {
                     VStack(alignment: .leading, spacing: 24) {
                         switch nav.section ?? .home {
-                        case .home: HomeView(app: app, nav: nav, wide: geo.size.width > 860)
+                        case .home: HomeView(app: app, nav: nav, wide: geo.size.width > 900)
                         case .capsules: CapsulesView(library: library, app: app)
                         case .projects: ProjectsView(library: library)
                         case .settings: SettingsView(status: setup, prefs: prefs, app: app)
@@ -94,10 +98,14 @@ struct MainView: View {
                         }
                     }
                     .padding(.horizontal, 32)
-                    .padding(.vertical, 28)
-                    .frame(maxWidth: geo.size.width > 860 ? 920 : 760, alignment: .leading)
+                    .padding(.vertical, 24)
+                    .frame(maxWidth: geo.size.width > 900 ? 1120 : 760, alignment: .leading)
                     .frame(maxWidth: .infinity)
                 }
+            }
+            .navigationTitle((nav.section ?? .home).title)
+            .toolbar {
+                ToolbarItem(placement: .primaryAction) { StatusPill(app: app) }
             }
         }
         .frame(minWidth: 760, minHeight: 540)
@@ -142,6 +150,56 @@ private struct TimeBar: View {
     }
 }
 
+/// Top right of the window: the live timer while contextualizing, else today's time.
+private struct StatusPill: View {
+    @ObservedObject var app: AppModel
+
+    var body: some View {
+        HStack(spacing: 6) {
+            if app.recording {
+                Circle().fill(Color.red).frame(width: 7, height: 7)
+                TimelineView(.periodic(from: .now, by: 1)) { ctx in
+                    Text(MenuBarLook.clock(ctx.date.timeIntervalSince(app.startedAt ?? ctx.date))).monospacedDigit()
+                }
+            } else {
+                Image(systemName: "clock").foregroundStyle(.secondary)
+                Text("Today \(WorkStats.duration(app.today.seconds))")
+            }
+        }
+        .font(.system(size: 12, weight: .medium))
+        .padding(.horizontal, 10)
+        .help(app.recording ? "Contextualizing" : "Time contextualized today")
+    }
+}
+
+/// A key on the keyboard, drawn like a keycap.
+private struct Keycap: View {
+    let text: String
+    var body: some View {
+        Text(text)
+            .font(.system(size: 13, weight: .semibold, design: .rounded))
+            .padding(.horizontal, 9).padding(.vertical, 4)
+            .background(RoundedRectangle(cornerRadius: 6, style: .continuous).fill(Color.primary.opacity(0.07)))
+            .overlay(RoundedRectangle(cornerRadius: 6, style: .continuous).strokeBorder(Color.primary.opacity(0.14)))
+    }
+}
+
+/// A big number with a label above and a line below.
+private struct Stat: View {
+    let label: String
+    let value: String
+    let detail: String
+    var body: some View {
+        VStack(alignment: .leading, spacing: 4) {
+            Text(label).font(.system(size: 12, weight: .medium)).foregroundStyle(.secondary)
+            Text(value).font(.system(size: 28, weight: .semibold).monospacedDigit()).lineLimit(1).minimumScaleFactor(0.6)
+            Text(detail).font(.system(size: 12)).foregroundStyle(.secondary).lineLimit(1)
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .padding(18)
+    }
+}
+
 private struct HomeView: View {
     @ObservedObject var app: AppModel
     @ObservedObject var nav: Navigation
@@ -149,28 +207,78 @@ private struct HomeView: View {
 
     private var greeting: String {
         let hello = WorkStats.greeting(hour: Calendar.current.component(.hour, from: Date()))
-        return app.name.isEmpty ? hello : "\(hello), \(app.name)"
+        return (app.name.isEmpty ? hello : "\(hello), \(app.name)") + "."
     }
 
     private func projectName(_ id: String) -> String {
         id.isEmpty ? "Not sorted yet" : app.projects.first { $0.id == id }?.name ?? id
     }
 
-    private func bars(_ t: WorkStats.Totals) -> some View {
-        VStack(spacing: 10) {
-            ForEach(t.byProject.prefix(5), id: \.id) { p in
-                TimeBar(name: projectName(p.id), seconds: p.seconds, total: t.byProject.first?.seconds ?? 1, muted: p.id.isEmpty)
-            }
-        }
-    }
-
     var body: some View {
         VStack(alignment: .leading, spacing: 4) {
-            Text(greeting).font(.system(size: 24, weight: .semibold))
+            Text(greeting).font(.system(size: 34, weight: .regular, design: .serif))
             Text(Date().formatted(.dateTime.weekday(.wide).day().month(.wide)))
                 .font(.system(size: 13)).foregroundStyle(.secondary)
         }
 
+        if wide {
+            HStack(alignment: .top, spacing: 20) {
+                VStack(alignment: .leading, spacing: 24) { main }.frame(maxWidth: .infinity)
+                VStack(alignment: .leading, spacing: 16) { side }.frame(width: 280)
+            }
+        } else {
+            main
+            side
+        }
+    }
+
+    // MARK: main column
+
+    @ViewBuilder private var main: some View {
+        statusCard
+        stats
+        VStack(alignment: .leading, spacing: 8) {
+            Caption(text: "Today by project")
+            Panel {
+                VStack(alignment: .leading, spacing: 10) {
+                    if app.today.byProject.isEmpty {
+                        Text("Nothing yet today. Start contextualizing when you begin work.")
+                            .font(.system(size: 13)).foregroundStyle(.secondary)
+                    } else {
+                        ForEach(app.today.byProject.prefix(5), id: \.id) { p in
+                            TimeBar(name: projectName(p.id), seconds: p.seconds,
+                                    total: app.today.byProject.first?.seconds ?? 1, muted: p.id.isEmpty)
+                        }
+                    }
+                }
+                .padding(16)
+                .frame(maxWidth: .infinity, alignment: .leading)
+            }
+        }
+        VStack(alignment: .leading, spacing: 8) {
+            HStack {
+                Caption(text: "Recent capsules")
+                Spacer()
+                if !app.recentCapsules.isEmpty {
+                    Button("See all") { nav.section = .capsules }.buttonStyle(.borderless).font(.system(size: 12))
+                }
+            }
+            Panel {
+                if app.recentCapsules.isEmpty {
+                    Text("None yet. At the end of the day, make today's capsules.")
+                        .font(.system(size: 13)).foregroundStyle(.secondary)
+                        .frame(maxWidth: .infinity, alignment: .leading).padding(16)
+                } else {
+                    ForEach(Array(app.recentCapsules.enumerated()), id: \.element.url) { i, c in
+                        if i > 0 { Divider().padding(.leading, 46) }
+                        CapsuleRow(capsule: c)
+                    }
+                }
+            }
+        }
+    }
+
+    private var statusCard: some View {
         Panel {
             VStack(alignment: .leading, spacing: 14) {
                 HStack(spacing: 10) {
@@ -191,123 +299,90 @@ private struct HomeView: View {
                         .keyboardShortcut(.defaultAction)
                 }
                 if app.recording {
-                    Text("\(app.moments) moment\(app.moments == 1 ? "" : "s") saved"
-                         + (app.screens > 1 ? " · \(app.screens) screens shared" : ""))
-                        .font(.system(size: 13)).foregroundStyle(.secondary)
                     HStack(spacing: 10) {
+                        Text("\(app.moments) moment\(app.moments == 1 ? "" : "s") saved"
+                             + (app.screens > 1 ? " · \(app.screens) screens" : "")
+                             + (app.projectName.map { " · \($0)" } ?? ""))
+                            .font(.system(size: 13)).foregroundStyle(.secondary)
+                        Spacer()
                         Button(app.listening ? "Done speaking" : "Speak a note", action: app.toggleVoice)
                         if app.hasSeveralScreens {
                             Button("Add a screen", action: app.addScreen).disabled(!app.canAddScreen)
                         }
                     }
                 } else {
-                    Text("⌥C to start. Pick the screen or window you work on.")
+                    Text("Pick the screen or window you work on. Only that is read.")
                         .font(.system(size: 13)).foregroundStyle(.secondary)
                 }
             }
             .padding(18)
         }
+    }
 
-        // Projects as quick buttons: one click to say what you're working on.
-        VStack(alignment: .leading, spacing: 8) {
-        Caption(text: "Working on")
-        ScrollView(.horizontal, showsIndicators: false) {
-            HStack(spacing: 8) {
-                chip("Find by itself", selected: !app.projectPinned) { app.pickProject(nil) }
+    private var stats: some View {
+        Panel {
+            HStack(spacing: 0) {
+                Stat(label: "Today", value: WorkStats.duration(app.today.seconds), detail: "contextualized")
+                Divider().padding(.vertical, 14)
+                Stat(label: "This week", value: WorkStats.duration(app.week.seconds),
+                     detail: "\(app.weekCapsules) capsule\(app.weekCapsules == 1 ? "" : "s") made")
+                Divider().padding(.vertical, 14)
+                Stat(label: "Streak", value: "\(app.streak) day\(app.streak == 1 ? "" : "s")",
+                     detail: app.streak > 0 ? "in a row" : "starts today")
+            }
+        }
+    }
+
+    // MARK: side column
+
+    @ViewBuilder private var side: some View {
+        Panel {
+            VStack(alignment: .leading, spacing: 12) {
+                Text("Shortcuts").font(.system(size: 14, weight: .semibold))
+                HStack { Keycap(text: "⌥ C"); Text("Start or stop").font(.system(size: 13)); Spacer() }
+                HStack { Keycap(text: "⌥ V"); Text("Speak a note").font(.system(size: 13)); Spacer() }
+            }
+            .padding(16)
+        }
+
+        Panel {
+            VStack(alignment: .leading, spacing: 2) {
+                Text("Working on").font(.system(size: 14, weight: .semibold)).padding(.bottom, 8)
+                projectRow("Find by itself", icon: "magnifyingglass", selected: !app.projectPinned) { app.pickProject(nil) }
                 ForEach(app.projects, id: \.id) { p in
-                    chip(p.name, selected: app.projectPinned && app.projectID == p.id) { app.pickProject(p.id) }
+                    projectRow(p.name, icon: "folder", selected: app.projectPinned && app.projectID == p.id) { app.pickProject(p.id) }
                 }
-                Button { app.newProject() } label: { Image(systemName: "plus") }
-                    .buttonStyle(.bordered).buttonBorderShape(.capsule).help("New project from this window")
-            }
-            .padding(.horizontal, 2)
-        }
-        if !app.projectPinned, let name = app.projectName, app.recording {
-            Text("Now: \(name)").font(.system(size: 12)).foregroundStyle(.secondary).padding(.leading, 4)
-        }
-        }
-
-        // Each caption sits right above its panel; the space is between sections.
-        if wide {
-            HStack(alignment: .top, spacing: 16) {
-                VStack(alignment: .leading, spacing: 8) { todayBlock }.frame(maxWidth: .infinity)
-                VStack(alignment: .leading, spacing: 8) { weekBlock }.frame(maxWidth: .infinity)
-            }
-        } else {
-            VStack(alignment: .leading, spacing: 8) { todayBlock }
-            VStack(alignment: .leading, spacing: 8) { weekBlock }
-        }
-
-        VStack(alignment: .leading, spacing: 8) {
-            HStack {
-                Caption(text: "Latest capsule")
-                Spacer()
-                if app.latestCapsule != nil { Button("See all") { nav.section = .capsules }.buttonStyle(.borderless).font(.system(size: 12)) }
-            }
-            Panel {
-                if let c = app.latestCapsule {
-                    CapsuleRow(capsule: c)
-                } else {
-                    Text("None yet.").font(.system(size: 13)).foregroundStyle(.secondary)
-                        .frame(maxWidth: .infinity, alignment: .leading).padding(16)
-                }
-            }
-        }
-
-        Panel {
-            HStack(spacing: 10) {
-                VStack(alignment: .leading, spacing: 2) {
-                    Text("Make today's capsules").font(.system(size: 14, weight: .medium))
-                    Text("Opens Claude: ⌘V, then Return").font(.system(size: 12)).foregroundStyle(.secondary)
-                }
-                Spacer()
-                Button("Make", action: app.makeCapsules)
-            }
-            .padding(.horizontal, 16)
-            .padding(.vertical, 12)
-        }
-    }
-
-    @ViewBuilder private var todayBlock: some View {
-        Caption(text: "Today" + (app.today.seconds > 0 ? " · \(WorkStats.duration(app.today.seconds))" : ""))
-        Panel {
-            VStack(alignment: .leading, spacing: 0) {
-                if app.today.byProject.isEmpty {
-                    Text("Nothing yet today. Start contextualizing when you begin work.")
-                        .font(.system(size: 13)).foregroundStyle(.secondary)
-                } else {
-                    bars(app.today)
-                }
+                projectRow("New project", icon: "plus", selected: false, action: app.newProject)
+                    .foregroundStyle(.secondary)
             }
             .padding(16)
-            .frame(maxWidth: .infinity, alignment: .leading)
         }
 
-    }
-
-    @ViewBuilder private var weekBlock: some View {
-        Caption(text: "This week" + (app.week.seconds > 0 ? " · \(WorkStats.duration(app.week.seconds))" : "")
-                + (app.weekCapsules > 0 ? " · \(app.weekCapsules) capsule\(app.weekCapsules == 1 ? "" : "s")" : ""))
         Panel {
-            VStack(alignment: .leading, spacing: 0) {
-                if app.week.byProject.isEmpty {
-                    Text("Your week shows up here.").font(.system(size: 13)).foregroundStyle(.secondary)
-                } else {
-                    bars(app.week)
-                }
+            VStack(alignment: .leading, spacing: 10) {
+                Text("Make today's capsules").font(.system(size: 14, weight: .semibold))
+                Text("Claude opens. Press ⌘V, then Return.").font(.system(size: 12)).foregroundStyle(.secondary)
+                Button(action: app.makeCapsules) { Text("Make capsules").frame(maxWidth: .infinity) }
+                    .controlSize(.large)
+                    .buttonStyle(.borderedProminent)
             }
             .padding(16)
-            .frame(maxWidth: .infinity, alignment: .leading)
         }
-
     }
 
-    private func chip(_ title: String, selected: Bool, action: @escaping () -> Void) -> some View {
-        Button(action: action) { Text(title).lineLimit(1) }
-            .buttonStyle(.bordered)
-            .buttonBorderShape(.capsule)
-            .tint(selected ? .accentColor : nil)
-            .overlay(Capsule().strokeBorder(selected ? Color.accentColor : .clear, lineWidth: 1.5))
+    private func projectRow(_ title: String, icon: String, selected: Bool, action: @escaping () -> Void) -> some View {
+        Button(action: action) {
+            HStack(spacing: 8) {
+                Image(systemName: icon).frame(width: 16).foregroundStyle(.secondary)
+                Text(title).lineLimit(1)
+                Spacer()
+                if selected { Image(systemName: "checkmark").foregroundStyle(Color.accentColor) }
+            }
+            .font(.system(size: 13))
+            .padding(.vertical, 5)
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
     }
 }
 
@@ -376,6 +451,8 @@ final class Preferences: ObservableObject {
     @Published var neverRecord: [String] = []
     @Published var languages: [(id: String, name: String)] = []
     @Published var name = ""
+    /// "system", "light" or "dark".
+    @Published var appearance = "system"
 
     /// The first word of the name, for the greeting.
     var firstName: String { name.split(separator: " ").first.map(String.init) ?? "" }
@@ -394,6 +471,26 @@ final class Preferences: ObservableObject {
 
     init(url: URL) { self.url = url }
 
+    /// config.json "appearance": "light" or "dark"; anything else follows the Mac.
+    static func appearance(from url: URL) -> String {
+        guard let data = try? Data(contentsOf: url), let obj = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+              let a = obj["appearance"] as? String, ["light", "dark"].contains(a) else { return "system" }
+        return a
+    }
+
+    static func apply(_ appearance: String) {
+        switch appearance {
+        case "light": NSApp.appearance = NSAppearance(named: .aqua)
+        case "dark": NSApp.appearance = NSAppearance(named: .darkAqua)
+        default: NSApp.appearance = nil
+        }
+    }
+
+    func saveAppearance() {
+        save("appearance", appearance == "system" ? nil : appearance)
+        Self.apply(appearance)
+    }
+
     func load() {
         let c = Config.load(from: url)
         remind = c.remindAt != nil
@@ -405,6 +502,7 @@ final class Preferences: ObservableObject {
         voiceLocale = c.voiceLocale ?? ""
         neverRecord = c.excludeApps
         name = Self.name(from: url)
+        appearance = Self.appearance(from: url)
         if languages.isEmpty {
             // Only languages this Mac can turn into text by itself (nothing is sent to Apple).
             languages = SFSpeechRecognizer.supportedLocales()
@@ -498,6 +596,19 @@ private struct SettingsView: View {
             StepRow(icon: "power", done: status.atLogin, title: "Open at login",
                     help: "Always ready in the menu bar.",
                     button: "Turn On") { Setup.setLaunchAtLogin(true); status.refresh() }
+        }
+
+        Caption(text: "Look")
+        Panel {
+            row("Appearance") {
+                Picker("", selection: $prefs.appearance) {
+                    Text("Match my Mac").tag("system")
+                    Text("Light").tag("light")
+                    Text("Dark").tag("dark")
+                }
+                .labelsHidden().pickerStyle(.segmented).frame(width: 260)
+                .onChange(of: prefs.appearance) { prefs.saveAppearance() }
+            }
         }
 
         Caption(text: "Every day")
@@ -622,6 +733,7 @@ final class MainWindow: NSObject, NSWindowDelegate {
         library = LibraryModel(paths: paths)
         prefs = Preferences(url: paths.config)
         self.paths = paths
+        Preferences.apply(Preferences.appearance(from: paths.config))
     }
 
     private let paths: Paths
@@ -639,7 +751,8 @@ final class MainWindow: NSObject, NSWindowDelegate {
         let capsules = CapsuleSummary.all(in: paths.capsules)
         let iso = ISO8601DateFormatter()
         app.weekCapsules = capsules.filter { c in c.kind != "project" && (iso.date(from: c.created).map { $0 >= weekStart } ?? false) }.count
-        app.latestCapsule = capsules.first
+        app.recentCapsules = Array(capsules.prefix(3))
+        app.streak = WorkStats.streak(sessionIDs: (try? FileManager.default.contentsOfDirectory(atPath: paths.sessions.path)) ?? [], today: now)
         app.name = Preferences.name(from: paths.config).split(separator: " ").first.map(String.init) ?? ""
     }
 

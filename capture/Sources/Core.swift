@@ -1273,6 +1273,22 @@ enum WorkStats {
         return Totals(seconds: sorted.reduce(0) { $0 + $1.seconds }, byProject: sorted)
     }
 
+    /// Days in a row with a recording, ending today (or yesterday, when nothing is recorded yet today).
+    /// Session ids are "yyyyMMdd-HHmmss" in local time.
+    static func streak(sessionIDs: [String], today: Date, calendar: Calendar = .current) -> Int {
+        let days = Set(sessionIDs.filter { $0.count == 15 }.map { String($0.prefix(8)) })
+        func key(_ d: Date) -> String { String(Clock.sessionID(d, timeZone: calendar.timeZone).prefix(8)) }
+        var day = calendar.startOfDay(for: today)
+        if !days.contains(key(day)) { day = calendar.date(byAdding: .day, value: -1, to: day) ?? day }
+        var count = 0
+        while days.contains(key(day)) {
+            count += 1
+            guard let before = calendar.date(byAdding: .day, value: -1, to: day) else { break }
+            day = before
+        }
+        return count
+    }
+
     /// "1 h 05 m", "12 m", "40 s".
     static func duration(_ seconds: Double) -> String {
         let s = Int(seconds)
