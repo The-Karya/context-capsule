@@ -51,7 +51,7 @@ import {
   summarizeSession,
 } from "./sessions.js";
 
-export const VERSION = "0.1.0";
+export const VERSION = "0.1.1";
 
 export interface ServerOptions {
   /** How long start/stop wait for the app to answer via state.json (default: start 6 s, stop 4 s). */
