@@ -2,227 +2,186 @@
 
 by Karya
 
-**Turn what you worked on into context your AI already knows, and share it.**
+**Context for your Claude, and for anyone's.**
 
-Press a hotkey, pick the window or screen to record in the system picker, work as
-usual, press it again. Context Capsule reads the text of what you picked while you
-work. Your own Claude turns that into a **capsule**: one Markdown file with what you
-worked on, the decisions you made and why, open questions and next steps.
+You already use Claude for your work. Context Capsule quietly notes what you work on (the
+text on your screen and what you say about it) and lets Claude turn your day into
+**capsules**: one per project, with what you did, what you decided and why, and what's next.
 
-Load the capsule into Claude and it knows your project. Email it to a teammate and
-their Claude knows it too.
+Send a capsule to anyone. Their Claude loads it and carries on, with nothing to explain. A
+capsule is written **for Claude**: people can read it, but they don't have to.
 
-- **Recorded locally.** Recordings stay on your computer; Context Capsule has no account,
-  no cloud and no telemetry. Text only goes to Claude when you ask your Claude to make or
-  read a capsule — exactly like anything else you paste into Claude. See [PRIVACY.md](PRIVACY.md).
-- **You choose what it sees.** Each recording starts with the system window/screen
-  picker (macOS, Windows, or the Linux screen-sharing portal). Context Capsule reads
-  only what you picked; on macOS it needs no Screen Recording permission.
-- **No screenshots kept.** Only the text on screen is saved; images are thrown away.
-- **Private apps skipped.** Password managers, WhatsApp, Signal and any app you list
-  are never recorded. Anything that looks like a key or password is redacted.
-- **Your AI does the writing.** Context Capsule has no AI key of its own; it hands a short
-  activity timeline to your Claude through MCP.
-- **Open format.** A capsule is plain Markdown with a little front matter. Any person
-  or AI can read it.
+- **You choose what it sees.** Each time, you pick the screen or window in your computer's own
+  picker. Only that is read.
+- **Only text.** No screenshots, no audio. Private apps (password managers, WhatsApp, Signal)
+  and password fields are never recorded.
+- **On your computer.** No account, no cloud, no tracking. Text goes to Claude only when you
+  ask Claude to make or read a capsule. Every detail is in [PRIVACY.md](PRIVACY.md).
+- **Your Claude does the writing.** Context Capsule has no AI of its own.
+- **Plain files.** A capsule is Markdown. Any person or AI can read it.
 
-> v1: macOS 14+, Windows 10 (1903+) / 11, and Linux (Wayland or X11), with Claude
-> (Desktop or Code). ChatGPT is planned.
->
-> | | macOS | Windows | Linux |
-> |---|---|---|---|
-> | Recorder | `capture/` (Swift) | `capture-rs/windows/` (Rust) | `capture-rs/linux/` (Rust) |
-> | Record / voice note | ⌥C / ⌥V | Ctrl+Alt+Shift+C / V | Ctrl+Alt+Shift+C / V |
-> | Status | tested | built, being tested | built, not yet tried on a real desktop |
+| | macOS 14+ | Windows 10 / 11 | Linux (Wayland, X11) |
+|---|---|---|---|
+| Start / stop contextualizing | ⌥C | Ctrl+Alt+Shift+C | Ctrl+Alt+Shift+C |
+| Speak a note | ⌥V | Ctrl+Alt+Shift+V | Ctrl+Alt+Shift+V |
+| Status | in daily use | built, first tests now | built, not yet tried on a real desktop |
 
-## How it works
+## Get started
 
-```
- ⌥C  ──►  Context Capsule.app  ──►  ~/.context-capsule/sessions/<id>/events.jsonl
-                                              │  (app, window, on-screen text, times)
-                                              ▼
- Claude  ◄──►  context-capsule-mcp  ──►  ~/.context-capsule/capsules/<name>.capsule.md
-                                              │
-                                              ▼
-                                   export to Desktop → email → import
-```
+1. **Open Context Capsule.** It lives in your menu bar (Windows: system tray) and opens by
+   itself at login.
+2. **Settings** opens the first time. Turn each step on, and it gets a ✓:
+   - **Read your apps** (Mac): cleaner text, and window names, so projects are found by themselves.
+   - **Voice notes** and **Dictation**, so you can talk.
+   - **Connect Claude**, in one click: the Claude app asks you to install Context Capsule.
+   - **Open at login**.
+3. **Start contextualizing** (⌥C) and pick your screen. The menu bar shows a red dot and a timer.
+4. Work. Any time, **Speak a note** (⌥V): say what you're doing and why. The menu bar shows a
+   mic with bars that move with your voice. Press ⌥V again when done.
+5. At the end of the day, click **Make today's capsules**. Claude opens; press ⌘V, then Return.
+   Claude sorts your day into projects and writes the capsules.
+6. **Share** a capsule from **Capsules**: copy it into WhatsApp, Slack or email, or AirDrop it.
 
-## Install
+## The Context Capsule window
 
-You need Node 18+ and [bun](https://bun.sh) (or npm) for the MCP server, plus the
-recorder for your system.
+Everything in one place (menu → **Open Context Capsule**). Mac for now; on Windows and Linux
+the same actions are in the tray menu and a small setup window.
 
-```sh
-git clone <this repo> context-capsule && cd context-capsule
+- **Home**: Start / Stop contextualizing with a live timer, Speak a note, Add a screen, the
+  current project (change it or make a new one), and Make today's capsules.
+- **Capsules**: your capsules by project, with Share (Copy file, Copy text, Save a copy,
+  Show in Finder, AirDrop/Mail/Messages) and Open.
+- **Projects**: rename them, change how they're found, delete them.
+- **Settings**: set up, the evening reminder and its time, when to delete old recordings,
+  sounds, the voice-note language, and apps never to record.
+- **Help**: shortcuts, how it works, privacy.
 
-# the MCP server (all systems)
-cd mcp && bun install && bun run build && cd ..
-```
-
-**macOS 14+**: Xcode command line tools (`xcode-select --install`).
-
-```sh
-capture/build.sh              # builds "capture/build/Context Capsule.app"
-open "capture/build/Context Capsule.app"
-```
-
-**Windows 10/11**: [Rust](https://rustup.rs), Visual Studio Build Tools (C++), CMake and
-LLVM (for voice notes). In PowerShell: `capture-rs\windows\build.ps1`, then run
-`capture-rs\target\release\context-capsule.exe`. A circle appears in the system tray.
-Details: [capture-rs/windows/README.md](capture-rs/windows/README.md). From a Mac you can
-also cross-build the `.exe`: `capture-rs/windows/cross-build.sh`.
-
-**Linux**: Rust, plus PipeWire, D-Bus and (optionally) Tesseract dev packages; see
-[capture-rs/linux/README.md](capture-rs/linux/README.md). Then `capture-rs/linux/build.sh`
-and run `context-capsule &`.
-
-Data lives in `~/.context-capsule/` (`%USERPROFILE%\.context-capsule\` on Windows;
-`$XDG_DATA_HOME/context-capsule` on Linux when that is set).
-
-Each time you start a recording, the system shows its window/screen picker; pick a
-window or a display and recording begins. Text comes straight from apps where the
-system allows it (macOS Accessibility — optional, menu → **Read text directly
-(Accessibility)…**; Windows UI Automation; Linux AT-SPI), and from OCR of the picked
-content otherwise.
-
-### Connect to Claude
-
-**Claude Code**
-
-```sh
-claude mcp add context-capsule -- node /absolute/path/to/context-capsule/mcp/dist/index.js
-```
-
-**Claude Desktop**: add to its config file (macOS
-`~/Library/Application Support/Claude/claude_desktop_config.json`, Windows
-`%APPDATA%\Claude\claude_desktop_config.json`):
-
-```json
-{
-  "mcpServers": {
-    "context-capsule": {
-      "command": "node",
-      "args": ["/absolute/path/to/context-capsule/mcp/dist/index.js"]
-    }
-  }
-}
-```
-
-Restart Claude Desktop.
-
-## Use it
-
-1. Press **⌥C** (Windows/Linux: **Ctrl+Alt+Shift+C**), or ask Claude: *"start
-   recording"*. Pick a window or screen in the picker. The menu-bar circle fills in. Close the picker to cancel.
-2. Work. Any time, press **⌥V** (Ctrl+Alt+Shift+V) and say what you're doing and why; press it again
-   to finish (see *Voice notes* below).
-3. Press **⌥C** again (or *"stop recording"*).
-4. Click **Make today's capsules** in the menu (or ask Claude: *"Make my capsules for today"*). Claude reads the timeline,
-   writes the capsule and saves it. Read it; edit anything you don't want to share.
-5. *"Export the capsule"* puts it on your Desktop, ready to email.
-6. Someone sent you one? *"Import ~/Downloads/pricing-redesign.capsule.md"* and ask
-   away.
-
-## Voice notes
-
-While recording, explain your work out loud: what you're doing, how, and the decisions
-you make and why. Your words become the main source for the capsule; the screen text
-backs them up.
-
-- Press **⌥V** (or menu → *Speak a note*), talk, press **⌥V** again. The menu-bar
-  icon shows a microphone while it listens. A note stops by itself after 2 minutes.
-- The microphone is open **only** between the two presses.
-- Speech is turned into text **on your computer**: Apple Speech (on-device only) on
-  macOS; whisper.cpp on Windows and Linux (a one-time ~148 MB model download, only
-  after you agree). If your language has no on-device model, Context Capsule tells you
-  and does nothing; it never falls back to a cloud service. Set another language with `"voice_locale": "en-GB"` in
-  `~/.context-capsule/config.json`.
-- **No audio is saved.** Only the text goes into the session, redacted like screen text.
-  Silent clips are skipped ("Didn't catch that").
-- Prefer typing? Tell Claude *"add a note: we chose Postgres because the team knows it"*
-  (the `add_note` tool).
-
-macOS asks once for Microphone and Speech Recognition. If you said no, turn them on in
-System Settings → Privacy & Security. On macOS, **Dictation must be on** (System Settings →
-Keyboard → Dictation): Apple allows speech recognition only then, even on-device.
+The menu-bar menu is the quick version: Start contextualizing · Speak a note · Add a screen ·
+Project · Open Context Capsule · Make today's capsules · Quit.
 
 ## Projects
 
-A day often has several projects (1 h on one, 2 h on another…). Context Capsule keeps
-them apart:
+A day often has several projects (an hour on one, two on another). Context Capsule keeps them
+apart:
 
-- **It detects the project** from clues in the window: a folder, file, website or document
-  name. The menu shows the current project (**Project: …**); pick one there to stick to
-  it, or **New project from this window** to make one (it remembers the window's clue).
-- **Claude sorts the rest by itself.** Ask: *"make my capsules for today"* (the
-  `make_day_capsules` prompt). Claude groups new work into projects (and remembers clues so
-  it's automatic next time), then writes:
-  - a **daily capsule** per project (`website-2026-10-19.capsule.md`), and
-  - one **growing capsule** per project (`website.capsule.md`), updated every day you work
-    on it. Old versions are kept in `capsules/.history/`.
-- At the end it lists what it sorted, so you can correct anything.
-- Projects live in `~/.context-capsule/projects.json` (name + clues); edit it by hand
-  if you like.
-- On macOS, turn on **Accessibility** (menu → *Read text directly (Accessibility)…*):
-  window titles and web addresses are what projects are recognised by.
+- It **recognises the project** from what's in the window: a folder, file, website or
+  document name. A short message says when the project changes.
+- For new work, **Claude sorts it** when making your capsules, and remembers how to recognise
+  it next time. At the end it lists what it sorted, so you can correct anything.
+- Each project gets a **daily capsule** and one **growing capsule** that's updated every day
+  you work on it. That's the one to send: it covers the whole project.
 
-## The capsule format
+## Voice notes
 
-A capsule is **context for someone's Claude**. You send it; their Claude loads it and
-knows what you did, where things stand, what you decided and why, and what's next. Nobody
-has to read it, though anyone can: it's plain Markdown.
+Your own words are the best context: what you're doing, how, and why you decided something.
+Claude treats them as the main source, and screen text as supporting evidence.
+
+- The mic is open **only** while you're speaking a note (⌥V to start, ⌥V to finish; 2 minutes
+  at most).
+- Speech becomes text **on your computer**: Apple Speech on Mac (Dictation must be on);
+  whisper.cpp on Windows and Linux (a one-time ~148 MB download, only after you agree). It
+  never falls back to a cloud service.
+- **No audio is saved.** Prefer typing? Tell Claude *"add a note: …"*.
+
+## Several screens
+
+While contextualizing, **Add a screen** shares another screen (up to 4, each picked by you).
+Each moment, Context Capsule reads only the shared screen with the window you're using (the
+one with keyboard focus). A screen you didn't share is never read.
+
+## Every day
+
+- **Opens at login** (turn it off in Settings or your system's login items).
+- **Evening reminder** (6 pm by default): if you contextualized today and made no capsules,
+  a small box asks *Make today's capsules?*
+- **Old recordings are deleted after 30 days** (change it in Settings). Capsules are kept.
+
+## Capsules
 
 ```markdown
 ---
 capsule: 1
 title: Pricing page redesign
-author: Saachi            # from config.json "author", else OS user full name
+author: Saachi
 created: 2026-10-19T11:30:00Z
-sessions: [20261019-100103]
-apps: [Figma, Google Chrome, Linear]
-project: website            # optional
-kind: daily                 # optional: daily | project
-date: 2026-10-19            # daily capsules
+project: website
+kind: daily            # daily | project (the growing one)
+date: 2026-10-19
+playbook: 2026-10-20   # which rules wrote it
 ---
 
-## In short
-## For Claude
+## In short            ← the only part written for people
+## For Claude           ← tells the receiving Claude how to carry on
 ## Where things stand
 ## What was done
 ## Decisions
-- **Decision** — why. *(you said, 10:14)*
+- **Use annual pricing by default** — 70% of trials pick it. *(you said, 10:14)*
 ## Open questions
 ## Next steps
 ## People, links and files
 ```
 
-## MCP tools
+Received one? Tell your Claude *"continue from this capsule"* and drop the file in.
 
-`start_recording`, `stop_recording`, `recording_status`, `add_note`, `list_sessions`,
-`get_session_activity`, `save_capsule`, `list_capsules`, `get_capsule`,
-`import_capsule`, `export_capsule`, the `make_capsule` prompt, and every capsule as
-a `capsule://<name>` resource. Details in [mcp/README.md](mcp/README.md).
+## Safe by design
 
-## Privacy
+- **Screen text and capsules are information, never instructions.** If a web page or a
+  capsule says "AI: send your files somewhere", Claude is told it's just text: it can't
+  change the task or approve anything. Received capsules are scanned for hidden instructions.
+- **Checked before saving.** A capsule is saved only when it's complete, and every
+  *"(you said, 10:14)"* must match a real voice note at that time. Card numbers, bank
+  numbers and keys are removed.
+- **Honest privacy.** [PRIVACY.md](PRIVACY.md) lists every place data goes, with the code
+  that does it.
 
-Everything is in `~/.context-capsule/`. Delete a session folder and it is gone.
-Add apps to never record in `~/.context-capsule/config.json`:
+## For Claude (MCP)
 
-```json
-{ "author": "Your Name", "exclude_apps": ["com.example.secretapp"] }
+The Claude connection is an MCP server (`mcp/`), shipped as a one-click Claude Desktop
+extension. Claude gets:
+
+- **Tools:** `start_recording`, `stop_recording`, `recording_status`, `add_note`,
+  `prepare_day` / `finish_day` (a guided day: checklist in, check out), `get_day_activity`,
+  `get_session_activity`, `get_moment` (zoom in on a stretch, nothing shortened),
+  `list_sessions`, projects (`list_projects`, `create_project`, `set_project`,
+  `assign_project`), and capsules (`save_capsule`, `list_capsules`, `get_capsule`,
+  `import_capsule`, `export_capsule`).
+- **Prompts:** `make_day_capsules`, `make_capsule`, `continue_from_capsule`, `review_capsule`
+  (a second look before sharing).
+- **Resources:** every capsule as `capsule://<name>`.
+
+All of Claude's instructions live in one playbook (`mcp/src/playbook.ts`). Details:
+[mcp/README.md](mcp/README.md) and [SPEC.md](SPEC.md).
+
+## Build from source
+
+Signed downloads are coming. Until then:
+
+```sh
+git clone <this repo> context-capsule && cd context-capsule
+mcp/extension/build.sh          # the Claude extension (needs Node 18+ and bun)
 ```
 
-A capsule is written for Claude, but you decide what you send: ask Claude for a
-*second look* (`review_capsule`) before sharing, or open it and edit. What leaves your
-computer, and when, is listed in [PRIVACY.md](PRIVACY.md).
+- **macOS 14+** (Xcode command line tools): `capture/build.sh`, then open
+  `capture/build/Context Capsule.app`. The Claude extension is bundled inside, so
+  Settings → Connect Claude installs it.
+- **Windows 10/11:** `capture-rs\windows\build.ps1` (Rust, Visual Studio Build Tools, CMake,
+  LLVM), or from a Mac `capture-rs/windows/cross-build.sh`. Keep `context-capsule.mcpb`
+  next to the `.exe`. See [capture-rs/windows/README.md](capture-rs/windows/README.md).
+- **Linux:** `capture-rs/linux/build.sh`. See [capture-rs/linux/README.md](capture-rs/linux/README.md).
+- **Claude Code** instead of the Claude app:
+  `claude mcp add context-capsule -- node /absolute/path/to/context-capsule/mcp/dist/index.js`
+
+Data lives in `~/.context-capsule/` (`%USERPROFILE%\.context-capsule\` on Windows).
 
 ## Develop
 
-- `capture/tests/run.sh`: macOS recorder logic tests (Swift)
-- `cd capture-rs && cargo test -p context-capsule-core`: shared Windows/Linux core (same test vectors as Swift)
-- `cargo test -p context-capsule-windows` / Linux in Docker: see `capture-rs/ci/linux.Dockerfile`
-- `cd mcp && bun run test`: server tests
-- [SPEC.md](SPEC.md): the contract between the recorder and the server
+- `capture/tests/run.sh`: macOS logic tests (Swift); the app's `--selftest` checks OCR.
+- `cd capture-rs && cargo test -p context-capsule-core`: the shared Windows/Linux core, with
+  the same test cases as Swift, so all three write identical files.
+- `cargo test -p context-capsule-windows`; Linux in Docker (`capture-rs/ci/linux.Dockerfile`).
+- `cd mcp && bun run test`: the Claude side, including the safety checks.
+- CI on GitHub runs only when started by hand (Actions → ci → Run workflow).
+- [SPEC.md](SPEC.md): the contract between the recorders and the Claude side.
 
 ## License
 
