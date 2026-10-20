@@ -54,6 +54,8 @@ struct UpdateFeed: Equatable {
     let date: String
     let notes: String
     let assets: [String: UpdateAsset]
+    /// Staged rollout: the share of people (0–100) who get this version by themselves. Missing = 100.
+    var rollout = 100
 
     static let platforms = ["mac", "windows", "linux"]
 
@@ -66,8 +68,13 @@ struct UpdateFeed: Equatable {
             guard let asset = Self.asset(a) else { return nil } // a broken entry: distrust the whole feed
             assets[key] = asset
         }
+        var rollout = 100
+        if let r = obj["rollout"] {
+            guard let n = (r as? NSNumber)?.intValue, (0...100).contains(n) else { return nil }
+            rollout = n
+        }
         return UpdateFeed(version: version, date: obj["date"] as? String ?? "", notes: obj["notes"] as? String ?? "",
-                          assets: assets)
+                          assets: assets, rollout: rollout)
     }
 
     /// https only, a 64-hex sha256, a size between 1 byte and 1 GB.
@@ -114,16 +121,32 @@ enum Update {
         case upToDate
         case noBuildForThisPlatform(version: String)
         case update(version: String, asset: UpdateAsset)
+        /// A staged rollout that hasn't reached this computer yet (or is stopped, at 0).
+        case notYet(version: String)
     }
 
     /// The order matters: the signature first, then the version (only newer), then our platform's file.
+    /// Staged rollout: an automatic check only takes the version when this computer's bucket (0–99, kept for good)
+    /// is under the rollout; a person who clicks Check for Updates gets it unless the rollout is stopped (0).
     static func decide(feed: Data, signature: Data, current: String, platform: String = Update.platform,
-                       publicKey: String = Update.publicKey) -> Decision {
+                       publicKey: String = Update.publicKey, bucket: Int = 0, manual: Bool = true) -> Decision {
         guard verify(feed: feed, signature: signature, publicKey: publicKey) else { return .badSignature }
         guard let parsed = UpdateFeed.parse(feed), let new = SemVer(parsed.version) else { return .badFeed }
         guard let now = SemVer(current), new > now else { return .upToDate }
         guard let asset = parsed.assets[platform] else { return .noBuildForThisPlatform(version: parsed.version) }
+        guard parsed.rollout > 0, manual || bucket < parsed.rollout else { return .notYet(version: parsed.version) }
         return .update(version: parsed.version, asset: asset)
+    }
+
+    /// This computer's place in staged rollouts: a number 0–99 picked once and kept in `.update-bucket`
+    /// (the same file on every platform). Nothing about the person; it never leaves the computer.
+    static func bucket(in dir: URL) -> Int {
+        let file = dir.appendingPathComponent(".update-bucket")
+        if let text = try? String(contentsOf: file, encoding: .utf8), let n = Int(text.trimmingCharacters(in: .whitespacesAndNewlines)),
+           (0..<100).contains(n) { return n }
+        let n = Int.random(in: 0..<100)
+        try? "\(n)\n".write(to: file, atomically: true, encoding: .utf8)
+        return n
     }
 
     /// Automatic checks: on, not busy (contextualizing or a voice note), a minute after launch, then daily.

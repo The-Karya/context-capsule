@@ -811,6 +811,25 @@ check(Update.decide(feed: feedData, signature: goodSig, current: "0.1.0", platfo
       != .upToDate, "each platform picks its own file")
 let badJSON = Data("{\"version\":".utf8)
 check(Update.decide(feed: badJSON, signature: sign(badJSON), current: "0.1.0", publicKey: testPub) == .badFeed, "signed but broken: refused")
+func withRollout(_ n: Int) -> Data { Data(("{\"rollout\": \(n), " + feedText.drop { $0 != "{" }.dropFirst()).utf8) }
+let staged = withRollout(10)
+if case .update = Update.decide(feed: staged, signature: sign(staged), current: "0.1.0", publicKey: testPub, bucket: 5, manual: false) {
+    check(true, "rollout: inside the first 10% gets it")
+} else { check(false, "rollout: inside the first 10% gets it") }
+check(Update.decide(feed: staged, signature: sign(staged), current: "0.1.0", publicKey: testPub, bucket: 50, manual: false) == .notYet(version: "0.2.0"),
+      "rollout: the others wait")
+if case .update = Update.decide(feed: staged, signature: sign(staged), current: "0.1.0", publicKey: testPub, bucket: 50, manual: true) {
+    check(true, "rollout: Check for Updates gets it")
+} else { check(false, "rollout: Check for Updates gets it") }
+let stopped = withRollout(0)
+check(Update.decide(feed: stopped, signature: sign(stopped), current: "0.1.0", publicKey: testPub, bucket: 0, manual: true) == .notYet(version: "0.2.0"),
+      "rollout 0: stopped for everyone")
+let badRollout = withRollout(150)
+check(Update.decide(feed: badRollout, signature: sign(badRollout), current: "0.1.0", publicKey: testPub) == .badFeed, "rollout over 100: refused")
+let bucketDir = tmp.appendingPathComponent("bucket")
+try! FileManager.default.createDirectory(at: bucketDir, withIntermediateDirectories: true)
+let b1 = Update.bucket(in: bucketDir)
+check((0..<100).contains(b1) && Update.bucket(in: bucketDir) == b1, "the bucket is picked once and kept")
 
 let t0 = Date(timeIntervalSince1970: 1_792_368_000)
 check(!Update.shouldCheck(now: t0.addingTimeInterval(30), launchedAt: t0, lastCheck: nil, auto: true, busy: false), "not in the first minute")

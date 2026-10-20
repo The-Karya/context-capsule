@@ -8,7 +8,8 @@
 #   Context-Capsule-<version>-mac.zip  (+ Context-Capsule-<version>-mac.dmg)   capture/package.sh
 #   Context-Capsule-<version>-windows.exe                                       capture-rs/windows
 #   Context-Capsule-<version>-x86_64.AppImage                                   capture-rs/linux
-# Env: NOTES="One or two plain sentences." (shown to people), UPDATE_KEY (default ~/.context-capsule-release/update-key.private)
+# Env: NOTES="One or two plain sentences." (shown to people), ROLLOUT=10 (staged: the % of people who get it by
+# themselves; default 100; raise it later with release/set-rollout.sh), UPDATE_KEY (default ~/.context-capsule-release/update-key.private)
 set -eu
 
 HERE="$(cd "$(dirname "$0")" && pwd)"
@@ -17,6 +18,7 @@ VER="${1:-}"
 DIR="${2:-$ROOT/dist}"
 KEY="${UPDATE_KEY:-$HOME/.context-capsule-release/update-key.private}"
 NOTES="${NOTES:-Small fixes and improvements.}"
+ROLLOUT="${ROLLOUT:-100}"
 PUBLIC_KEY="WHTBrAjhTOQIG3S15PKYqHHdj5nbon4J/eEam7LrXd4="
 REPO="The-Karya/context-capsule"
 BASE="https://github.com/$REPO/releases/download/v$VER"
@@ -27,6 +29,8 @@ fi
 [ -d "$DIR" ] || { echo "no folder $DIR" >&2; exit 1; }
 DIR="$(cd "$DIR" && pwd)"
 [ -f "$KEY" ] || { echo "no signing key at $KEY" >&2; exit 1; }
+case "$ROLLOUT" in ''|*[!0-9]*) echo "ROLLOUT must be a number 0-100" >&2; exit 1 ;; esac
+[ "$ROLLOUT" -le 100 ] || { echo "ROLLOUT must be a number 0-100" >&2; exit 1; }
 case "$NOTES" in *'
 '*) echo "NOTES must be one line" >&2; exit 1 ;; esac
 
@@ -77,6 +81,7 @@ cat > "$DIR/latest.json" <<JSON
   "version": "$VER",
   "date": "$(date -u +%Y-%m-%d)",
   "notes": "$NOTES_JSON",
+  "rollout": $ROLLOUT,
 $ENTRIES
 }
 JSON

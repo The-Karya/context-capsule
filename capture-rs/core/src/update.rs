@@ -207,6 +207,8 @@ pub struct Release {
     pub mac: Option<Asset>,
     pub windows: Option<Asset>,
     pub linux: Option<Asset>,
+    /// Staged rollout: the share of people (0–100) who get this version by themselves. Missing = 100.
+    pub rollout: u8,
 }
 
 impl Release {
@@ -225,6 +227,19 @@ pub struct Offer {
     pub version: String,
     pub notes: String,
     pub asset: Asset,
+}
+
+/// This computer's place in staged rollouts: a number 0–99 picked once and kept in `.update-bucket` in the
+/// data folder (the same file on every platform). Nothing about the person; it never leaves the computer.
+pub fn bucket(dir: &Path) -> u8 {
+    let file = dir.join(".update-bucket");
+    if let Some(n) = std::fs::read_to_string(&file).ok().and_then(|t| t.trim().parse::<u8>().ok()).filter(|n| *n < 100) {
+        return n;
+    }
+    use std::hash::{BuildHasher, Hasher};
+    let n = (std::collections::hash_map::RandomState::new().build_hasher().finish() % 100) as u8;
+    let _ = std::fs::write(&file, format!("{n}\n"));
+    n
 }
 
 /// The release key, decoded.
@@ -263,6 +278,13 @@ pub fn parse_release(data: &[u8]) -> Result<Release, UpdateError> {
         let hex_ok = sha256.len() == 64 && sha256.bytes().all(|b| b.is_ascii_hexdigit());
         (hex_ok && !url.is_empty() && size > 0 && size <= MAX_ASSET_BYTES).then_some(Asset { url, sha256, size })
     };
+    let rollout = match obj.get("rollout") {
+        None => 100,
+        Some(r) => match r.as_u64() {
+            Some(n) if n <= 100 => n as u8,
+            _ => return Err(UpdateError::BadFeed(format!("rollout {r}"))),
+        },
+    };
     Ok(Release {
         version,
         date: text("date"),
@@ -270,18 +292,37 @@ pub fn parse_release(data: &[u8]) -> Result<Release, UpdateError> {
         mac: asset("mac"),
         windows: asset("windows"),
         linux: asset("linux"),
+        rollout,
     })
 }
 
 /// The whole decision from the two downloaded files: signature first, then the version (only newer), then
 /// this platform's entry. Ok(None): nothing to do.
 pub fn offer(feed: &[u8], sig: &[u8], key: &[u8; 32], current: &str, target: Target) -> Result<Option<Offer>, UpdateError> {
+    offer_staged(feed, sig, key, current, target, 0, true)
+}
+
+/// The same, with staged rollouts: an automatic check only takes the version when this computer's `bucket`
+/// (0–99, kept for good) is under the rollout; a person who clicks Check for updates (`manual`) gets it unless
+/// the rollout is stopped (0).
+pub fn offer_staged(
+    feed: &[u8],
+    sig: &[u8],
+    key: &[u8; 32],
+    current: &str,
+    target: Target,
+    bucket: u8,
+    manual: bool,
+) -> Result<Option<Offer>, UpdateError> {
     verify_signature(feed, sig, key)?;
     let release = parse_release(feed)?;
     if !is_newer(&release.version, current) {
         return Ok(None);
     }
     let Some(asset) = release.asset(target) else { return Ok(None) };
+    if release.rollout == 0 || (!manual && bucket >= release.rollout) {
+        return Ok(None);
+    }
     if !is_https(&asset.url) {
         return Err(UpdateError::NotHttps);
     }
@@ -551,10 +592,20 @@ impl Updater {
         self.auto_update() && self.state.lock().unwrap_or_else(|e| e.into_inner()).schedule.due(now, busy)
     }
 
-    /// Check now (blocking: a few small requests, and the download when there is a new version).
+    /// Check now, because the person asked (blocking: a few small requests, and the download when there is a
+    /// new version). A staged rollout lets them have it.
     pub fn check(&self) -> Outcome {
+        self.check_as(true)
+    }
+
+    /// An automatic check: a staged rollout only reaches some computers.
+    pub fn check_auto(&self) -> Outcome {
+        self.check_as(false)
+    }
+
+    fn check_as(&self, manual: bool) -> Outcome {
         let _one = self.busy_checking.lock().unwrap_or_else(|e| e.into_inner());
-        let outcome = self.check_inner();
+        let outcome = self.check_inner(manual);
         let ok = !matches!(outcome, Outcome::Failed(_));
         let mut st = self.state.lock().unwrap_or_else(|e| e.into_inner());
         st.schedule.checked(Instant::now(), ok);
@@ -571,7 +622,7 @@ impl Updater {
         outcome
     }
 
-    fn check_inner(&self) -> Outcome {
+    fn check_inner(&self, manual: bool) -> Outcome {
         let settings = Settings::load(&self.config);
         let (feed_url, sig_url) = feed_urls(&settings.feed);
         let feed = match self.downloader.get(&feed_url, MAX_FEED_BYTES) {
@@ -582,7 +633,8 @@ impl Updater {
             Ok(s) => s,
             Err(e) => return Outcome::Failed(UpdateError::Network(e)),
         };
-        let offer = match offer(&feed, &sig, &self.key, &self.current, self.target) {
+        let bucket = self.config.parent().map(bucket).unwrap_or(0);
+        let offer = match offer_staged(&feed, &sig, &self.key, &self.current, self.target, bucket, manual) {
             Ok(Some(o)) => o,
             Ok(None) => return Outcome::UpToDate,
             Err(e) => return Outcome::Failed(e),
@@ -625,7 +677,7 @@ impl Updater {
             if !me.due(Instant::now(), busy()) {
                 continue;
             }
-            let outcome = me.check();
+            let outcome = me.check_auto();
             if me.should_tell(&outcome) {
                 found(outcome);
             }
@@ -749,6 +801,34 @@ mod tests {
         assert_eq!(offer(b"not json", b"x", &pk, "0.1.0", Target::Linux), Err(UpdateError::BadSignature));
         let http = feed("0.2.0", Some(("http://x/a.AppImage", &sha, 10)));
         assert_eq!(offer(&http, &sign(&k, &http), &pk, "0.1.0", Target::Linux), Err(UpdateError::NotHttps));
+    }
+
+    #[test]
+    fn staged_rollout() {
+        let k = test_key();
+        let pk = k.verifying_key().to_bytes();
+        let sha = "0".repeat(64);
+        let with = |rollout: serde_json::Value| {
+            let mut v: serde_json::Value = serde_json::from_slice(&feed("0.2.0", Some(("https://x/a.AppImage", &sha, 10)))).unwrap();
+            v["rollout"] = rollout;
+            serde_json::to_vec(&v).unwrap()
+        };
+        let ten = with(10.into());
+        let sig = sign(&k, &ten);
+        let auto = |bucket| offer_staged(&ten, &sig, &pk, "0.1.0", Target::Linux, bucket, false).unwrap();
+        assert!(auto(5).is_some(), "inside the first 10% gets it");
+        assert!(auto(10).is_none() && auto(99).is_none(), "the others wait");
+        assert!(offer_staged(&ten, &sig, &pk, "0.1.0", Target::Linux, 99, true).unwrap().is_some(), "Check for updates gets it");
+        let zero = with(0.into());
+        assert_eq!(offer_staged(&zero, &sign(&k, &zero), &pk, "0.1.0", Target::Linux, 0, true), Ok(None), "0 stops it for everyone");
+        let bad = with(150.into());
+        assert!(matches!(offer(&bad, &sign(&k, &bad), &pk, "0.1.0", Target::Linux), Err(UpdateError::BadFeed(_))), "over 100");
+        assert_eq!(parse_release(&feed("0.2.0", None)).unwrap().rollout, 100, "missing = everyone");
+        let dir = std::env::temp_dir().join(format!("cc-bucket-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let b = bucket(&dir);
+        assert!(b < 100 && bucket(&dir) == b, "picked once and kept");
+        let _ = std::fs::remove_dir_all(&dir);
     }
 
     #[test]

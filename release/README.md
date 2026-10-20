@@ -43,6 +43,20 @@ command yourself.
 The signing key never goes in the repo. Its public half is built into every app; if the key
 is lost, a new one means everyone downloads the next version by hand.
 
+## Staged rollout
+
+A new version can go to some people first. `ROLLOUT=10 release/make-release.sh 0.2.0` puts `"rollout": 10` in
+latest.json: each app picks a number 0–99 once (kept in `.update-bucket`, never sent anywhere) and updates by
+itself only when its number is under 10. Raise it later, or stop it with 0:
+
+```sh
+release/set-rollout.sh 0.2.0 50     # re-signs latest.json and prints the upload command
+release/set-rollout.sh 0.2.0 0      # stops it: nobody else gets 0.2.0
+```
+
+People who click **Check for updates** get it at any rollout above 0. New downloads always get the newest version.
+Missing `rollout` = 100 (everyone).
+
 ## The update contract
 
 - `latest.json`: `version`, `date`, `notes`, and `mac` / `windows` / `linux`, each

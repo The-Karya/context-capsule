@@ -90,11 +90,13 @@ final class Updater {
                 guard let sig, status == 200 else {
                     return finish("signature: \(status.map(String.init) ?? "no network")", Self.offline)
                 }
-                switch Update.decide(feed: feed, signature: sig, current: Self.currentVersion) {
+                let bucket = Update.bucket(in: self.paths.config.deletingLastPathComponent())
+                switch Update.decide(feed: feed, signature: sig, current: Self.currentVersion, bucket: bucket, manual: manual) {
                 case .badSignature: finish("the feed's signature is wrong; ignored", "Couldn't check for updates.")
                 case .badFeed: finish("the feed is broken; ignored", "Couldn't check for updates.")
                 case .upToDate: finish("up to date (\(Self.currentVersion))", "You're up to date.")
                 case .noBuildForThisPlatform(let v): finish("\(v) has no Mac build", "You're up to date.")
+                case .notYet(let v): finish("\(v) is rolling out; not here yet (bucket \(bucket))", "You're up to date.")
                 case .update(let version, let asset):
                     if manual { DispatchQueue.main.async { self.set("Downloading \(version)…") } }
                     self.download(version: version, asset: asset, finish: finish)
