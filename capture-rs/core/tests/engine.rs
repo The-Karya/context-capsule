@@ -37,6 +37,11 @@ struct Fake {
     /// Names given to `project_changed` (None: "not sure yet").
     project_changes: Vec<Option<String>>,
     status: Option<Status>,
+    /// More shared screens (source ids 1, 2…) and their frames.
+    more_picks: Vec<PickedContent>,
+    frames_of: Vec<(u32, Frame)>,
+    added: usize,
+    reminded: usize,
 }
 
 impl Platform for Fake {
@@ -46,11 +51,17 @@ impl Platform for Fake {
     fn stop_capture(&mut self) {
         self.stops += 1;
     }
-    fn picked(&self) -> Option<PickedContent> {
-        self.picked.clone()
+    fn picked(&self) -> Vec<PickedContent> {
+        self.picked.clone().into_iter().chain(self.more_picks.iter().cloned()).collect()
     }
-    fn latest_frame(&self) -> Option<Frame> {
-        self.frame.clone()
+    fn latest_frame(&self, source: u32) -> Option<Frame> {
+        self.frames_of.iter().find(|(s, _)| *s == source).map(|(_, f)| f.clone()).or_else(|| self.frame.clone().filter(|_| source == 0))
+    }
+    fn add_source(&mut self) {
+        self.added += 1;
+    }
+    fn remind(&mut self) {
+        self.reminded += 1;
     }
     fn front(&mut self, is_excluded: &dyn Fn(Option<&str>, &str) -> bool) -> Option<Front> {
         let mut f = self.front.clone()?;
@@ -874,4 +885,120 @@ fn project_message_words() {
         ProjectItem::New,
     ]);
     assert_eq!(two.project_title(), "Project: Design");
+}
+
+// MARK: several shared screens
+
+#[test]
+fn several_screens_each_sample_uses_the_one_in_front() {
+    let mut g = Rig::new("screens");
+    g.scene();
+    let id = g.record();
+    assert_eq!(g.engine.status().sources, 1);
+    g.engine.handle(Msg::AddScreen);
+    assert_eq!(g.engine.platform().added, 1, "the picker again");
+    // A second screen to the right, with its own frame.
+    let arrived = g.now() + Duration::from_secs(1);
+    g.p().more_picks = vec![PickedContent::display(r(100.0, 0.0, 100.0, 50.0)).with_source(2)];
+    g.p().frames_of = vec![(2, Frame { bgra: vec![90u8; 100 * 50 * 4].into(), width: 100, height: 50, stride: 400, arrived })];
+    g.engine.on_pick(PickOutcome::Added(2));
+    assert_eq!(g.engine.status().sources, 2);
+    assert_eq!(g.engine.status().add_screen_label(), "Add another screen… (2 shared)");
+    assert_eq!(g.engine.platform().toasts.last().unwrap(), "Screen added: 2 screens shared.");
+
+    // The window in front moves to the second screen: that screen's frame is read.
+    let w = g.p().front.as_mut().unwrap();
+    w.window.as_mut().unwrap().frame = r(120.0, 0.0, 50.0, 50.0);
+    w.list[1].frame = r(120.0, 0.0, 50.0, 50.0);
+    g.p().ocr_text = "On the right".into();
+    g.advance(Duration::from_secs(3));
+    g.engine.tick();
+    let img = g.engine.platform().ocr_images.last().unwrap().clone();
+    assert_eq!(img.pixel(25, 25), [90, 90, 90, 90], "the second screen's frame, cropped to the window");
+    assert_eq!(g.events(&id).last().unwrap()["text"], "On the right");
+
+    // Off both screens: not recorded.
+    let w = g.p().front.as_mut().unwrap();
+    w.window.as_mut().unwrap().frame = r(400.0, 0.0, 50.0, 50.0);
+    g.engine.tick();
+    assert_eq!(g.engine.last_skip(), Some(Skip::NotPicked));
+
+    // One stops on its own: recording goes on with the other.
+    g.engine.on_pick(PickOutcome::Removed(1));
+    assert!(g.engine.is_recording());
+    assert_eq!(g.engine.status().sources, 1);
+    assert_eq!(g.engine.platform().toasts.last().unwrap(), "A screen stopped sharing: 1 left.");
+    g.engine.on_pick(PickOutcome::AddCancelled);
+    assert!(g.engine.is_recording(), "closing the picker when adding changes nothing");
+    // The last one stopping ends the recording.
+    g.engine.on_pick(PickOutcome::Stopped(None));
+    assert!(!g.engine.is_recording());
+    assert_eq!(g.engine.status().sources, 0);
+}
+
+#[test]
+fn add_screen_only_while_recording_and_up_to_four() {
+    let mut r = Rig::new("screens-limit");
+    r.engine.handle(Msg::AddScreen);
+    assert_eq!(r.engine.platform().added, 0, "not recording");
+    r.scene();
+    r.record();
+    r.engine.on_pick(PickOutcome::Added(MAX_SOURCES));
+    r.engine.handle(Msg::AddScreen);
+    assert_eq!(r.engine.platform().added, 0, "already 4");
+    assert!(!r.engine.status().can_add_screen());
+}
+
+// MARK: only what's new
+
+#[test]
+fn samples_save_only_new_lines() {
+    let mut r = Rig::new("new-lines");
+    r.scene();
+    r.p().ui_text = Some(format!("{}\nIntro paragraph", "Real words here. ".repeat(10)));
+    let id = r.record();
+    r.engine.tick();
+    r.advance(Duration::from_secs(3));
+    r.engine.tick();
+    let ev = r.events(&id);
+    assert_eq!(ev.len(), 1, "nothing new: the same event, longer");
+    assert_eq!(ev[0]["end"], "2026-10-19T10:01:06Z");
+    // Scrolled: only the new line is saved.
+    r.p().ui_text = Some(format!("{}\nIntro paragraph\nSecond section", "Real words here. ".repeat(10)));
+    r.advance(Duration::from_secs(3));
+    r.engine.tick();
+    let ev = r.events(&id);
+    assert_eq!(ev.len(), 2);
+    assert_eq!(ev[1]["text"], "Second section");
+    // After a skip, nothing new is written as its own event with empty text.
+    r.p().front.as_mut().unwrap().overlay = true;
+    r.engine.tick();
+    r.p().front.as_mut().unwrap().overlay = false;
+    r.advance(Duration::from_secs(3));
+    r.engine.tick();
+    let ev = r.events(&id);
+    assert_eq!(ev.len(), 3);
+    assert_eq!(ev[2]["text"], "");
+    // A new recording starts fresh.
+    r.engine.toggle_record();
+    r.advance(Duration::from_secs(1));
+    let id2 = r.record();
+    r.engine.tick();
+    assert!(r.events(&id2)[0]["text"].as_str().unwrap().contains("Intro paragraph"));
+}
+
+// MARK: evening reminder
+
+#[test]
+fn reminder_asks_the_platform() {
+    let mut r = Rig::new("remind");
+    let now = r.now();
+    let day = clock::session_id(now);
+    std::fs::create_dir_all(r.session_dir(&day)).unwrap();
+    std::fs::write(r.session_dir(&day).join("events.jsonl"), "{}\n").unwrap();
+    std::fs::write(r.root.join("config.json"), r#"{"remind_at": "00:00"}"#).unwrap();
+    assert!(r.engine.daily_now());
+    assert_eq!(r.engine.platform().reminded, 1);
+    assert!(!r.engine.daily_now(), "once a day");
+    assert_eq!(r.engine.platform().reminded, 1);
 }

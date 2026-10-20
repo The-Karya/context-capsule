@@ -1,19 +1,41 @@
-// context-capsule — core: the never-record list and config.json (exclude_apps, voice_locale, author).
+// context-capsule — core: the never-record list and config.json (exclude_apps, voice_locale, author, remind_at,
+// keep_recordings_days, sounds).
 
 use std::path::Path;
 
-#[derive(Clone, Debug, Default, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Config {
     pub exclude_apps: Vec<String>,
     /// Locale for voice notes, e.g. "en-GB". None: the user's locale.
     pub voice_locale: Option<String>,
     /// Capsule author name. None: the OS user's name (the MCP decides).
     pub author: Option<String>,
+    /// Evening reminder "Make today's capsules?" at this local time ("18:00"); None = off.
+    pub remind_at: Option<String>,
+    /// Raw recordings older than this many days are deleted (capsules are kept); 0 = keep forever.
+    pub keep_days: u32,
+    /// Soft sounds when recording or the mic starts and stops.
+    pub sounds: bool,
+}
+
+impl Default for Config {
+    fn default() -> Self {
+        Config {
+            exclude_apps: vec![],
+            voice_locale: None,
+            author: None,
+            remind_at: Some(Self::REMIND_AT.into()),
+            keep_days: 30,
+            sounds: true,
+        }
+    }
 }
 
 impl Config {
-    /// Reads `{"exclude_apps": [...], "voice_locale": "en-GB", "author": "…"}`; a missing or broken
-    /// file means defaults.
+    pub const REMIND_AT: &'static str = "18:00";
+
+    /// Reads `{"exclude_apps": [...], "voice_locale": "en-GB", "author": "…", "remind_at": "18:00" | false,
+    /// "keep_recordings_days": 30, "sounds": true}`; a missing or broken file means defaults.
     pub fn load(path: &Path) -> Config {
         std::fs::read(path).map(|d| Config::parse(&d)).unwrap_or_default()
     }
@@ -31,7 +53,21 @@ impl Config {
             .and_then(|v| v.as_array())
             .and_then(|a| a.iter().map(|v| v.as_str().map(str::to_string)).collect::<Option<Vec<_>>>())
             .unwrap_or_default();
-        Config { exclude_apps, voice_locale: text("voice_locale"), author: text("author") }
+        // Like Swift: null or false turns the reminder off; a time it can't read means the default.
+        let remind_at = match obj.get("remind_at") {
+            Some(serde_json::Value::Null) | Some(serde_json::Value::Bool(false)) => None,
+            Some(serde_json::Value::String(r)) if crate::reminder::Reminder::parse(r).is_some() => Some(r.clone()),
+            _ => Some(Self::REMIND_AT.into()),
+        };
+        // Like NSNumber.intValue: floats truncate, booleans are 1 / 0; below 0 means 0.
+        let keep_days = match obj.get("keep_recordings_days") {
+            Some(serde_json::Value::Number(n)) => n.as_i64().or_else(|| n.as_f64().map(|f| f as i64)).unwrap_or(30),
+            Some(serde_json::Value::Bool(b)) => *b as i64,
+            _ => 30,
+        }
+        .clamp(0, u32::MAX as i64) as u32;
+        let sounds = obj.get("sounds").and_then(|v| v.as_bool()).unwrap_or(true);
+        Config { exclude_apps, voice_locale: text("voice_locale"), author: text("author"), remind_at, keep_days, sounds }
     }
 }
 

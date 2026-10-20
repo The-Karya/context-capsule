@@ -1,5 +1,6 @@
-// context-capsule — windows: a tiny modal "type a name" dialog (New project from this window…), built
-// from an in-memory dialog template: a line of text, one edit field, Create and Cancel.
+// context-capsule — windows: tiny modal dialogs built from in-memory dialog templates: "type a name" (New
+// project from this window…: a line of text, one edit field, Create and Cancel) and a two-button question
+// (the evening reminder: Make / Not now).
 
 /// Control ids. Create and Cancel are the dialog's IDOK / IDCANCEL, so Enter and Esc work.
 pub const ID_OK: u16 = 1;
@@ -71,6 +72,23 @@ pub fn template(title: &str, prompt: &str) -> Vec<u16> {
     t
 }
 
+/// A question with two buttons: `yes` (the default, Enter) and `no` (Esc).
+pub fn choice_template(title: &str, prompt: &str, yes: &str, no: &str) -> Vec<u16> {
+    let mut t = Vec::with_capacity(160);
+    push_u32(&mut t, WS_POPUP | WS_CAPTION | WS_SYSMENU | DS_MODALFRAME | DS_SETFONT | DS_CENTER | DS_SETFOREGROUND);
+    push_u32(&mut t, WS_EX_TOPMOST);
+    t.push(3); // controls
+    t.extend([0u16, 0, 200, 54]); // x, y, cx, cy
+    t.extend([0, 0]); // no menu, default class
+    push_str(&mut t, title);
+    t.push(9); // point size
+    push_str(&mut t, "Segoe UI");
+    push_item(&mut t, SS_NOPREFIX, [7, 9, 186, 14], ID_PROMPT, STATIC, prompt);
+    push_item(&mut t, WS_TABSTOP | BS_DEFPUSHBUTTON, [89, 32, 50, 14], ID_OK, BUTTON, yes);
+    push_item(&mut t, WS_TABSTOP, [143, 32, 50, 14], ID_CANCEL, BUTTON, no);
+    t
+}
+
 /// What the user typed, trimmed; None for an empty name.
 pub fn answer(typed: &str) -> Option<String> {
     let t = typed.trim();
@@ -78,7 +96,7 @@ pub fn answer(typed: &str) -> Option<String> {
 }
 
 #[cfg(windows)]
-pub use win::ask;
+pub use win::{ask, ask_choice};
 
 #[cfg(windows)]
 mod win {
@@ -126,6 +144,37 @@ mod win {
             return None;
         }
         answer(&TYPED.with(|t| t.borrow().clone()))
+    }
+
+    /// Ask a two-button question (any thread; its own modal loop). true: the first button.
+    pub fn ask_choice(title: &str, prompt: &str, yes: &str, no: &str) -> bool {
+        let words = choice_template(title, prompt, yes, no);
+        let mut aligned = vec![0u32; words.len().div_ceil(2)];
+        for (i, w) in words.iter().enumerate() {
+            aligned[i / 2] |= (*w as u32) << (16 * (i % 2));
+        }
+        // SAFETY: the template outlives the modal call.
+        let result = unsafe {
+            let Ok(instance) = GetModuleHandleW(None) else { return false };
+            DialogBoxIndirectParamW(Some(instance.into()), aligned.as_ptr() as *const DLGTEMPLATE, None, Some(choice_proc), LPARAM(0))
+        };
+        result == ID_OK as isize
+    }
+
+    unsafe extern "system" fn choice_proc(hwnd: HWND, msg: u32, wp: WPARAM, _lp: LPARAM) -> isize {
+        match msg {
+            WM_INITDIALOG => 1, // focus on the default button
+            WM_COMMAND => {
+                let id = (wp.0 & 0xFFFF) as u16;
+                if id == ID_OK || id == ID_CANCEL {
+                    // SAFETY: ends our own dialog.
+                    let _ = unsafe { EndDialog(hwnd, id as isize) };
+                    return 1;
+                }
+                0
+            }
+            _ => 0,
+        }
     }
 
     unsafe extern "system" fn proc(hwnd: HWND, msg: u32, wp: WPARAM, lp: LPARAM) -> isize {
@@ -204,6 +253,19 @@ mod tests {
                 assert_eq!((id_at - 8) % 2, 0, "{title}: control at an even word");
             }
         }
+    }
+
+    #[test]
+    fn choice_layout() {
+        let t = choice_template("Context Capsule", "Make today's capsules?", "Make", "Not now");
+        assert_eq!(t[4], 3, "three controls");
+        let s = String::from_utf16_lossy(&t);
+        assert!(s.contains("Make today's capsules?") && s.contains("Not now"));
+        let ids: Vec<usize> = t.windows(3).enumerate().filter(|(_, w)| w[1] == 0xFFFF && [BUTTON, STATIC].contains(&w[2])).map(|(i, _)| i).collect();
+        assert_eq!(ids.len(), 3);
+        assert!(ids.iter().all(|i| (i - 8) % 2 == 0), "DWORD aligned");
+        assert_eq!(t[ids[1]], ID_OK, "Make is the default (Enter)");
+        assert_eq!(t[ids[2]], ID_CANCEL, "Not now is Esc");
     }
 
     #[test]

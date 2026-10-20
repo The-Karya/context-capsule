@@ -65,6 +65,10 @@ impl Paths {
     pub fn log(&self) -> PathBuf {
         self.root.join("app.log")
     }
+    /// The day the evening reminder last asked ("20261019"), so a restart doesn't ask again.
+    pub fn reminded(&self) -> PathBuf {
+        self.root.join(".reminded")
+    }
     /// The user's projects (written by the app and the MCP server, editable by hand).
     pub fn projects(&self) -> PathBuf {
         self.root.join("projects.json")

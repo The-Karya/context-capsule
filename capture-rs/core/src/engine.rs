@@ -1,5 +1,8 @@
 // context-capsule — core: the recorder — start (via the picker) / stop, a sample every 3 s, state.json,
 // typed and voice notes, and the `control` file the MCP server writes to drive us from outside.
+//! Several screens or windows can be shared (up to `MAX_SOURCES`); each sample uses the one holding the
+//! window in front. Each sample saves only the lines not saved before for that window (`NewLines`).
+//! Once a minute: the evening reminder and the clean-up of old recordings (`DailyJobs`).
 //! Projects: projects.json is reloaded when it changes; each sample, voice note and typed note gets
 //! the pinned project or the one its window's clues point to.
 //! A port of `capture/Sources/Recorder.swift`. Single-threaded: file writes and OCR happen inline on
@@ -12,10 +15,12 @@ use crate::exclusion::{Config, Exclusion};
 use crate::image::crop_masked;
 use crate::json::write_atomically;
 use crate::membership::{Freshness, Membership, OcrDecision, PickStyle, Skip};
+use crate::newlines::NewLines;
 use crate::paths::Paths;
-use crate::platform::{Indicator, Msg, PickOutcome, Platform, Status};
+use crate::platform::{screens_message, Indicator, Msg, PickOutcome, Platform, Status, MAX_SOURCES};
 use crate::projects::{Location, Project, ProjectChoice, Projects};
 use crate::redact::Redactor;
+use crate::reminder::DailyJobs;
 use crate::state::{session_json, ControlCommand, ControlKind, StateJson};
 use crate::text::{TextSource, UiText};
 use crate::voice::{busy_listening_message, PlatformText, Voice, VoiceEngine, VoiceNotes, VoicePhase, VoiceSignal, VoiceTarget};
@@ -128,6 +133,12 @@ pub struct Engine<P: Platform> {
     last_window: Option<(String, String, String)>,
     /// app.log: counts, reasons and error codes only.
     log: AppLog,
+    /// How many screens or windows are shared (0 when not recording).
+    sources: usize,
+    /// Lines already saved per window in this recording.
+    new_lines: NewLines,
+    /// The evening reminder and the clean-up of old recordings.
+    daily: DailyJobs,
 }
 
 impl<P: Platform> Engine<P> {
@@ -159,6 +170,9 @@ impl<P: Platform> Engine<P> {
             choice: ProjectChoice::default(),
             current_project: None,
             last_window: None,
+            sources: 0,
+            new_lines: NewLines::new(),
+            daily: DailyJobs::new(),
         }
     }
 
@@ -238,6 +252,7 @@ impl<P: Platform> Engine<P> {
             project: self.current_project.as_ref().map(|p| p.0.clone()),
             project_by: self.current_project.as_ref().map(|p| p.1.clone()),
             new_project_clue: self.new_project_clue(),
+            sources: self.sources,
         }
     }
 
@@ -255,6 +270,7 @@ impl<P: Platform> Engine<P> {
         match msg {
             Msg::ToggleRecord => self.toggle_record(),
             Msg::ToggleVoice => self.toggle_voice(),
+            Msg::AddScreen => self.add_screen(),
             Msg::Pick(outcome) => self.on_pick(outcome),
             Msg::VoiceReady => self.pump_voice(),
             Msg::PickProject(id) => self.pin_project(id.as_deref()),
@@ -281,6 +297,10 @@ impl<P: Platform> Engine<P> {
                 self.pump_voice();
                 if self.reload_projects(false) {
                     self.changed(); // the tray's project list
+                }
+                let (clock_now, recording) = ((self.now)(), self.is_recording());
+                if self.daily.poll(&self.paths, clock_now, recording, &self.log) {
+                    self.platform.remind();
                 }
                 next_poll = now + POLL;
             }
@@ -331,6 +351,25 @@ impl<P: Platform> Engine<P> {
         self.picking = true;
         self.platform.present_picker();
         self.changed();
+    }
+
+    /// While recording: share one more screen or window (the picker again), up to `MAX_SOURCES`.
+    pub fn add_screen(&mut self) {
+        if !self.is_recording() || self.sources >= MAX_SOURCES {
+            return;
+        }
+        self.log.write("add a screen: picker");
+        self.platform.add_source();
+    }
+
+    /// The evening reminder and clean-up, now (the run loop does this once a minute). true: reminded.
+    pub fn daily_now(&mut self) -> bool {
+        let (now, recording) = ((self.now)(), self.is_recording());
+        let due = self.daily.run(&self.paths, now, recording, &self.log);
+        if due {
+            self.platform.remind();
+        }
+        due
     }
 
     /// Stops recording (or closes an open picker).
@@ -393,6 +432,20 @@ impl<P: Platform> Engine<P> {
                 self.end_session();
                 self.last_error = message.map(|m| format!("capture: {m}"));
             }
+            PickOutcome::Added(count) if self.is_recording() => {
+                self.sources = count;
+                self.log.write(&format!("screen added: {count} shared"));
+                self.platform.toast(&screens_message(count, true));
+            }
+            PickOutcome::Added(_) => self.platform.stop_capture(), // recording ended meanwhile
+            PickOutcome::AddCancelled => self.log.write("add a screen: cancelled"),
+            PickOutcome::Removed(count) => {
+                if self.is_recording() {
+                    self.sources = count;
+                    self.log.write(&format!("a shared screen stopped: {count} left"));
+                    self.platform.toast(&screens_message(count, false));
+                }
+            }
         }
         self.changed();
     }
@@ -424,7 +477,9 @@ impl<P: Platform> Engine<P> {
         self.changed_at = Some(now);
         self.reload_projects(true);
         self.current_project = self.choice.pinned.clone().map(|id| (id, ProjectChoice::YOU.to_string()));
-        let picked = match self.platform.picked().map(|p| p.style) {
+        self.new_lines.reset();
+        self.sources = 1;
+        let picked = match self.platform.picked().first().map(|p| p.style) {
             Some(PickStyle::Display) => "a screen",
             Some(PickStyle::Window) => "a window",
             None => "unknown",
@@ -440,6 +495,7 @@ impl<P: Platform> Engine<P> {
         }
         self.platform.stop_capture();
         self.picking = false;
+        self.sources = 0;
         let Some(s) = self.session.take() else { return };
         let ended = (self.now)();
         let host = self.platform.host_name();
@@ -760,24 +816,26 @@ impl<P: Platform> Engine<P> {
             return self.skip(Skip::Overlay);
         }
         let Some(window) = front.window.clone() else { return self.skip(Skip::NoWindow) };
-        let Some(pick) = self.platform.picked() else { return self.skip(Skip::NotPicked) };
-        if pick.style == PickStyle::Display && pick.rect.is_empty() {
-            return self.skip(Skip::UnknownDisplay);
-        }
-        if !Membership::contains(&pick, &window) {
+        // Several screens can be shared: use the one holding the window in front (keyboard focus, not the mouse).
+        let picks = self.platform.picked();
+        if picks.is_empty() {
             return self.skip(Skip::NotPicked);
         }
+        let Some(pick) = Membership::pick(&window, &picks).cloned() else {
+            let unknown = picks.iter().any(|p| p.style == PickStyle::Display && p.rect.is_empty());
+            return self.skip(if unknown { Skip::UnknownDisplay } else { Skip::NotPicked });
+        };
 
         let ui = self.platform.ui_text(&front);
         let source = UiText::choose(ui.is_some(), ui.as_deref().unwrap_or(""));
         let mut text = ui.unwrap_or_default();
         if source == TextSource::Ocr {
             let changed_at = self.changed_at.max(self.platform.changed_at());
-            let frame = self.platform.latest_frame();
+            let frame = self.platform.latest_frame(pick.source);
             let Some(frame) = frame.filter(|f| Freshness::ok(Some(f.arrived), changed_at)) else {
                 return self.skip(Skip::WaitingFrame);
             };
-            let pick = self.platform.picked().unwrap_or(pick);
+            let pick = self.platform.picked().into_iter().find(|p| p.source == pick.source).unwrap_or(pick);
             match Membership::ocr_decision(&pick, &window, &front.list) {
                 OcrDecision::Skip(why) => return self.skip(why),
                 OcrDecision::Read { region, masks } => {
@@ -809,9 +867,15 @@ impl<P: Platform> Engine<P> {
             event.project_by = by.clone();
         }
         let window = (event.title.clone(), event.location.clone(), front.app_name.clone());
+        // Save only what's new in this window since it was last seen; nothing new: just extend the time.
+        let key = NewLines::key(&event.app, &event.bundle, &event.title, &event.location);
+        event.text = self.new_lines.filter(&event.text, &key);
         let Some(s) = &mut self.session else { return };
-        if let Err(e) = s.log.record(&event) {
-            self.log.write(&format!("cannot write event: {e}"));
+        let extended = event.text.is_empty() && s.log.extend_if_same_window(&event).unwrap_or(false);
+        if !extended {
+            if let Err(e) = s.log.record(&event) {
+                self.log.write(&format!("cannot write event: {e}"));
+            }
         }
         let count = s.log.appended();
         self.sampled(None, count);

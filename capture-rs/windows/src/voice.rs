@@ -356,9 +356,11 @@ mod whisper {
                 move |data: &[T], _: &cpal::InputCallbackInfo| {
                     let samples: Vec<f32> = data.iter().map(|s| s.to_sample::<f32>()).collect();
                     let mono = downmix(&samples, channels);
+                    let level = Voice::peak(&mono);
+                    Voice::set_level(level); // the tray's moving bars; never stored
                     let mut clip = clip.lock().unwrap_or_else(|e| e.into_inner());
                     clip.callbacks += 1;
-                    clip.peak = clip.peak.max(Voice::peak(&mono));
+                    clip.peak = clip.peak.max(level);
                     let room = cap.saturating_sub(clip.samples.len());
                     clip.samples.extend_from_slice(&mono[..mono.len().min(room)]);
                 }
@@ -434,6 +436,7 @@ mod whisper {
 
         fn finish(&mut self, reply: Replier) {
             self.stream = None; // the mic closes here
+            Voice::set_level(0.0);
             let clip = std::mem::take(&mut *self.clip.lock().unwrap_or_else(|e| e.into_inner()));
             let seconds = if clip.rate > 0 { clip.samples.len() as f64 / clip.rate as f64 } else { 0.0 };
             let ctx = match &*self.model.lock().unwrap_or_else(|e| e.into_inner()) {
@@ -473,6 +476,7 @@ mod whisper {
 
         fn cancel(&mut self) {
             self.stream = None;
+            Voice::set_level(0.0);
             *self.clip.lock().unwrap_or_else(|e| e.into_inner()) = Clip::default();
         }
 

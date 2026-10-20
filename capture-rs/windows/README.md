@@ -19,13 +19,25 @@ The taskbar, Start, Search, the notification and action centers, Quick Settings,
 Task View are never "the app you work in": when one is in front, the top window of a real app
 is used instead (a private app on top still means nothing is read).
 
-Tray icon: hollow circle = idle, **red** filled circle = recording, **red** microphone =
-listening. A short message says "● Recording started…" / "■ Recording stopped: N events
-saved.", and "Listening… press Ctrl+Alt+Shift+V to finish" stays on screen for as long as the
-mic is on. The menu shows the event count and, when a sample is skipped, why. If a recording
-ends with nothing written, a message says why. Menu: Start / Stop recording, Add / Finish
-voice note, Project (Auto-detect, your projects, New project from this window… — works without
-a recording too), Open sessions folder, Set up Context Capsule…, Quit.
+Tray icon: hollow circle = idle, **red** filled circle = recording (the running time is in its
+tooltip and the menu's first line: the tray can't show text), **red** microphone with bars that
+move with your voice = listening. Nothing else stays on screen. A short message and a soft sound
+mark "● Recording started…" / "■ Recording stopped: N events saved."; the mic opening and
+closing has a soft sound too (`"sounds": false` in config.json turns them off). The menu shows
+the time, the event count and, when a sample is skipped, why. If a recording ends with nothing
+written, a message says why. Menu: Start / Stop recording, Add / Finish voice note, Add another
+screen… (while recording: the picker again, up to 4 screens or windows; each sample uses the
+one holding the window you type in), Project (Auto-detect, your projects, New project from this
+window… — works without a recording too), Show recordings folder, Set up Context Capsule…, Quit.
+
+Each sample saves only the lines not already saved for that window in this recording, so long
+documents are kept whole as you scroll (no size limit; a 100,000-character safety net).
+
+Evening reminder: at 18:00 (`"remind_at": "19:30"`, or `false` to turn it off), if something was
+recorded today and no capsule exists for today, a box asks "Make today's capsules?" once a day.
+**Make** puts the request on the clipboard and opens the Claude app on a new chat; press Ctrl+V,
+then Enter. Raw recordings older than 30 days are deleted (`"keep_recordings_days"`, 0 = keep);
+capsules are never deleted.
 
 ## Setup window
 

@@ -14,10 +14,22 @@ and are never written to disk. Password fields are never read; password managers
 private messengers (KeePassXC, Bitwarden, 1Password, Signal, WhatsApp…, plus your own
 `exclude_apps` list) are never recorded.
 
-Tray icon: hollow circle idle, filled red circle recording, microphone while listening.
-Menu: status line, "Skipping: …" (why the last sample wrote nothing), Start / Stop
-recording, Add / Finish voice note, Open sessions folder, Quit. A session that ends with
-nothing written shows a message saying why.
+Tray icon: hollow circle idle, filled red circle recording (the running time in its title and
+tooltip), a red microphone with bars that move with your voice while listening; nothing else on
+screen. Soft sounds when recording or the mic starts and stops (`pw-play`, `paplay` or `aplay`;
+`"sounds": false` in config.json turns them off). Menu: status line with the time, "Skipping: …"
+(why the last sample wrote nothing), Start / Stop recording, Add / Finish voice note, Add another
+screen… (while recording: the sharing dialog again, up to 4 monitors or windows, one portal
+session each; each sample uses the one holding the focused window), Show recordings folder, Quit.
+A session that ends with nothing written shows a message saying why. Each sample saves only the
+lines not already saved for that window in the recording (no size limit; a 100,000-character
+safety net).
+
+Evening reminder: at 18:00 (`"remind_at"`, `false` = off), if something was recorded today and
+no capsule exists for today, it asks "Make today's capsules?" once a day (zenity / kdialog, else a
+notification with buttons). **Make** copies the request (`wl-copy`, `xclip` or `xsel`) and opens
+`claude://claude.ai/new` with `xdg-open`; press Ctrl+V, then Enter. Recordings older than
+`"keep_recordings_days"` (30; 0 = keep) are deleted; capsules never are.
 
 ## Install the dependencies
 

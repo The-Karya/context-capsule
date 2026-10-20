@@ -1,7 +1,10 @@
-// context-capsule — windows: the tray icon (hollow circle idle, red filled circle recording, red mic
-// listening, drawn in code; idle matches the taskbar theme) and the words of its menu and tooltip.
+// context-capsule — windows: the tray icon (hollow circle idle, red filled circle recording, a red mic with
+// bars that move with the voice while listening, drawn in code; idle matches the taskbar theme) and the words
+// of its menu and tooltip. The tray can't show text next to its icon, so the running time is in the tooltip
+// and the menu's first line. Nothing on screen.
 
 use crate::hotkeys::{RECORD_LABEL, VOICE_LABEL};
+use context_capsule_core::look::{self, LEVEL_FRAMES};
 use context_capsule_core::{Indicator, Status};
 use std::time::SystemTime;
 
@@ -9,16 +12,25 @@ use std::time::SystemTime;
 pub enum Glyph {
     Ring,
     Disc,
-    Mic,
+    /// The mic with bars, at one of `LEVEL_FRAMES` loudness steps.
+    Bars(u8),
 }
 
 impl Glyph {
-    pub fn for_indicator(i: Indicator) -> Glyph {
+    /// The icon for an indicator; listening shows the bars at `level` (a `look::level_frame`).
+    pub fn for_indicator(i: Indicator, level: usize) -> Glyph {
         match i {
             Indicator::Idle | Indicator::Picking => Glyph::Ring,
             Indicator::Recording => Glyph::Disc,
-            Indicator::Listening => Glyph::Mic,
+            Indicator::Listening => Glyph::Bars(level.min(LEVEL_FRAMES - 1) as u8),
         }
+    }
+
+    /// Every icon the tray needs.
+    pub fn all() -> Vec<Glyph> {
+        let mut all = vec![Glyph::Ring, Glyph::Disc];
+        all.extend((0..LEVEL_FRAMES as u8).map(Glyph::Bars));
+        all
     }
 
     /// Is (x, y) — 0…1 across the icon, top left origin — inside the shape? `t` = stroke width.
@@ -27,17 +39,7 @@ impl Glyph {
         match self {
             Glyph::Disc => d <= 0.40,
             Glyph::Ring => d <= 0.40 && d >= 0.40 - t,
-            Glyph::Mic => {
-                // Capsule body, a U-shaped holder, a stem and a base.
-                let (bx, top, bottom, r) = (0.5, 0.10 + 0.11, 0.56 - 0.11, 0.11);
-                let cy = y.clamp(top, bottom);
-                let body = ((x - bx).powi(2) + (y - cy).powi(2)).sqrt() <= r;
-                let hd = ((x - 0.5).powi(2) + (y - 0.48).powi(2)).sqrt();
-                let holder = y >= 0.48 && hd <= 0.25 + t / 2.0 && hd >= 0.25 - t / 2.0;
-                let stem = (x - 0.5).abs() <= t / 2.0 && (0.72..=0.88).contains(&y);
-                let base = (0.34..=0.66).contains(&x) && (0.86..=0.86 + t).contains(&y);
-                body || holder || stem || base
-            }
+            Glyph::Bars(_) => false, // drawn by `look::mic_bars`
         }
     }
 }
@@ -48,7 +50,7 @@ pub const RED: [u8; 3] = [0xE8, 0x11, 0x23];
 /// Idle: white on a dark taskbar, near-black on a light one. Recording and listening: red.
 pub fn glyph_color(glyph: Glyph, light_taskbar: bool) -> [u8; 3] {
     match glyph {
-        Glyph::Disc | Glyph::Mic => RED,
+        Glyph::Disc | Glyph::Bars(_) => RED,
         Glyph::Ring if light_taskbar => [0x20, 0x20, 0x20],
         Glyph::Ring => [0xFF, 0xFF, 0xFF],
     }
@@ -56,6 +58,9 @@ pub fn glyph_color(glyph: Glyph, light_taskbar: bool) -> [u8; 3] {
 
 /// A `size`×`size` BGRA image (straight alpha, top row first), anti-aliased by 4×4 supersampling.
 pub fn glyph_pixels(glyph: Glyph, size: usize, rgb: [u8; 3]) -> Vec<u8> {
+    if let Glyph::Bars(frame) = glyph {
+        return look::mic_bars(size, frame as usize).into_iter().flat_map(|a| [rgb[2], rgb[1], rgb[0], a]).collect();
+    }
     let t = (1.6 / size as f64).max(0.11);
     let mut out = Vec::with_capacity(size * size * 4);
     for py in 0..size {
@@ -82,15 +87,19 @@ pub struct MenuModel {
     pub skip: Option<String>,
     pub toggle: String,
     pub voice: String,
+    /// "Add another screen…" while recording (None: hidden), and whether it can be clicked.
+    pub add_screen: Option<(String, bool)>,
     /// "Project: …", the title of the project submenu.
     pub project: String,
 }
 
-pub fn menu_model(s: &Status, short_time: &dyn Fn(SystemTime) -> String) -> MenuModel {
+/// The menu as of `now` (the running time).
+pub fn menu_model(s: &Status, now: SystemTime, short_time: &dyn Fn(SystemTime) -> String) -> MenuModel {
     let info = match (&s.session_id, s.started_at) {
         (Some(id), Some(at)) if s.recording => {
             let n = s.events;
-            format!("Recording since {} — {n} event{} — {id}", short_time(at), if n == 1 { "" } else { "s" })
+            let time = look::elapsed(s, now).unwrap_or_default();
+            format!("● Recording {time} — since {} — {n} event{} — {id}", short_time(at), if n == 1 { "" } else { "s" })
         }
         _ if s.picking => "Pick a window or screen to record…".into(),
         _ => "Not recording".into(),
@@ -104,7 +113,8 @@ pub fn menu_model(s: &Status, short_time: &dyn Fn(SystemTime) -> String) -> Menu
         format!("Start recording…\t{RECORD_LABEL}")
     };
     let voice = if s.listening { format!("Finish voice note\t{VOICE_LABEL}") } else { format!("Add voice note\t{VOICE_LABEL}") };
-    MenuModel { info, skip, toggle, voice, project: menu_text(&s.project_title()) }
+    let add_screen = s.recording.then(|| (s.add_screen_label(), s.can_add_screen()));
+    MenuModel { info, skip, toggle, voice, add_screen, project: menu_text(&s.project_title()) }
 }
 
 /// Menu text shows "&" as a shortcut marker: double it so names show as typed.
@@ -112,12 +122,12 @@ pub fn menu_text(s: &str) -> String {
     s.replace('&', "&&")
 }
 
-/// The hover text (at most 127 characters, the tray's limit).
-pub fn tooltip(s: &Status) -> String {
+/// The hover text as of `now` (at most 127 characters, the tray's limit). While recording it shows the time.
+pub fn tooltip(s: &Status, now: SystemTime) -> String {
     let t = if s.listening {
         format!("Listening — press {VOICE_LABEL} to finish the voice note")
-    } else if s.recording {
-        format!("Context Capsule is recording ({RECORD_LABEL} to stop, {VOICE_LABEL} for a voice note)")
+    } else if let Some(time) = look::elapsed(s, now) {
+        format!("● Recording {time} — {RECORD_LABEL} to stop, {VOICE_LABEL} for a voice note")
     } else {
         format!("Context Capsule ({RECORD_LABEL} to record)")
     };
@@ -148,17 +158,19 @@ mod win {
         callback: u32,
         icons: Vec<(Glyph, HICON)>,
         indicator: Indicator,
+        /// The listening step (`look::level_frame`).
+        level: usize,
         tip: String,
     }
 
     impl Tray {
         pub fn new(hwnd: HWND, callback: u32) -> Tray {
-            let mut tray = Tray { hwnd, callback, icons: vec![], indicator: Indicator::Idle, tip: String::new() };
+            let mut tray = Tray { hwnd, callback, icons: vec![], indicator: Indicator::Idle, level: 0, tip: String::new() };
             tray.make_icons();
             tray
         }
 
-        /// (Re)draw the three icons for the current taskbar theme and DPI.
+        /// (Re)draw the icons for the current taskbar theme and DPI.
         pub fn make_icons(&mut self) {
             self.destroy_icons();
             let light = reg_dword(THEME_KEY, "SystemUsesLightTheme") == Some(1);
@@ -166,7 +178,7 @@ mod win {
             let dpi = unsafe { windows::Win32::UI::HiDpi::GetDpiForWindow(self.hwnd) }.max(96);
             // SAFETY: as above.
             let size = unsafe { GetSystemMetricsForDpi(SM_CXSMICON, dpi) }.max(16) as usize;
-            for glyph in [Glyph::Ring, Glyph::Disc, Glyph::Mic] {
+            for glyph in Glyph::all() {
                 if let Some(icon) = make_icon(&glyph_pixels(glyph, size, glyph_color(glyph, light)), size) {
                     self.icons.push((glyph, icon));
                 }
@@ -191,7 +203,7 @@ mod win {
                 uCallbackMessage: self.callback,
                 ..Default::default()
             };
-            let glyph = Glyph::for_indicator(self.indicator);
+            let glyph = Glyph::for_indicator(self.indicator, self.level);
             d.hIcon = self.icons.iter().find(|(g, _)| *g == glyph).map(|(_, i)| *i).unwrap_or_default();
             for (dst, src) in d.szTip.iter_mut().zip(self.tip.encode_utf16().take(127)) {
                 *dst = src;
@@ -222,6 +234,16 @@ mod win {
         pub fn set_indicator(&mut self, indicator: Indicator) {
             self.indicator = indicator;
             self.update();
+        }
+
+        /// While listening: show the bars for this loudness step (only redrawn when the step changes).
+        pub fn set_level(&mut self, level: usize) {
+            if level != self.level {
+                self.level = level;
+                if self.indicator == Indicator::Listening {
+                    self.update();
+                }
+            }
         }
 
         pub fn set_tip(&mut self, tip: String) {
@@ -299,44 +321,50 @@ mod tests {
         let s = 32;
         let ring = glyph_pixels(Glyph::Ring, s, [255, 255, 255]);
         let disc = glyph_pixels(Glyph::Disc, s, [255, 255, 255]);
-        let mic = glyph_pixels(Glyph::Mic, s, [255, 255, 255]);
+        let mic = glyph_pixels(Glyph::Bars(0), s, [255, 255, 255]);
         assert_eq!(ring.len(), s * s * 4);
         assert_eq!(alpha(&ring, s, 16, 16), 0, "hollow in the middle");
         assert_eq!(alpha(&disc, s, 16, 16), 255, "filled in the middle");
         assert_eq!(alpha(&ring, s, 16, 4), 255, "the ring's top edge");
         assert_eq!(alpha(&ring, s, 0, 0), 0, "corners clear");
-        assert_eq!(alpha(&mic, s, 16, 8), 255, "mic body");
-        assert_eq!(alpha(&mic, s, 16, 25), 255, "mic stem");
-        assert_eq!(alpha(&mic, s, 3, 3), 0);
+        assert_eq!(alpha(&mic, s, 9, 9), 255, "mic body");
+        assert_eq!(alpha(&mic, s, 24, 16), 255, "a bar");
+        assert_eq!(alpha(&mic, s, 0, 0), 0);
+        let loud = glyph_pixels(Glyph::Bars(3), s, [255, 255, 255]);
+        assert!(alpha(&loud, s, 24, 6) > alpha(&mic, s, 24, 6), "louder: taller bars");
         let idle = glyph_pixels(Glyph::Ring, 16, glyph_color(Glyph::Ring, true));
         let px = |p: &[u8], x: usize, y: usize| p[(y * 16 + x) * 4..(y * 16 + x) * 4 + 3].to_vec();
         assert_eq!(px(&idle, 8, 2), [0x20, 0x20, 0x20], "idle: dark ring on a light taskbar (BGR)");
         let rec = glyph_pixels(Glyph::Disc, 16, glyph_color(Glyph::Disc, false));
         assert_eq!(px(&rec, 8, 8), [0x23, 0x11, 0xE8], "recording: red (BGR)");
-        assert_eq!(glyph_color(Glyph::Mic, true), RED, "listening: red on any taskbar");
+        assert_eq!(glyph_color(Glyph::Bars(2), true), RED, "listening: red on any taskbar");
         assert_eq!(glyph_color(Glyph::Ring, false), [0xFF, 0xFF, 0xFF]);
     }
 
     #[test]
     fn icons_per_indicator() {
-        assert_eq!(Glyph::for_indicator(Indicator::Idle), Glyph::Ring);
-        assert_eq!(Glyph::for_indicator(Indicator::Picking), Glyph::Ring);
-        assert_eq!(Glyph::for_indicator(Indicator::Recording), Glyph::Disc);
-        assert_eq!(Glyph::for_indicator(Indicator::Listening), Glyph::Mic);
+        assert_eq!(Glyph::for_indicator(Indicator::Idle, 2), Glyph::Ring);
+        assert_eq!(Glyph::for_indicator(Indicator::Picking, 0), Glyph::Ring);
+        assert_eq!(Glyph::for_indicator(Indicator::Recording, 3), Glyph::Disc);
+        assert_eq!(Glyph::for_indicator(Indicator::Listening, 2), Glyph::Bars(2));
+        assert_eq!(Glyph::for_indicator(Indicator::Listening, 9), Glyph::Bars(3), "clamped");
+        assert_eq!(Glyph::all().len(), 2 + LEVEL_FRAMES);
     }
 
     #[test]
     fn menu_lines() {
         let t = |_: SystemTime| "14:57".to_string();
-        let idle = menu_model(&Status::default(), &t);
+        let now = SystemTime::UNIX_EPOCH + Duration::from_secs(755);
+        let idle = menu_model(&Status::default(), now, &t);
         assert_eq!(idle.info, "Not recording");
         assert_eq!(idle.toggle, "Start recording…\tCtrl+Alt+Shift+C");
         assert_eq!(idle.voice, "Add voice note\tCtrl+Alt+Shift+V");
         assert_eq!(idle.skip, None);
 
         let picking = Status { picking: true, ..Default::default() };
-        assert_eq!(menu_model(&picking, &t).info, "Pick a window or screen to record…");
-        assert!(menu_model(&picking, &t).toggle.starts_with("Cancel picking"));
+        assert_eq!(menu_model(&picking, now, &t).info, "Pick a window or screen to record…");
+        assert!(menu_model(&picking, now, &t).toggle.starts_with("Cancel picking"));
+        assert_eq!(idle.add_screen, None, "hidden when not recording");
 
         let rec = Status {
             recording: true,
@@ -345,36 +373,45 @@ mod tests {
             events: 12,
             skip: Some(Skip::NotPicked),
             listening: true,
+            sources: 1,
             ..Default::default()
         };
-        let m = menu_model(&rec, &t);
-        assert_eq!(m.info, "Recording since 14:57 — 12 events — 20261019-145700");
+        let m = menu_model(&rec, now, &t);
+        assert_eq!(m.info, "● Recording 12:34 — since 14:57 — 12 events — 20261019-145700");
+        assert_eq!(m.add_screen, Some(("Add another screen…".to_string(), true)));
         assert_eq!(m.skip.as_deref(), Some("Skipping: the front window is not in what you picked"));
         assert!(m.toggle.starts_with("Stop recording"));
         assert!(m.voice.starts_with("Finish voice note"));
-        let one = Status { events: 1, skip: None, ..rec };
-        assert_eq!(menu_model(&one, &t).info, "Recording since 14:57 — 1 event — 20261019-145700");
-        assert_eq!(menu_model(&one, &t).skip, None);
+        let one = Status { events: 1, skip: None, sources: 4, ..rec };
+        assert_eq!(menu_model(&one, now, &t).info, "● Recording 12:34 — since 14:57 — 1 event — 20261019-145700");
+        assert_eq!(menu_model(&one, now, &t).skip, None);
+        assert_eq!(menu_model(&one, now, &t).add_screen, Some(("Add another screen… (4 shared)".to_string(), false)), "4 at most");
 
         assert_eq!(idle.project, "Project: Auto-detect");
 
         let stale = Status { skip: Some(Skip::Overlay), ..Default::default() };
-        assert_eq!(menu_model(&stale, &t).skip, None, "skip line only while recording");
+        assert_eq!(menu_model(&stale, now, &t).skip, None, "skip line only while recording");
     }
 
     #[test]
     fn project_menu_text() {
         let p = context_capsule_core::Project { id: "rd".into(), name: "R&D".into(), clues: vec![] };
         let s = Status { projects: vec![p], pinned: Some("rd".into()), project: Some("rd".into()), ..Default::default() };
-        assert_eq!(menu_model(&s, &|_| String::new()).project, "Project: R&&D");
+        assert_eq!(menu_model(&s, SystemTime::now(), &|_| String::new()).project, "Project: R&&D");
         assert_eq!(menu_text("a && b"), "a &&&& b");
     }
 
     #[test]
     fn tooltips_fit() {
-        for s in [Status::default(), Status { recording: true, ..Default::default() }, Status { listening: true, ..Default::default() }] {
-            let tip = tooltip(&s);
-            assert!(tip.chars().count() <= 127 && tip.contains("Ctrl+Alt+Shift"));
+        let start = SystemTime::UNIX_EPOCH;
+        let rec = Status { recording: true, started_at: Some(start), ..Default::default() };
+        for s in [Status::default(), rec.clone(), Status { listening: true, ..Default::default() }] {
+            let tip = tooltip(&s, start + Duration::from_secs(36_000));
+            assert!(tip.chars().count() <= 127 && tip.contains("Ctrl+Alt+Shift"), "{tip}");
         }
+        assert_eq!(
+            tooltip(&rec, start + Duration::from_secs(754)),
+            "● Recording 12:34 — Ctrl+Alt+Shift+C to stop, Ctrl+Alt+Shift+V for a voice note"
+        );
     }
 }

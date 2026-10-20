@@ -14,6 +14,7 @@ mod pipewire;
 mod platform;
 mod portal;
 mod probe;
+mod reminder;
 mod tray;
 mod voice;
 mod x11;
@@ -111,6 +112,7 @@ fn main() {
             notifier,
             tray,
             &locale,
+            paths.config(),
         );
         let ok = probe::run(platform);
         rt.shutdown_timeout(Duration::from_secs(1));
@@ -135,8 +137,9 @@ fn main() {
     let engine_rt = handle.clone();
     let engine = std::thread::Builder::new().name("engine".into()).spawn(move || {
         let voice: Box<dyn VoiceEngine> = make_voice(root, notifier.clone());
+        let config = paths.config();
         let platform = platform::LinuxPlatform::new(
-            engine_rt, session, capture, a11y, x11, overview, changed, notifier, tray, &locale,
+            engine_rt, session, capture, a11y, x11, overview, changed, notifier, tray, &locale, config,
         );
         let mut engine = Engine::new(paths, platform, voice, opts);
         engine.set_voice_wake(Arc::new(move || {

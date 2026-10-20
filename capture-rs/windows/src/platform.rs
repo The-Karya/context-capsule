@@ -45,12 +45,16 @@ impl Platform for WinPlatform {
         self.capture.stop();
     }
 
-    fn picked(&self) -> Option<PickedContent> {
+    fn add_source(&mut self) {
+        self.ui.post(UiCmd::AddSource);
+    }
+
+    fn picked(&self) -> Vec<PickedContent> {
         self.capture.picked()
     }
 
-    fn latest_frame(&self) -> Option<Frame> {
-        self.capture.latest_frame()
+    fn latest_frame(&self, source: u32) -> Option<Frame> {
+        self.capture.latest_frame(source)
     }
 
     fn front(&mut self, is_excluded: &dyn Fn(Option<&str>, &str) -> bool) -> Option<Front> {
@@ -93,6 +97,10 @@ impl Platform for WinPlatform {
 
     fn status_changed(&mut self, status: &Status) {
         self.ui.post(UiCmd::Status(Box::new(status.clone())));
+    }
+
+    fn remind(&mut self) {
+        self.ui.post(UiCmd::Remind);
     }
 
     /// Browsers only: the address bar through UI Automation. Other apps: None.

@@ -48,12 +48,12 @@ pub struct UiText;
 impl UiText {
     /// Below this many letters and digits, accessibility text is not useful (canvas apps, video): use OCR.
     pub const MIN_USEFUL: usize = 80;
-    /// Walk limits for one sample.
-    pub const MAX_NODES: usize = 2000;
+    /// The walk stops at whichever comes first: this many elements, or the time budget (keeps the PC smooth).
+    pub const MAX_NODES: usize = 20_000;
     pub const BUDGET: Duration = Duration::from_millis(400);
     pub const MAX_DEPTH: usize = 60;
-    /// Stop collecting past this (the event cap is 4000 after redaction).
-    pub const MAX_CHARS: usize = 8000;
+    /// Stop collecting past this (the event's safety cap after redaction).
+    pub const MAX_CHARS: usize = 100_000;
 
     /// The text one node contributes, or "" if its kind carries none.
     pub fn text_of(n: &TextNode) -> &str {
@@ -125,7 +125,7 @@ fn is_newline(g: &str) -> bool {
 }
 
 /// Split on newlines, dropping empty pieces (Swift's `split`).
-fn lines(s: &str) -> Vec<String> {
+pub(crate) fn lines(s: &str) -> Vec<String> {
     let mut out = vec![];
     let mut cur = String::new();
     for g in s.graphemes(true) {

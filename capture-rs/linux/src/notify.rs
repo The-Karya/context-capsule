@@ -48,7 +48,6 @@ impl Dialogs {
         }
     }
 
-    #[cfg(feature = "voice")]
     pub fn question_args(self, title: &str, body: &str, yes: &str, no: &str) -> Vec<String> {
         match self {
             Dialogs::Zenity => vec![
@@ -169,7 +168,6 @@ impl Notifier {
         Ok((out.status.success() && !typed.is_empty()).then_some(typed))
     }
 
-    #[cfg(feature = "voice")]
     /// Ask yes/no (blocking: call off the engine's thread). A dialog if we can, else a notification
     /// with two buttons. Anything but a clear yes is a no.
     pub fn ask(&self, title: &str, body: &str, yes: &str, no: &str) -> bool {
@@ -228,7 +226,6 @@ async fn notify_on(
     p.call("Notify", &(APP, replaces, ICON, summary, body, actions.to_vec(), hints, timeout)).await
 }
 
-#[cfg(feature = "voice")]
 async fn ask_by_notification(title: &str, body: &str, yes: &str, no: &str) -> zbus::Result<bool> {
     use futures_util::StreamExt;
     let bus = zbus::Connection::session().await?;
@@ -262,11 +259,8 @@ mod tests {
 
     #[test]
     fn dialog_arguments() {
-        #[cfg(feature = "voice")]
-        {
-            let z = Dialogs::Zenity.question_args("T", "Body", "Download", "Not now");
-            assert!(z.contains(&"--question".to_string()) && z.contains(&"--ok-label=Download".to_string()));
-        }
+        let z = Dialogs::Zenity.question_args("T", "Body", "Download", "Not now");
+        assert!(z.contains(&"--question".to_string()) && z.contains(&"--ok-label=Download".to_string()));
         let k = Dialogs::Kdialog.alert_args("T", "Body");
         assert_eq!(k, vec!["--title", "T", "--msgbox", "Body"]);
         assert_eq!(toast_ms("Voice note saved"), 2000);

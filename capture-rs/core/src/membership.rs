@@ -19,14 +19,20 @@ pub struct PickedContent {
     pub style: PickStyle,
     pub rect: Rect,
     pub window_ids: Option<Vec<u64>>,
+    /// Which shared screen or window this is, when several are shared (one capture each).
+    pub source: u32,
 }
 
 impl PickedContent {
     pub fn display(rect: Rect) -> PickedContent {
-        PickedContent { style: PickStyle::Display, rect, window_ids: None }
+        PickedContent { style: PickStyle::Display, rect, window_ids: None, source: 0 }
     }
     pub fn window(rect: Rect, window_ids: Option<Vec<u64>>) -> PickedContent {
-        PickedContent { style: PickStyle::Window, rect, window_ids }
+        PickedContent { style: PickStyle::Window, rect, window_ids, source: 0 }
+    }
+    pub fn with_source(mut self, source: u32) -> PickedContent {
+        self.source = source;
+        self
     }
 }
 
@@ -202,6 +208,12 @@ impl Membership {
                 pick.rect.contains_point(w.frame.mid_x(), w.frame.mid_y())
             }
         }
+    }
+
+    /// The shared content that holds the front window, when several screens or windows are shared. The
+    /// window with keyboard focus decides — not the mouse: people type on one screen with the pointer on another.
+    pub fn pick<'a>(w: &ListedWindow, picks: &'a [PickedContent]) -> Option<&'a PickedContent> {
+        picks.iter().find(|p| Self::contains(p, w))
     }
 
     pub fn same_frame(a: &Rect, b: &Rect) -> bool {

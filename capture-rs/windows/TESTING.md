@@ -1,8 +1,8 @@
 # Context Capsule for Windows: test checklist
 
-Thank you for testing! This takes about 30–40 minutes. You need Windows 10 (1903 or
-later) or Windows 11, a microphone for part 7, and the **Claude app** for Windows (signed
-in) for parts 1 and 8.
+Thank you for testing! This takes about 40–50 minutes. You need Windows 10 (1903 or
+later) or Windows 11, a microphone for part 8, the **Claude app** for Windows (signed
+in) for parts 1, 9 and 10, and a second monitor for part 5 if you have one.
 
 Context Capsule records the **text** of the window or screen you choose (no screenshots,
 no audio), so Claude can later write a short summary of your work. Recordings stay on
@@ -54,14 +54,18 @@ that step is done.
 
 1. In the picker, choose **one window**, e.g. a browser window with a long web page.
 2. ✅ A yellow border appears around that window (Windows shows what is shared), the
-   tray circle turns **red and filled**, and a message says *● Recording started. Press
-   Ctrl+Alt+Shift+C to stop, Ctrl+Alt+Shift+V to talk.*
-3. Use that window for 1–2 minutes: scroll, open a few pages.
-4. Switch to **another app** for 20 seconds, then back.
-5. Right-click the tray icon. ✅ It says *Recording since … — N events*. While you were
-   in the other app it should have said *Skipping: the front window is not in what you picked*.
-6. Press **Ctrl + Alt + Shift + C** again to stop. ✅ A message says *■ Recording
-   stopped: N events saved.* and the circle is hollow again.
+   tray circle turns **red and filled**, you hear a soft sound, and a message says
+   *● Recording started. Press Ctrl+Alt+Shift+C to stop, Ctrl+Alt+Shift+V to talk.*
+   Nothing else stays on screen.
+3. Hold the mouse over the tray icon. ✅ The tooltip says *● Recording 0:12 — …*, and the
+   time goes up while you watch (move the mouse off and back to refresh it).
+4. Use that window for 1–2 minutes: scroll down a long page, open a few pages.
+5. Switch to **another app** for 20 seconds, then back.
+6. Right-click the tray icon. ✅ The first line says *● Recording 2:05 — since … — N events*.
+   While you were in the other app it should have said *Skipping: the front window is not
+   in what you picked*.
+7. Press **Ctrl + Alt + Shift + C** again to stop. ✅ A soft sound, a message says
+   *■ Recording stopped: N events saved.* and the circle is hollow again.
 
 ## 4. Record a whole screen
 
@@ -74,16 +78,36 @@ that step is done.
    for a few seconds each, then close them.
 5. Press **Win + Tab** (Task View) for a few seconds, then close it.
 6. If you have a second monitor: move a window to the other screen for 20 seconds.
+   ✅ The tray menu says *Skipping: the front window is not in what you picked* (only the
+   screen you picked is read).
 7. Stop the recording.
 
-## 5. Private apps are never recorded
+## 5. Several screens (needs a second monitor)
+
+1. Start a recording and pick your **main screen**. ✅ The message ends with *More screens?
+   Menu → Add another screen.*
+2. Right-click the tray icon → **Add another screen…** ✅ The Windows picker opens again.
+   Pick the **other screen**. ✅ A message says *Screen added: 2 screens shared.* and the
+   menu item now reads *Add another screen… (2 shared)*.
+3. Work in a window on one screen for 20 seconds, then in a window on the other screen for
+   20 seconds. Leave the mouse pointer on the *first* screen while you type on the second.
+   ✅ The tray menu shows no *Skipping* line: the screen with the window you type in is the
+   one that's read, wherever the mouse is.
+4. Optional: **Add another screen…** again and close the picker without choosing.
+   ✅ Recording goes on; nothing changes.
+5. Optional: stop sharing one screen from Windows (the yellow border's sharing button, if your
+   Windows shows one, or unplug that monitor). ✅ *A screen stopped sharing: 1 left.* and the
+   recording goes on.
+6. Stop the recording.
+
+## 6. Private apps are never recorded
 
 1. If you have **WhatsApp**, **Signal**, **1Password**, **Bitwarden** or **KeePass**: start a
    recording of the whole screen, and open that app for 20 seconds.
 2. ✅ The tray menu says *Skipping: a private app is in front (not recorded)*.
 3. Stop the recording.
 
-## 6. Projects
+## 7. Projects
 
 Context Capsule sorts your work into projects by itself. You can also name one.
 
@@ -98,20 +122,20 @@ Context Capsule sorts your work into projects by itself. You can also name one.
    ✅ Within a few seconds a message says *Project: Test project*.
 5. Stop the recording.
 
-## 7. Voice notes
+## 8. Voice notes
 
 1. Start a recording (whole screen).
 2. Press **Ctrl + Alt + Shift + V**. The first time it asks to download the speech
    model (about 148 MB, one time only). Click **Yes** and wait for *Voice notes are ready*.
-3. Press **Ctrl + Alt + Shift + V**, then say one or two sentences about what you are
-   doing and why.
-   ✅ The tray icon is a **red microphone**, and *Listening… press Ctrl+Alt+Shift+V to
-   finish* stays on screen the whole time.
+3. Press **Ctrl + Alt + Shift + V** (✅ a soft tick), then say one or two sentences about
+   what you are doing and why.
+   ✅ The tray icon is a **red microphone with three bars** that grow when you talk and
+   shrink when you stop. Nothing else is on screen while it listens.
 4. While it is listening, press **Ctrl + Alt + Shift + C**.
    ✅ A message says *Finish the voice note first: press Ctrl+Alt+Shift+V. Then
    Ctrl+Alt+Shift+C stops recording.* Recording goes on.
-5. Press **Ctrl + Alt + Shift + V**. ✅ The *Listening…* message goes away, the icon is a
-   red circle again, and a message says *Voice note saved*.
+5. Press **Ctrl + Alt + Shift + V**. ✅ A soft sound, the icon is a red circle again, and a
+   message says *Voice note saved*.
 6. Press it again, say **nothing** for 3 seconds, press again.
    ✅ *Didn't catch that…*
 7. Optional: in Settings → Privacy & security → Microphone, turn **off** *Let desktop apps
@@ -120,21 +144,44 @@ Context Capsule sorts your work into projects by itself. You can also name one.
 8. Stop the recording, then press **Ctrl + Alt + Shift + V**.
    ✅ *Start recording first (Ctrl+Alt+Shift+C)*.
 
-## 8. Make your capsules in Claude
+## 9. The evening reminder
 
-1. Open the Claude app and start a new chat.
-2. Type: **Use Context Capsule to make my capsules for today**
+At 18:00, if you recorded something today and have no capsule for today yet, Context Capsule
+asks once: *Make today's capsules?* To try it now instead of waiting:
+
+1. Quit Context Capsule. Open `C:\Users\<you>\.context-capsule\` and delete the file
+   `.reminded` if it is there. Open (or create) `config.json` in Notepad and put in
+   `{"remind_at": "00:00"}` (keep any other lines you have).
+2. Make sure you recorded something today (part 3), and that Claude made **no** capsule
+   today yet (that comes in part 10).
+3. Start `.\context-capsule.exe` again. ✅ Within a minute a small box asks *Make today's
+   capsules?* with **Make** and **Not now**.
+4. Click **Make**. ✅ The Claude app opens on a new chat, and a message says *In Claude,
+   press Ctrl+V, then Enter.* Press Ctrl+V: ✅ the text *Use Context Capsule to make my
+   capsules for today.* appears. Don't send it yet: part 10 does.
+5. Quit and start the app again. ✅ It does **not** ask again today.
+6. Put `config.json` back as it was (remove the `remind_at` line).
+
+Other settings you may try in `config.json`: `"sounds": false` (no start/stop sounds),
+`"remind_at": false` (no reminder), `"keep_recordings_days": 7` (raw recordings are deleted
+after 7 days instead of 30; capsules are never deleted).
+
+## 10. Make your capsules in Claude
+
+1. Use the Claude chat from part 9 (or open the Claude app and start a new chat).
+2. Paste (Ctrl+V) or type: **Use Context Capsule to make my capsules for today**, then Enter.
 3. ✅ Claude reads today's recordings and writes your capsules. If Claude asks to allow
    Context Capsule's tools, click **Allow**.
 4. Tell us: did it work, and did the capsules match what you did?
 
-## 9. Send us the results
+## 11. Send us the results
 
-1. Open `C:\Users\<you>\.context-capsule\sessions\` (or: tray menu → **Open sessions folder**).
+1. Open `C:\Users\<you>\.context-capsule\sessions\` (or: tray menu → **Show recordings folder**).
 2. **Look inside first**: each session folder has an `events.jsonl` file with the text
    that was read from your screen. Delete any session you don't want to share.
 3. Check: does any `events.jsonl` contain `TestPass123` or text from a private app?
-   It **must not**.
+   It **must not**. From part 3, the long page you scrolled should be there in full, each
+   line once (later moments of the same window only add the lines that were new).
 4. Zip the `sessions` folder and send it, together with:
    - `app.log`, one folder up in `C:\Users\<you>\.context-capsule\` (it only has times,
      counts, reasons and error codes, never what was on screen or what you said),
@@ -147,8 +194,8 @@ Context Capsule sorts your work into projects by itself. You can also name one.
 ## Notes for the tester
 
 - Nothing is uploaded by Context Capsule. The only internet use is the one-time speech
-  model download in part 7, from huggingface.co, after you say yes. Claude only sees your
-  recordings when you ask it to (part 8).
+  model download in part 8, from huggingface.co, after you say yes. Claude only sees your
+  recordings when you ask it to (part 10).
 - To remove everything: quit the app, turn Context Capsule off in Settings → Apps →
   Startup, remove *Context Capsule* in Claude (Settings → Extensions), then delete the kit
   folder and `C:\Users\<you>\.context-capsule\`.

@@ -1,4 +1,5 @@
-// context-capsule — core: redaction — keys, tokens and password lines become "[redacted]"; text capped at 4000.
+// context-capsule — core: redaction — keys, tokens and password lines become "[redacted]"; a 100,000-character
+// safety cap (only new lines are saved, so this is not a working limit).
 //! The patterns are Swift's (NSRegularExpression). Rust's `regex` has no lookbehind or lookahead,
 //! so `(?<![a-z])` and `(?<![A-Za-z0-9])…(?![A-Za-z0-9])` are emulated: the preceding character
 //! (or the start) is captured and kept, and only the rest is replaced.
@@ -48,7 +49,8 @@ fn patterns() -> &'static Patterns {
 
 impl Redactor {
     pub const MARK: &'static str = "[redacted]";
-    pub const TEXT_CAP: usize = 4000;
+    /// A safety net only (a whole book read through accessibility), not a working limit: only new lines are saved.
+    pub const TEXT_CAP: usize = 100_000;
 
     /// Mixed case + digits and a long unbroken alphanumeric run: a key, not a path or a word.
     pub fn looks_random(s: &str) -> bool {

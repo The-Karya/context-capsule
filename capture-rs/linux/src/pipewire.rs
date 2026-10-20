@@ -1,4 +1,4 @@
-// context-capsule — linux: the PipeWire stream of the picked content. Keeps only the latest frame,
+// context-capsule — linux: the PipeWire stream of one picked source. Keeps only the latest frame,
 // BGRA in memory, at most about one per second, stamped with when it arrived. Nothing touches disk.
 
 use context_capsule_core::Frame;
@@ -26,9 +26,6 @@ pub struct FrameSlot {
 impl FrameSlot {
     pub fn latest(&self) -> Option<Frame> {
         self.latest.lock().unwrap().clone()
-    }
-    pub fn clear(&self) {
-        *self.latest.lock().unwrap() = None;
     }
     fn put(&self, frame: Frame) {
         *self.latest.lock().unwrap() = Some(frame);

@@ -1,5 +1,5 @@
 // context-capsule — windows: small Win32 helpers — registry values, message boxes, opening files and links,
-// COM setup.
+// COM setup, the clipboard and the soft start/stop sounds.
 
 use windows::core::{w, HSTRING, PCWSTR};
 use windows::Win32::Foundation::HWND;
@@ -24,6 +24,11 @@ pub fn init_com(ui_thread: bool) {
 /// A string value under HKEY_CURRENT_USER.
 pub fn reg_string(subkey: &str, value: &str) -> Option<String> {
     reg_string_in(HKEY_CURRENT_USER, subkey, value)
+}
+
+/// A string value under HKEY_CLASSES_ROOT (registered file types and link schemes).
+pub fn reg_string_classes(subkey: &str, value: &str) -> Option<String> {
+    reg_string_in(windows::Win32::System::Registry::HKEY_CLASSES_ROOT, subkey, value)
 }
 
 /// A string value under HKEY_LOCAL_MACHINE (read only).
@@ -129,4 +134,52 @@ pub fn ask_yes_no(title: &str, body: &str) -> bool {
         MessageBoxW(None, &HSTRING::from(body), &HSTRING::from(title), MB_YESNO | MB_ICONQUESTION | MB_SETFOREGROUND | MB_TOPMOST)
     };
     answer == IDYES
+}
+
+/// Put `text` on the clipboard (any thread). false: Windows would not.
+pub fn copy_text(text: &str) -> bool {
+    use windows::Win32::Foundation::{GlobalFree, HANDLE, HGLOBAL};
+    use windows::Win32::System::DataExchange::{CloseClipboard, EmptyClipboard, OpenClipboard, SetClipboardData};
+    use windows::Win32::System::Memory::{GlobalAlloc, GlobalLock, GlobalUnlock, GMEM_MOVEABLE};
+    const CF_UNICODETEXT: u32 = 13;
+    let wide: Vec<u16> = text.encode_utf16().chain(Some(0)).collect();
+    // SAFETY: the clipboard is opened and closed here; the memory is ours until SetClipboardData takes it
+    // (then Windows owns it), and freed by us if that fails.
+    unsafe {
+        if OpenClipboard(None).is_err() {
+            return false;
+        }
+        let ok = (|| -> Option<()> {
+            EmptyClipboard().ok()?;
+            let mem: HGLOBAL = GlobalAlloc(GMEM_MOVEABLE, wide.len() * 2).ok()?;
+            let dst = GlobalLock(mem) as *mut u16;
+            if dst.is_null() {
+                let _ = GlobalFree(Some(mem));
+                return None;
+            }
+            std::ptr::copy_nonoverlapping(wide.as_ptr(), dst, wide.len());
+            let _ = GlobalUnlock(mem);
+            if SetClipboardData(CF_UNICODETEXT, Some(HANDLE(mem.0))).is_err() {
+                let _ = GlobalFree(Some(mem));
+                return None;
+            }
+            Some(())
+        })()
+        .is_some();
+        let _ = CloseClipboard();
+        ok
+    }
+}
+
+/// Play a soft cue without waiting (made in code, kept for the life of the app).
+pub fn play_cue(cue: context_capsule_core::Cue) {
+    use std::sync::OnceLock;
+    use windows::Win32::Media::Audio::{PlaySoundW, SND_ASYNC, SND_MEMORY, SND_NODEFAULT};
+    static WAVS: OnceLock<Vec<Vec<u8>>> = OnceLock::new();
+    let wavs = WAVS.get_or_init(|| context_capsule_core::Cue::ALL.iter().map(|c| c.wav()).collect());
+    let Some(at) = context_capsule_core::Cue::ALL.iter().position(|c| *c == cue) else { return };
+    // SAFETY: with SND_MEMORY the "name" is the WAV bytes, which live in a static for as long as it plays.
+    unsafe {
+        let _ = PlaySoundW(PCWSTR(wavs[at].as_ptr() as *const u16), None, SND_MEMORY | SND_ASYNC | SND_NODEFAULT);
+    }
 }

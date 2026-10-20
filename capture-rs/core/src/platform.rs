@@ -11,6 +11,9 @@ use crate::voice::PlatformText;
 use std::sync::Arc;
 use std::time::SystemTime;
 
+/// Most screens or windows shared at once (each picked by the user, one capture each).
+pub const MAX_SOURCES: usize = 4;
+
 /// The latest captured frame of the picked content, BGRA, top-left origin. Memory only.
 #[derive(Clone, Debug)]
 pub struct Frame {
@@ -47,8 +50,14 @@ pub enum PickOutcome {
     Cancelled,
     /// The picker or the capture could not start. Prefix the message: "picker: …" or "capture: …".
     Failed(String),
-    /// The capture ended on its own (None: the user stopped sharing from the OS).
+    /// Every capture ended on its own (None: the user stopped sharing from the OS).
     Stopped(Option<String>),
+    /// While recording, another screen or window is shared too (how many now).
+    Added(usize),
+    /// The user closed the picker (or it failed) when adding a screen; recording goes on.
+    AddCancelled,
+    /// One of several shared screens or windows stopped on its own (how many are left).
+    Removed(usize),
 }
 
 /// What the tray icon shows.
@@ -80,6 +89,8 @@ pub struct Status {
     pub project_by: Option<String>,
     /// A clue from the window of the latest sample, to prefill "New project from this window…".
     pub new_project_clue: Option<String>,
+    /// How many screens or windows are shared right now.
+    pub sources: usize,
 }
 
 impl Status {
@@ -115,6 +126,20 @@ impl Status {
         items
     }
 
+    /// "Add another screen…", with how many are shared once there are several.
+    pub fn add_screen_label(&self) -> String {
+        if self.sources > 1 {
+            format!("Add another screen… ({} shared)", self.sources)
+        } else {
+            "Add another screen…".into()
+        }
+    }
+
+    /// While recording, and fewer than `MAX_SOURCES` are shared.
+    pub fn can_add_screen(&self) -> bool {
+        self.recording && self.sources < MAX_SOURCES
+    }
+
     /// The words above the name field of "New project from this window…".
     pub fn new_project_prompt(&self) -> String {
         match &self.new_project_clue {
@@ -145,9 +170,20 @@ pub fn project_message(project: Option<&Project>) -> String {
     format!("Project: {}", project.map_or("not sure yet", |p| p.name.as_str()))
 }
 
-/// The short message when recording starts (Mac parity: "● Recording started…").
-pub fn recording_started_message(t: &PlatformText) -> String {
-    format!("● Recording started. Press {} to stop, {} to talk.", t.record_hotkey, t.voice_hotkey)
+/// The short message when recording starts (Mac parity: "● Recording started…"). With several monitors
+/// it says how to share another one.
+pub fn recording_started_message(t: &PlatformText, several_screens: bool) -> String {
+    let more = if several_screens { " More screens? Menu → Add another screen." } else { "" };
+    format!("● Recording started. Press {} to stop, {} to talk.{more}", t.record_hotkey, t.voice_hotkey)
+}
+
+/// A screen was added, or one of several stopped sharing.
+pub fn screens_message(count: usize, added: bool) -> String {
+    if added {
+        format!("Screen added: {count} screens shared.")
+    } else {
+        format!("A screen stopped sharing: {count} left.")
+    }
 }
 
 /// The short message when recording stops.
@@ -167,6 +203,8 @@ pub enum Msg {
     ToggleRecord,
     /// Voice hotkey or menu item: start or finish a voice note.
     ToggleVoice,
+    /// "Add another screen…": while recording, the picker again for one more screen or window.
+    AddScreen,
     /// The picker / capture outcome.
     Pick(PickOutcome),
     /// A voice engine reply arrived (send this from `VoiceNotes::set_wake`).
@@ -189,12 +227,17 @@ pub trait Platform {
     /// `PickOutcome` for this; drop the latest frame.
     fn stop_capture(&mut self);
 
-    /// What the user picked, placed on screen (global coordinates, top-left origin). None if nothing
-    /// is being captured. A display whose place is unknown has an empty rect.
-    fn picked(&self) -> Option<PickedContent>;
+    /// While recording: show the picker for one more screen or window (up to `MAX_SOURCES`). Report
+    /// `Added(n)`, `AddCancelled`, and later `Removed(n)` when one of several stops on its own (the last
+    /// one stopping is `Stopped`). Platforms that share one source only may do nothing.
+    fn add_source(&mut self) {}
 
-    /// The latest frame of the picked content, or None if none has arrived yet.
-    fn latest_frame(&self) -> Option<Frame>;
+    /// Everything shared, placed on screen (global coordinates, top-left origin), each with its own
+    /// `source` id. Empty if nothing is being captured. A display whose place is unknown has an empty rect.
+    fn picked(&self) -> Vec<PickedContent>;
+
+    /// The latest frame of one shared source, or None if none has arrived yet.
+    fn latest_frame(&self, source: u32) -> Option<Frame>;
 
     /// The frontmost app and the on-screen window list. Mark each window `excluded` with
     /// `is_excluded(app_id, app_name)`, and `notification` for notification banners / toasts.
@@ -231,6 +274,9 @@ pub trait Platform {
     /// Anything shown in the tray menu changed.
     fn status_changed(&mut self, _status: &Status) {}
 
+    /// Evening: ask "Make today's capsules?" with Make / Not now (see `reminder`). Never blocks the engine.
+    fn remind(&mut self) {}
+
     /// The front window's page address (browsers) or file path, if the accessibility API gives it
     /// cheaply. Never slow: None rather than wait.
     fn location(&mut self, _front: &Front) -> Option<String> {
@@ -261,9 +307,12 @@ mod tests {
     fn cue_messages() {
         let t = PlatformText::WINDOWS;
         assert_eq!(
-            recording_started_message(&t),
+            recording_started_message(&t, false),
             "● Recording started. Press Ctrl+Alt+Shift+C to stop, Ctrl+Alt+Shift+V to talk."
         );
+        assert!(recording_started_message(&t, true).ends_with(" More screens? Menu → Add another screen."));
+        assert_eq!(screens_message(2, true), "Screen added: 2 screens shared.");
+        assert_eq!(screens_message(1, false), "A screen stopped sharing: 1 left.");
         assert_eq!(recording_stopped_message(12), "■ Recording stopped: 12 events saved.");
         assert_eq!(recording_stopped_message(1), "■ Recording stopped: 1 event saved.");
         assert_eq!(listening_message(&t), "Listening… press Ctrl+Alt+Shift+V to finish");

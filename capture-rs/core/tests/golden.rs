@@ -90,7 +90,8 @@ fn keeps_normal_text() {
 #[test]
 fn caps_text() {
     let long = "word ".repeat(2000);
-    assert_eq!(redact::char_count(&Redactor::clean(&long)), 4000, "caps text at 4000");
+    assert_eq!(redact::char_count(&Redactor::clean(&long)), 10_000, "normal long text is kept whole");
+    assert_eq!(redact::char_count(&Redactor::clean(&"word ".repeat(30_000))), 100_000, "safety cap at 100,000");
     assert!(Redactor::clean(&long).starts_with("word word"), "cap keeps the start");
     assert_eq!(Redactor::clean("short"), "short", "short text unchanged");
 }
@@ -462,7 +463,7 @@ fn voice_event_lines() {
     assert_eq!(v.line(), r#"{"t":"2026-10-19T10:01:03Z","end":"2026-10-19T10:01:12Z","kind":"voice","src":"voice","app":"Figma","bundle":"com.figma.Desktop","title":"Pricing v2","text":"Use annual pricing\n[redacted]"}"#,
         "voice event line: kind + src, trimmed, redacted");
     let long_voice = Voice::event(&"word ".repeat(2000), Event::VOICE, "voice", start, start, "", "", "");
-    assert_eq!(redact::char_count(&long_voice.text), 4000, "voice text capped at 4000");
+    assert_eq!(redact::char_count(&long_voice.text), 9_999, "voice text kept whole");
     let note_line = Voice::event("typed context", Event::NOTE, "typed", start, start, "", "", "").line();
     assert!(note_line.contains(r#""kind":"note","src":"typed""#), "typed note line {note_line}");
 
@@ -803,4 +804,192 @@ fn project_control_and_state() {
     assert_eq!(p(r#"{"command":"project","project":"  ","at":3}"#), None, "blank id ignored");
     let st = StateJson { recording: true, session_id: Some("s".into()), pid: 1, project: Some("report".into()), project_by: Some("auto".into()), ..Default::default() };
     assert!(st.json().ends_with(r#""project":"report","project_by":"auto"}"#), "state.json project");
+}
+
+// MARK: reminder and clean-up
+
+#[test]
+fn reminder_and_clean_up() {
+    assert!(Reminder::parse("18:00") == Some(1080) && Reminder::parse("7:5") == Some(425) && Reminder::parse("25:00").is_none(), "reminder time");
+    assert!(Reminder::parse("18").is_none() && Reminder::parse("18:00:00").is_none() && Reminder::parse("-1:00").is_none());
+    assert!(Reminder::due(1085, Some("18:00"), true, false, false, false), "reminder due");
+    assert!(!Reminder::due(1000, Some("18:00"), true, false, false, false), "too early");
+    assert!(!Reminder::due(1085, Some("18:00"), false, false, false, false), "nothing recorded");
+    assert!(!Reminder::due(1085, Some("18:00"), true, true, false, false), "already made");
+    assert!(!Reminder::due(1085, Some("18:00"), true, false, true, false), "asked already");
+    assert!(!Reminder::due(1085, Some("18:00"), true, false, false, true), "still recording");
+    assert!(!Reminder::due(1085, None, true, false, false, false), "reminder off");
+
+    let c = Config::parse(br#"{"remind_at": false, "keep_recordings_days": 7}"#);
+    assert!(c.remind_at.is_none() && c.keep_days == 7, "reminder off, keep 7 days");
+    let c = Config::parse(br#"{"remind_at": "19:30"}"#);
+    assert!(c.remind_at.as_deref() == Some("19:30") && c.keep_days == 30, "custom reminder, default keep");
+    let c = Config::parse(br#"{"remind_at": null, "keep_recordings_days": -3, "sounds": false}"#);
+    assert!(c.remind_at.is_none() && c.keep_days == 0 && !c.sounds, "null is off, below 0 keeps forever, sounds off");
+    let c = Config::parse(br#"{"remind_at": "late"}"#);
+    assert_eq!(c.remind_at.as_deref(), Some("18:00"), "a time it can't read: the default");
+    let d = Config::default();
+    assert!(d.remind_at.as_deref() == Some("18:00") && d.keep_days == 30 && d.sounds, "defaults");
+
+    let ids: Vec<String> = ["20260918-090000", "20260919-000000", "20261019-100000", "junk"].iter().map(|s| s.to_string()).collect();
+    assert_eq!(Cleanup::old_sessions_at_offset(&ids, 30, date(), 0), vec!["20260918-090000".to_string()], "sessions older than 30 days");
+    assert!(Cleanup::old_sessions(&["20200101-000000".to_string()], 0, date()).is_empty(), "keep forever");
+}
+
+#[test]
+fn capsule_front_matter_and_today() {
+    let cap = "---\ncapsule: 1\ntitle: \"Website — 2026-10-19\"\nauthor: Saachi            # from config\ncreated: 2026-10-19T12:00:00Z\nproject: website\nkind: daily\ndate: 2026-10-19\ndraft: true\n---\n\n## In short\nWe redesigned the pricing page.\n";
+    let front = reminder::front_matter(cap);
+    let get = |k: &str| front.iter().find(|(key, _)| key == k).map(|(_, v)| v.clone()).unwrap_or_default();
+    assert_eq!(get("title"), "Website — 2026-10-19", "quotes dropped");
+    assert_eq!(get("author"), "Saachi", "comments stripped");
+    assert_eq!(get("kind"), "daily");
+    assert!(reminder::capsule_is_for(cap, "2026-10-19"));
+    assert!(!reminder::capsule_is_for(cap, "2026-10-20"));
+
+    let dir = tmp("today");
+    let (sessions, capsules) = (dir.join("sessions"), dir.join("capsules"));
+    std::fs::create_dir_all(sessions.join("20261019-090000")).unwrap();
+    std::fs::write(sessions.join("20261019-090000/events.jsonl"), "").unwrap();
+    assert!(!reminder::recorded_on(&sessions, "20261019"), "an empty recording doesn't count");
+    std::fs::write(sessions.join("20261019-090000/events.jsonl"), "{}\n").unwrap();
+    assert!(reminder::recorded_on(&sessions, "20261019") && !reminder::recorded_on(&sessions, "20261020"));
+    std::fs::create_dir_all(&capsules).unwrap();
+    std::fs::write(capsules.join("notes.md"), cap).unwrap();
+    assert!(!reminder::capsule_on(&capsules, "20261019"), "only *.capsule.md");
+    std::fs::write(capsules.join("website-2026-10-19.capsule.md"), cap).unwrap();
+    assert!(reminder::capsule_on(&capsules, "20261019"));
+    assert!(!reminder::capsule_on(&capsules, "20261020"));
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+#[test]
+fn daily_jobs_ask_once_and_clean_up() {
+    let dir = tmp("daily");
+    let paths = Paths::new(&dir);
+    let now = SystemTime::now();
+    let today = clock::session_id(now);
+    let day: String = today.chars().take(8).collect();
+    let old = "20200101-000000";
+    for id in [today.as_str(), old] {
+        std::fs::create_dir_all(paths.session_dir(id)).unwrap();
+        std::fs::write(paths.session_dir(id).join("events.jsonl"), "{}\n").unwrap();
+    }
+    std::fs::write(paths.config(), r#"{"remind_at": "00:00"}"#).unwrap();
+    let log = AppLog::stderr_only();
+    let mut daily = DailyJobs::new();
+    assert!(!daily.run(&paths, now, true, &log), "not while recording");
+    assert!(!paths.session_dir(old).exists() && paths.session_dir(&today).exists(), "old recording removed, today's kept");
+    assert!(daily.run(&paths, now, false, &log), "due: recorded today, no capsule yet");
+    assert_eq!(std::fs::read_to_string(paths.reminded()).unwrap(), day, "remembered as asked");
+    assert!(!DailyJobs::new().run(&paths, now, false, &log), "once a day, even after a restart");
+    std::fs::remove_file(paths.reminded()).unwrap();
+    std::fs::write(paths.config(), r#"{"remind_at": false}"#).unwrap();
+    assert!(!DailyJobs::new().run(&paths, now, false, &log), "reminder off");
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+// MARK: several shared screens
+
+#[test]
+fn several_shared_screens() {
+    let left = PickedContent::display(r(0.0, 0.0, 1440.0, 900.0)).with_source(1);
+    let right = PickedContent::display(r(1440.0, 48.0, 1920.0, 1080.0)).with_source(2);
+    let on_right = ListedWindow::new(7, 1, r(1500.0, 100.0, 800.0, 600.0));
+    let on_left = ListedWindow::new(8, 1, r(100.0, 100.0, 800.0, 600.0));
+    let both = [left.clone(), right.clone()];
+    assert_eq!(Membership::pick(&on_right, &both).map(|p| p.source), Some(2), "the screen holding the window in front");
+    assert_eq!(Membership::pick(&on_left, &both).map(|p| p.source), Some(1), "the other screen");
+    assert_eq!(Membership::pick(&on_right, std::slice::from_ref(&left)), None, "window on a screen that isn't shared: not recorded");
+    let s = Status { recording: true, sources: 2, ..Default::default() };
+    assert_eq!(s.add_screen_label(), "Add another screen… (2 shared)");
+    assert!(s.can_add_screen());
+    assert!(!Status { sources: MAX_SOURCES, ..s.clone() }.can_add_screen(), "up to 4");
+    assert!(!Status::default().can_add_screen(), "only while recording");
+    assert_eq!(Status { sources: 1, ..s }.add_screen_label(), "Add another screen…");
+}
+
+// MARK: only what's new
+
+#[test]
+fn only_whats_new() {
+    let mut nl = NewLines::new();
+    assert_eq!(nl.filter("Title\nLine one\n\nLine two\nLine one", "doc"), "Title\nLine one\nLine two", "first look: every line once");
+    assert_eq!(nl.filter("Title\nLine two\nLine three", "doc"), "Line three", "next look: only the new line");
+    assert_eq!(nl.filter("Title\nLine two", "doc"), "", "nothing new");
+    assert_eq!(nl.filter("Title\nLine two", "other"), "Title\nLine two", "another window starts fresh");
+    for i in 0..(NewLines::MAX_WINDOWS + 1) {
+        let _ = nl.filter("x", &format!("w{i}"));
+    }
+    assert_eq!(nl.filter("Title", "doc"), "Title", "least used window forgotten past the limit");
+    nl.reset();
+    assert_eq!(nl.filter("Line two", "other"), "Line two", "reset for a new recording");
+    assert_eq!(nl.filter("  padded  \r\nLine two", "other"), "padded", "trimmed; CRLF is one break");
+    assert_eq!(NewLines::key("Notes", "", "Plan", "file:///p"), "Notes\u{1F}Plan\u{1F}file:///p");
+    assert_eq!(NewLines::key("Notes", "n", "Plan", ""), "n\u{1F}Plan\u{1F}");
+
+    let dir = tmp("ext");
+    let path = dir.join("ext/events.jsonl");
+    let mut log = EventLog::open(&path).unwrap();
+    let w1 = Event { t: "2026-10-19T10:00:00Z".into(), end: "2026-10-19T10:00:00Z".into(), app: "Notes".into(), bundle: "n".into(), title: "Plan".into(), src: "ax".into(), text: "a".into(), ..Default::default() };
+    log.record(&w1).unwrap();
+    let mut w1b = w1.clone();
+    w1b.t = "2026-10-19T10:00:03Z".into();
+    w1b.end = w1b.t.clone();
+    w1b.text = String::new();
+    assert!(log.extend_if_same_window(&w1b).unwrap(), "nothing new in the same window: extend");
+    let mut w2 = w1b.clone();
+    w2.title = "Other".into();
+    assert!(!log.extend_if_same_window(&w2).unwrap(), "another window: not extended");
+    let lines: Vec<String> = std::fs::read_to_string(&path).unwrap().lines().map(String::from).collect();
+    assert!(lines.len() == 1 && lines[0].contains(r#""end":"2026-10-19T10:00:03Z""#), "end moved in place {lines:?}");
+    log.break_run();
+    assert!(!log.extend_if_same_window(&w1b).unwrap(), "after a skip: a new event");
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+// MARK: menu-bar look and sounds
+
+#[test]
+fn tray_look_and_sounds() {
+    assert_eq!(look::clock(0), "0:00");
+    assert_eq!(look::clock(754), "12:34");
+    assert_eq!(look::clock(3723), "1:02:03");
+    let rec = Status { recording: true, started_at: Some(date()), ..Default::default() };
+    assert_eq!(look::elapsed(&rec, date() + Duration::from_secs(65)).as_deref(), Some("1:05"));
+    assert_eq!(look::elapsed(&Status::default(), date()), None);
+    assert_eq!(look::level_frame(0.0), 0);
+    assert_eq!(look::level_frame(0.02), 0, "quiet");
+    assert_eq!(look::level_frame(0.2), 2, "talking");
+    assert_eq!(look::level_frame(0.45), 3, "loud");
+    let (quiet, loud) = (look::mic_bars(32, 0), look::mic_bars(32, 3));
+    assert_eq!(quiet.len(), 32 * 32);
+    let at = |px: &[u8], x: usize, y: usize| px[y * 32 + x];
+    assert_eq!(at(&quiet, 9, 9), 255, "mic body");
+    assert_eq!(at(&quiet, 24, 16), 255, "the middle bar's centre");
+    assert_eq!(at(&quiet, 24, 6), 0, "a quiet bar is short");
+    assert_eq!(at(&loud, 24, 6), 255, "a loud bar is tall");
+    assert_eq!(at(&loud, 0, 0), 0, "corners clear");
+
+    let idle = Status::default();
+    let listening = Status { recording: true, listening: true, ..Default::default() };
+    assert_eq!(Cue::changes(&idle, &rec), vec![Cue::RecordingStarted]);
+    assert_eq!(Cue::changes(&rec, &listening), vec![Cue::MicOpened]);
+    assert_eq!(Cue::changes(&listening, &idle), vec![Cue::MicClosed, Cue::RecordingStopped], "mic first, like the Mac");
+    assert!(Cue::changes(&rec, &rec).is_empty());
+    for cue in Cue::ALL {
+        let wav = cue.wav();
+        assert!(wav.starts_with(b"RIFF") && &wav[8..16] == b"WAVEfmt ", "{cue:?}");
+        let data = u32::from_le_bytes(wav[40..44].try_into().unwrap()) as usize;
+        assert_eq!(wav.len(), 44 + data);
+        let loudest = wav[44..].chunks(2).map(|b| i16::from_le_bytes([b[0], b[1]]).unsigned_abs()).max().unwrap();
+        assert!(loudest > 1000 && (loudest as f64) <= Cue::VOLUME * i16::MAX as f64, "soft: {loudest}");
+        let ms = data as u64 * 1000 / 2 / Cue::RATE as u64;
+        assert!((50..=250).contains(&ms), "short: {ms} ms");
+    }
+    Voice::set_level(0.3);
+    assert!((Voice::level() - 0.3).abs() < 1e-6);
+    Voice::set_level(7.0);
+    assert_eq!(Voice::level(), 1.0, "clamped");
+    Voice::set_level(0.0);
 }

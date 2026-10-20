@@ -1,6 +1,7 @@
 // context-capsule — windows: the UI thread — a hidden owner window for the tray, hotkeys, menu, toasts,
-// alerts, the setup window and the capture picker; it starts the core engine on its own thread and relays
-// messages. Start / stop / listening cues are shown here when the engine's status changes.
+// alerts, the setup window, the capture picker and the evening reminder; it starts the core engine on its own
+// thread and relays messages. Start / stop cues (a short message and a soft sound) come from status changes;
+// while recording or listening a timer keeps the tray's time and voice bars moving.
 
 use crate::hotkeys::{self, RECORD_LABEL, VOICE_LABEL};
 use crate::picker::Capture;
@@ -8,10 +9,10 @@ use crate::platform::WinPlatform;
 use crate::toast::Toast;
 use crate::tray::{self, menu_text, Tray};
 use crate::uia::Uia;
-use crate::{changes, input, setup, voice, win, windows_list};
+use crate::{changes, input, reminder, setup, voice, win, windows_list};
 use context_capsule_core::{
-    listening_message, recording_started_message, recording_stopped_message, AppLog, Config, Engine, Exclusion, Front, Indicator,
-    Location, Msg, Options, Paths, PlatformText, ProjectItem, Projects, Redactor, Status,
+    look, recording_started_message, recording_stopped_message, AppLog, Config, Cue, Engine, Exclusion, Front, Indicator, Location,
+    Msg, Options, Paths, PlatformText, ProjectItem, Projects, Redactor, Status, Voice,
 };
 use std::cell::{Cell, RefCell};
 use std::sync::atomic::{AtomicU32, Ordering};
@@ -31,7 +32,7 @@ use windows::Win32::UI::WindowsAndMessaging::{
     GetMessageW, PostMessageW, PostQuitMessage, RegisterClassW, RegisterWindowMessageW, SetForegroundWindow, TrackPopupMenu,
     IsDialogMessageW, TranslateMessage, HMENU, MF_CHECKED, MF_GRAYED, MF_POPUP, MF_SEPARATOR, MF_STRING, MSG, SW_SHOWNORMAL, TPM_BOTTOMALIGN, TPM_NONOTIFY,
     TPM_RETURNCMD, TPM_RIGHTBUTTON, WINDOW_EX_STYLE, WM_APP, WM_CONTEXTMENU, WM_DESTROY, WM_ENDSESSION, WM_HOTKEY, WM_NULL,
-    WM_QUERYENDSESSION, WM_SETTINGCHANGE, WNDCLASSW, WS_EX_TOOLWINDOW, WS_POPUP,
+    WM_QUERYENDSESSION, WM_SETTINGCHANGE, WM_TIMER, WNDCLASSW, WS_EX_TOOLWINDOW, WS_POPUP, KillTimer, SetTimer,
 };
 
 const WM_TRAY: u32 = WM_APP + 1;
@@ -42,11 +43,16 @@ const ID_VOICE: u32 = 11;
 const ID_OPEN: u32 = 12;
 const ID_QUIT: u32 = 13;
 const ID_SETUP: u32 = 14;
+const ID_ADD_SCREEN: u32 = 15;
 const ID_PROJECT_AUTO: u32 = 20;
 const ID_PROJECT_NEW: u32 = 21;
 /// Projects are 100, 101, … in list order.
 const ID_PROJECT_FIRST: u32 = 100;
 const MAX_PROJECTS: usize = 500;
+
+/// While recording or listening: the tray's running time and voice bars, about 8 times a second.
+const LOOK_TIMER: usize = 7;
+const LOOK_EVERY_MS: u32 = 125;
 
 /// User-facing words for Windows (our hotkeys use Ctrl too: Alt+Shift alone switches keyboard layouts).
 pub const TEXT: PlatformText =
@@ -59,6 +65,10 @@ pub enum UiCmd {
     Toast(String),
     Alert(String, String),
     PresentPicker,
+    /// "Add another screen…": the picker for one more screen or window.
+    AddSource,
+    /// Evening: "Make today's capsules?"
+    Remind,
     EngineDone,
 }
 
@@ -66,6 +76,12 @@ pub enum UiCmd {
 #[derive(Clone)]
 pub struct Ui {
     hwnd: usize,
+}
+
+impl Ui {
+    fn of(hwnd: HWND) -> Ui {
+        Ui { hwnd: hwnd.0 as usize }
+    }
 }
 
 impl Ui {
@@ -98,6 +114,8 @@ struct App {
     menu_front: Option<Front>,
     /// UI Automation on this thread, made the first time a browser's address is needed.
     uia: Option<Option<Uia>>,
+    /// The tray's timer is running (recording or listening).
+    look_timer: bool,
 }
 
 thread_local! {
@@ -146,10 +164,10 @@ pub fn run() {
     log.write(&format!("app started: version {}", env!("CARGO_PKG_VERSION")));
     let (tx, rx) = channel();
     let capture = Capture::new(tx.clone());
-    let ui = Ui { hwnd: hwnd.0 as usize };
+    let ui = Ui::of(hwnd);
 
     let mut tray = Tray::new(hwnd, WM_TRAY);
-    tray.set_tip(tray::tooltip(&Status::default()));
+    tray.set_tip(tray::tooltip(&Status::default(), SystemTime::now()));
     tray.add();
     hotkeys::register(hwnd);
     changes::install();
@@ -171,6 +189,7 @@ pub fn run() {
             apps: Default::default(),
             menu_front: None,
             uia: None,
+            look_timer: false,
         })
     });
 
@@ -294,6 +313,9 @@ extern "system" fn proc(hwnd: HWND, msg: u32, wp: WPARAM, lp: LPARAM) -> LRESULT
             let cmd = unsafe { Box::from_raw(lp.0 as *mut UiCmd) };
             handle(hwnd, *cmd);
         }
+        WM_TIMER if wp.0 == LOOK_TIMER => {
+            with_app(|a| look_tick(hwnd, a));
+        }
         WM_SETTINGCHANGE => {
             with_app(|a| a.tray.retheme()); // light / dark taskbar
         }
@@ -319,9 +341,10 @@ fn handle(hwnd: HWND, cmd: UiCmd) {
         }
         UiCmd::Status(s) => {
             with_app(|a| {
-                a.tray.set_tip(tray::tooltip(&s));
+                a.tray.set_tip(tray::tooltip(&s, SystemTime::now()));
                 cues(a, &s);
                 a.status = *s;
+                look_tick(hwnd, a);
             });
         }
         UiCmd::Toast(text) => {
@@ -346,23 +369,55 @@ fn handle(hwnd: HWND, cmd: UiCmd) {
                 capture.present(hwnd);
             }
         }
+        UiCmd::AddSource => {
+            if let Some(capture) = with_app(|a| a.capture.clone()) {
+                capture.present_add(hwnd);
+            }
+        }
+        UiCmd::Remind => {
+            if let Some(log) = with_app(|a| a.log.clone()) {
+                reminder::ask_and_make(Ui::of(hwnd), log);
+            }
+        }
         // Quitting: let an open alert (e.g. "Nothing was recorded") be read first.
         UiCmd::EngineDone if ALERTS.get() > 0 => CLOSE_PENDING.set(true),
         UiCmd::EngineDone => close(hwnd),
     }
 }
 
-/// Clear cues when recording or listening starts or stops (Mac parity): a short message, and a
-/// "Listening…" banner that stays up until the note ends, however it ends.
+/// Clear cues when recording or listening starts or stops (Mac parity): a soft sound ("sounds": false turns
+/// them off) and, for recording, a short message. Listening shows in the tray icon only: nothing on screen.
 fn cues(a: &App, next: &Status) {
-    let Some(toast) = &a.toast else { return };
-    let icon = a.tray.rect();
-    if next.listening != a.status.listening {
-        toast.set_banner(next.listening.then(|| listening_message(&TEXT)).as_deref(), icon);
+    let changes = Cue::changes(&a.status, next);
+    if !changes.is_empty() && Config::load(&a.paths.config()).sounds {
+        changes.into_iter().for_each(win::play_cue);
     }
+    let Some(toast) = &a.toast else { return };
     if next.recording != a.status.recording {
-        let text = if next.recording { recording_started_message(&TEXT) } else { recording_stopped_message(next.events) };
-        toast.show(&text, icon);
+        let several = windows_list::monitors().len() > 1;
+        let text = if next.recording { recording_started_message(&TEXT, several) } else { recording_stopped_message(next.events) };
+        toast.show(&text, a.tray.rect());
+    }
+}
+
+/// The tray while recording or listening: the time in the tooltip (the tray can't show text by its icon), and
+/// the voice bars following the mic. The timer runs only then.
+fn look_tick(hwnd: HWND, a: &mut App) {
+    let busy = a.status.recording || a.status.listening;
+    if a.status.listening {
+        a.tray.set_level(look::level_frame(Voice::level()));
+    }
+    a.tray.set_tip(tray::tooltip(&a.status, SystemTime::now()));
+    if busy != a.look_timer {
+        a.look_timer = busy;
+        // SAFETY: a timer on our own window.
+        unsafe {
+            if busy {
+                SetTimer(Some(hwnd), LOOK_TIMER, LOOK_EVERY_MS, None);
+            } else {
+                let _ = KillTimer(Some(hwnd), LOOK_TIMER);
+            }
+        }
     }
 }
 
@@ -378,7 +433,7 @@ fn show_menu(hwnd: HWND) {
     let Some((model, status)) = with_app(|a| {
         // Clicking the tray puts the taskbar in front; this finds the app the user works in.
         a.menu_front = front_now(a);
-        (tray::menu_model(&a.status, &short_time), a.status.clone())
+        (tray::menu_model(&a.status, SystemTime::now(), &short_time), a.status.clone())
     }) else {
         return;
     };
@@ -398,6 +453,9 @@ fn show_menu(hwnd: HWND) {
         let _ = AppendMenuW(menu, MF_SEPARATOR, 0, None);
         item(menu, ID_TOGGLE, &model.toggle, true);
         item(menu, ID_VOICE, &model.voice, true);
+        if let Some((label, enabled)) = &model.add_screen {
+            item(menu, ID_ADD_SCREEN, label, *enabled);
+        }
         if let Ok(sub) = CreatePopupMenu() {
             let mut n = 0;
             for p in &projects {
@@ -417,7 +475,7 @@ fn show_menu(hwnd: HWND) {
             // The submenu is destroyed with the menu.
             let _ = AppendMenuW(menu, MF_STRING | MF_POPUP, sub.0 as usize, &HSTRING::from(model.project.as_str()));
         }
-        item(menu, ID_OPEN, "Open sessions folder", true);
+        item(menu, ID_OPEN, "Show recordings folder", true);
         item(menu, ID_SETUP, "Set up Context Capsule…", true);
         let _ = AppendMenuW(menu, MF_SEPARATOR, 0, None);
         item(menu, ID_QUIT, "Quit Context Capsule", true);
@@ -435,6 +493,7 @@ fn show_menu(hwnd: HWND) {
     match chosen {
         ID_TOGGLE => send(Msg::ToggleRecord),
         ID_VOICE => send(Msg::ToggleVoice),
+        ID_ADD_SCREEN => send(Msg::AddScreen),
         ID_OPEN => open_sessions(),
         ID_SETUP => {
             if let Some(log) = with_app(|a| a.log.clone()) {

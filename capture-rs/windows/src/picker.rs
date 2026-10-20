@@ -1,6 +1,7 @@
-// context-capsule — windows: the system capture picker (GraphicsCapturePicker) and the one capture of what
-// the user picked. The user's choice is the consent; we capture only that, keep only the latest frame,
-// in memory, and never write it to disk.
+// context-capsule — windows: the system capture picker (GraphicsCapturePicker) and the captures of what the
+// user picked: one at the start, and up to 4 in all through "Add another screen…" (the picker once per added
+// screen or window). The user's choice is the consent; we capture only that, keep only the latest frame of
+// each, in memory, and never write it to disk.
 //! Windows draws its yellow border around what is shared; we keep it (it tells the user what is read).
 
 use context_capsule_core::{Membership, PickedContent, Rect};
@@ -57,7 +58,7 @@ pub use win::Capture;
 mod win {
     use super::*;
     use crate::windows_list;
-    use context_capsule_core::{Frame, Msg, PickOutcome};
+    use context_capsule_core::{Frame, Msg, PickOutcome, MAX_SOURCES};
     use std::sync::mpsc::Sender;
     use std::sync::{Arc, Mutex, MutexGuard, Weak};
     use std::time::SystemTime;
@@ -104,15 +105,24 @@ mod win {
         }
     }
 
+    /// One shared screen or window: its capture, what it is, and its latest frame.
+    struct Source {
+        id: u32,
+        live: Live,
+        picked: PickedContent,
+        latest: Option<(Direct3D11CaptureFrame, SystemTime)>,
+    }
+
     #[derive(Default)]
     struct Inner {
         /// Bumped by every stop: callbacks from an older picker or capture are ignored.
         generation: u64,
         picking: bool,
+        /// The open picker adds a screen to a running recording.
+        adding: bool,
         op: Option<IAsyncOperation<GraphicsCaptureItem>>,
-        live: Option<Live>,
-        picked: Option<PickedContent>,
-        latest: Option<(Direct3D11CaptureFrame, SystemTime)>,
+        sources: Vec<Source>,
+        next_id: u32,
     }
 
     /// Shared by the UI thread (opens the picker), WinRT callbacks (frames, the item closing) and the
@@ -137,12 +147,27 @@ mod win {
 
         /// Show the picker (UI thread). If it is already open or something is being captured, do nothing.
         pub fn present(self: &Arc<Self>, owner: HWND) {
+            self.open(owner, false);
+        }
+
+        /// While capturing: the picker again, for one more screen or window (up to `MAX_SOURCES`).
+        pub fn present_add(self: &Arc<Self>, owner: HWND) {
+            self.open(owner, true);
+        }
+
+        fn open(self: &Arc<Self>, owner: HWND, adding: bool) {
             let generation = {
                 let mut inner = self.lock();
-                if inner.picking || inner.live.is_some() {
+                let ready = if adding {
+                    !inner.sources.is_empty() && inner.sources.len() < MAX_SOURCES
+                } else {
+                    inner.sources.is_empty()
+                };
+                if inner.picking || !ready {
                     return;
                 }
                 inner.picking = true;
+                inner.adding = adding;
                 inner.generation
             };
             match self.open_picker(owner, generation) {
@@ -154,7 +179,11 @@ mod win {
                 }
                 Err(e) => {
                     self.lock().picking = false;
-                    self.report(PickOutcome::Failed(format!("picker: {}", e.message())));
+                    self.report(if adding {
+                        PickOutcome::AddCancelled
+                    } else {
+                        PickOutcome::Failed(format!("picker: {}", e.message()))
+                    });
                 }
             }
         }
@@ -190,6 +219,7 @@ mod win {
             }
             inner.picking = false;
             inner.op = None;
+            let adding = std::mem::take(&mut inner.adding);
             let outcome = match result {
                 // A closed picker gives no item (a null result).
                 Err(e) if e.code().is_ok() => PickOutcome::Cancelled,
@@ -199,19 +229,31 @@ mod win {
                     Err(e) => PickOutcome::Failed(format!("capture: {}", e.message())),
                 },
             };
+            let outcome = match outcome {
+                PickOutcome::Picked if adding => PickOutcome::Added(inner.sources.len()),
+                PickOutcome::Cancelled | PickOutcome::Failed(_) if adding => {
+                    if let PickOutcome::Failed(why) = &outcome {
+                        eprintln!("Context Capsule: add a screen failed: {why}");
+                    }
+                    PickOutcome::AddCancelled
+                }
+                other => other,
+            };
             drop(inner);
             self.report(outcome);
         }
 
         fn start(self: &Arc<Self>, inner: &mut Inner, generation: u64, item: GraphicsCaptureItem) -> windows::core::Result<()> {
             let size = item.Size()?;
-            let picked = describe(&item.DisplayName()?.to_string_lossy(), size);
+            let id = inner.next_id.max(1);
+            inner.next_id = id + 1;
+            let picked = describe(&item.DisplayName()?.to_string_lossy(), size).with_source(id);
             let device = d3d_device()?;
             let pool = Direct3D11CaptureFramePool::CreateFreeThreaded(&device, FORMAT, 2, size)?;
             let me: Weak<Capture> = Arc::downgrade(self);
             pool.FrameArrived(&TypedEventHandler::new(move |pool: Ref<Direct3D11CaptureFramePool>, _: Ref<IInspectable>| {
                 if let (Some(me), Some(pool)) = (me.upgrade(), pool.as_ref()) {
-                    me.frame_arrived(generation, pool);
+                    me.frame_arrived(generation, id, pool);
                 }
                 Ok(())
             }))?;
@@ -221,19 +263,19 @@ mod win {
             let me: Weak<Capture> = Arc::downgrade(self);
             let closed_token = item.Closed(&TypedEventHandler::new(move |_: Ref<GraphicsCaptureItem>, _: Ref<IInspectable>| {
                 if let Some(me) = me.upgrade() {
-                    me.ended(generation, None); // the window closed, or the user stopped sharing
+                    me.ended(generation, id, None); // the window closed, or the user stopped sharing
                 }
                 Ok(())
             }))?;
             session.StartCapture()?;
             let device = AgileReference::new(&device)?;
-            inner.live = Some(Live { item, pool, session, device, size, closed_token });
-            inner.picked = Some(picked);
+            let live = Live { item, pool, session, device, size, closed_token };
+            inner.sources.push(Source { id, live, picked, latest: None });
             Ok(())
         }
 
         /// Keep only the newest frame (not copied yet: `latest_frame` copies on demand).
-        fn frame_arrived(&self, generation: u64, pool: &Direct3D11CaptureFramePool) {
+        fn frame_arrived(&self, generation: u64, id: u32, pool: &Direct3D11CaptureFramePool) {
             let frame = match pool.TryGetNextFrame() {
                 Ok(f) => f,
                 Err(_) => return,
@@ -243,64 +285,65 @@ mod win {
             if inner.generation != generation {
                 return;
             }
-            if let Some(live) = &mut inner.live {
-                if content.Width > 0 && content.Height > 0 && content != live.size {
-                    // The window was resized: new buffers for the new size.
-                    if let Err(e) = live.device.resolve().and_then(|d| live.pool.Recreate(&d, FORMAT, 2, content)) {
-                        let why = format!("capture: {}", e.message());
-                        drop(inner);
-                        return self.ended(generation, Some(why));
-                    }
-                    live.size = content;
+            let Some(source) = inner.sources.iter_mut().find(|s| s.id == id) else { return };
+            let live = &mut source.live;
+            if content.Width > 0 && content.Height > 0 && content != live.size {
+                // The window was resized: new buffers for the new size.
+                if let Err(e) = live.device.resolve().and_then(|d| live.pool.Recreate(&d, FORMAT, 2, content)) {
+                    let why = format!("capture: {}", e.message());
+                    drop(inner);
+                    return self.ended(generation, id, Some(why));
                 }
+                live.size = content;
             }
-            inner.latest = Some((frame, SystemTime::now()));
+            source.latest = Some((frame, SystemTime::now()));
         }
 
-        /// The capture ended on its own (None: the user or Windows stopped it).
-        fn ended(&self, generation: u64, why: Option<String>) {
-            let live = {
+        /// One capture ended on its own (None: the user or Windows stopped it). Others go on; when it
+        /// was the last one, the recording stops.
+        fn ended(&self, generation: u64, id: u32, why: Option<String>) {
+            let (source, left) = {
                 let mut inner = self.lock();
-                if inner.generation != generation || inner.live.is_none() {
+                if inner.generation != generation {
                     return;
                 }
-                inner.generation += 1;
-                inner.picked = None;
-                inner.latest = None;
-                inner.live.take()
+                let Some(at) = inner.sources.iter().position(|s| s.id == id) else { return };
+                let source = inner.sources.remove(at);
+                if inner.sources.is_empty() {
+                    inner.generation += 1;
+                }
+                (source, inner.sources.len())
             };
-            if let Some(live) = live {
-                live.close();
-            }
-            self.report(PickOutcome::Stopped(why));
+            source.live.close();
+            self.report(if left > 0 { PickOutcome::Removed(left) } else { PickOutcome::Stopped(why) });
         }
 
         /// Stop capturing and cancel an open picker. Safe in any state; reports nothing.
         pub fn stop(&self) {
-            let (op, live) = {
+            let (op, sources) = {
                 let mut inner = self.lock();
                 inner.generation += 1;
                 inner.picking = false;
-                inner.picked = None;
-                inner.latest = None;
-                (inner.op.take(), inner.live.take())
+                inner.adding = false;
+                (inner.op.take(), std::mem::take(&mut inner.sources))
             };
             // Outside the lock: these may run our callbacks.
             if let Some(op) = op {
                 let _ = op.Cancel();
             }
-            if let Some(live) = live {
-                live.close();
+            for s in sources {
+                s.live.close();
             }
         }
 
-        pub fn picked(&self) -> Option<PickedContent> {
-            self.lock().picked.clone()
+        /// Everything shared, each with its source id.
+        pub fn picked(&self) -> Vec<PickedContent> {
+            self.lock().sources.iter().map(|s| s.picked.clone()).collect()
         }
 
-        /// The latest frame as BGRA (copied through a staging texture, then dropped by the caller).
-        pub fn latest_frame(&self) -> Option<Frame> {
-            let (frame, arrived) = self.lock().latest.clone()?;
+        /// The latest frame of one source as BGRA (copied through a staging texture, then dropped by the caller).
+        pub fn latest_frame(&self, source: u32) -> Option<Frame> {
+            let (frame, arrived) = self.lock().sources.iter().find(|s| s.id == source)?.latest.clone()?;
             match copy_frame(&frame) {
                 Ok((bgra, width, height)) => Some(Frame { bgra: bgra.into(), width, height, stride: width * 4, arrived }),
                 Err(e) => {

@@ -134,6 +134,26 @@ impl EventLog {
         self.last = None;
     }
 
+    /// A sample with nothing new on screen: if the last event is the same window (app, title, place,
+    /// project), just move its `end` and return true. Otherwise the caller writes the sample (empty text).
+    pub fn extend_if_same_window(&mut self, e: &Event) -> std::io::Result<bool> {
+        let Some(prev) = &self.last else { return Ok(false) };
+        let same = !prev.is_note()
+            && !e.is_note()
+            && prev.app == e.app
+            && prev.bundle == e.bundle
+            && prev.title == e.title
+            && prev.location == e.location
+            && prev.project == e.project;
+        if !same {
+            return Ok(false);
+        }
+        let mut moved = prev.clone();
+        moved.end = e.end.clone();
+        self.rewrite_last(moved)?;
+        Ok(true)
+    }
+
     fn rewrite_last(&mut self, e: Event) -> std::io::Result<()> {
         let mut f = OpenOptions::new().write(true).open(&self.path)?;
         let same_len = self.last.as_ref().is_some_and(|old| old.end.len() == e.end.len());

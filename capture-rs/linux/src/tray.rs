@@ -1,14 +1,20 @@
 // context-capsule — linux: the tray icon (StatusNotifierItem) and its menu, like the Mac menu bar —
-// hollow circle idle, filled while recording, a mic while listening; status, skip reason and actions.
+// hollow circle idle, filled red while recording (the running time in its title and tooltip), a red mic with
+// bars that move with the voice while listening; status, skip reason and actions. Nothing on screen.
 
 use crate::notify::Notifier;
-use context_capsule_core::{Indicator, Msg, ProjectItem, Status};
+use context_capsule_core::look::{self, LEVEL_FRAMES};
+use context_capsule_core::{Indicator, Msg, ProjectItem, Status, Voice};
 use ksni::menu::{CheckmarkItem, StandardItem, SubMenu};
 use ksni::{MenuItem, TrayMethods};
 use std::path::PathBuf;
 use std::sync::mpsc::Sender;
-use std::time::SystemTime;
+use std::sync::{Arc, Mutex};
+use std::time::{Duration, SystemTime};
 use tokio::runtime::Handle;
+
+/// While recording or listening, the time and the voice bars are refreshed this often.
+const LOOK_EVERY: Duration = Duration::from_millis(125);
 
 pub const RECORD_KEY: &str = "Ctrl+Alt+Shift+C";
 pub const VOICE_KEY: &str = "Ctrl+Alt+Shift+V";
@@ -19,14 +25,17 @@ pub struct CapsuleTray {
     sessions: PathBuf,
     status: Status,
     indicator: Indicator,
+    /// The listening step (`look::level_frame`).
+    level: usize,
 }
 
-/// The menu's first line.
-pub fn info_line(status: &Status, time: &dyn Fn(SystemTime) -> String) -> String {
+/// The menu's first line, as of `now` (the running time).
+pub fn info_line(status: &Status, now: SystemTime, time: &dyn Fn(SystemTime) -> String) -> String {
     match (&status.session_id, status.started_at) {
         (Some(id), Some(started)) if status.recording => {
             let n = status.events;
-            format!("Recording since {} — {} event{} — {}", time(started), n, if n == 1 { "" } else { "s" }, id)
+            let elapsed = look::elapsed(status, now).unwrap_or_default();
+            format!("● Recording {elapsed} — since {} — {} event{} — {}", time(started), n, if n == 1 { "" } else { "s" }, id)
         }
         _ if status.picking => "Pick a window or screen to record…".into(),
         _ => "Not recording".into(),
@@ -40,6 +49,26 @@ pub fn toggle_label(status: &Status) -> &'static str {
         "Cancel picking"
     } else {
         "Start recording…"
+    }
+}
+
+/// The tray's title: the running time while recording.
+pub fn title_text(status: &Status, now: SystemTime) -> String {
+    match look::elapsed(status, now) {
+        Some(time) => format!("Context Capsule ● {time}"),
+        None => "Context Capsule".into(),
+    }
+}
+
+/// The hover text, as of `now`.
+pub fn tooltip_text(indicator: Indicator, status: &Status, now: SystemTime) -> String {
+    match indicator {
+        Indicator::Listening => format!("Listening — press {VOICE_KEY} to finish the voice note"),
+        Indicator::Recording => {
+            let time = look::elapsed(status, now).unwrap_or_default();
+            format!("● Recording {time} — {RECORD_KEY} to stop, {VOICE_KEY} for a voice note")
+        }
+        _ => format!("Context Capsule ({RECORD_KEY} to record)"),
     }
 }
 
@@ -63,20 +92,13 @@ impl ksni::Tray for CapsuleTray {
         "context-capsule".into()
     }
     fn title(&self) -> String {
-        "Context Capsule".into()
+        title_text(&self.status, SystemTime::now())
     }
     fn icon_pixmap(&self) -> Vec<ksni::Icon> {
-        [22, 44].iter().map(|s| icon(self.indicator, *s)).collect()
+        [22, 44].iter().map(|s| icon(self.indicator, self.level, *s)).collect()
     }
     fn tool_tip(&self) -> ksni::ToolTip {
-        let title = match self.indicator {
-            Indicator::Listening => format!("Listening — press {VOICE_KEY} to finish the voice note"),
-            Indicator::Recording => {
-                format!("Context Capsule is recording ({RECORD_KEY} to stop, {VOICE_KEY} for a voice note)")
-            }
-            _ => format!("Context Capsule ({RECORD_KEY} to record)"),
-        };
-        ksni::ToolTip { title, ..Default::default() }
+        ksni::ToolTip { title: tooltip_text(self.indicator, &self.status, SystemTime::now()), ..Default::default() }
     }
     fn status(&self) -> ksni::Status {
         ksni::Status::Active
@@ -87,7 +109,8 @@ impl ksni::Tray for CapsuleTray {
             |msg: Msg| Box::new(move |t: &mut Self| drop(t.tx.send(msg.clone()))) as Box<dyn Fn(&mut Self) + Send>;
         let skip = self.status.skip.filter(|_| self.status.recording);
         vec![
-            StandardItem { label: info_line(&self.status, &local_time), enabled: false, ..Default::default() }.into(),
+            StandardItem { label: info_line(&self.status, SystemTime::now(), &local_time), enabled: false, ..Default::default() }
+                .into(),
             StandardItem {
                 label: format!("Skipping: {}", skip.map(|s| s.message()).unwrap_or("")),
                 enabled: false,
@@ -110,9 +133,17 @@ impl ksni::Tray for CapsuleTray {
                 ..Default::default()
             }
             .into(),
+            StandardItem {
+                label: self.status.add_screen_label(),
+                enabled: self.status.can_add_screen(),
+                visible: self.status.recording,
+                activate: send(Msg::AddScreen),
+                ..Default::default()
+            }
+            .into(),
             self.project_menu(),
             StandardItem {
-                label: "Open sessions folder".into(),
+                label: "Show recordings folder".into(),
                 activate: Box::new(|t: &mut Self| open_folder(&t.sessions)),
                 ..Default::default()
             }
@@ -182,16 +213,24 @@ fn open_folder(dir: &std::path::Path) {
     }
 }
 
+/// What the refresh task needs to know: recording or listening, and what it last showed.
+#[derive(Default)]
+struct Look {
+    status: Status,
+    shown: Option<(usize, String)>,
+}
+
 /// The running tray (or nothing, when the desktop has no tray).
 pub struct Tray {
     rt: Handle,
     handle: Option<ksni::Handle<CapsuleTray>>,
+    look: Arc<Mutex<Look>>,
 }
 
 impl Tray {
     /// Show the tray icon. On GNOME this needs the AppIndicator extension; without it we log and go on.
     pub fn spawn(rt: &Handle, tx: Sender<Msg>, notifier: Notifier, sessions: PathBuf) -> Tray {
-        let tray = CapsuleTray { tx, notifier, sessions, status: Status::default(), indicator: Indicator::Idle };
+        let tray = CapsuleTray { tx, notifier, sessions, status: Status::default(), indicator: Indicator::Idle, level: 0 };
         let handle = match rt.block_on(tray.spawn()) {
             Ok(h) => Some(h),
             Err(e) => {
@@ -201,12 +240,16 @@ impl Tray {
                 None
             }
         };
-        Tray { rt: rt.clone(), handle }
+        let look = Arc::new(Mutex::new(Look::default()));
+        if let Some(h) = handle.clone() {
+            rt.spawn(refresh(h, look.clone()));
+        }
+        Tray { rt: rt.clone(), handle, look }
     }
 
     /// No tray (for `--probe`).
     pub fn none(rt: &Handle) -> Tray {
-        Tray { rt: rt.clone(), handle: None }
+        Tray { rt: rt.clone(), handle: None, look: Arc::default() }
     }
 
     pub fn is_shown(&self) -> bool {
@@ -214,6 +257,7 @@ impl Tray {
     }
 
     pub fn set_status(&self, status: &Status) {
+        self.look.lock().unwrap().status = status.clone();
         let status = status.clone();
         self.update(move |t| t.status = status);
     }
@@ -237,9 +281,43 @@ impl Tray {
     }
 }
 
-/// A `size`×`size` ARGB32 (network order) icon: hollow circle (idle, picking), filled circle
-/// (recording), microphone (listening). Light strokes with a dark edge, so it shows on any panel.
-pub fn icon(indicator: Indicator, size: i32) -> ksni::Icon {
+/// While recording or listening: the time in the title and tooltip once a second, the voice bars as the mic
+/// level changes. Only sends an update when something visible changed.
+async fn refresh(h: ksni::Handle<CapsuleTray>, look: Arc<Mutex<Look>>) {
+    let mut tick = tokio::time::interval(LOOK_EVERY);
+    loop {
+        tick.tick().await;
+        let next = {
+            let mut l = look.lock().unwrap();
+            if !l.status.recording && !l.status.listening {
+                l.shown = None;
+                continue;
+            }
+            let level = if l.status.listening { look::level_frame(Voice::level()) } else { 0 };
+            let shown = (level, look::elapsed(&l.status, SystemTime::now()).unwrap_or_default());
+            if l.shown.as_ref() == Some(&shown) {
+                continue;
+            }
+            l.shown = Some(shown);
+            level
+        };
+        if h.update(move |t| t.level = next).await.is_none() {
+            return; // the tray is gone
+        }
+    }
+}
+
+/// A `size`×`size` ARGB32 (network order) icon: hollow circle (idle, picking), filled red circle
+/// (recording), a red mic with bars at `level` (listening). Light strokes with a dark edge, so it shows on
+/// any panel.
+pub fn icon(indicator: Indicator, level: usize, size: i32) -> ksni::Icon {
+    if indicator == Indicator::Listening {
+        let data = look::mic_bars(size as usize, level.min(LEVEL_FRAMES - 1))
+            .into_iter()
+            .flat_map(|a| [a, 0xE0, 0x1B, 0x24])
+            .collect();
+        return ksni::Icon { width: size, height: size, data };
+    }
     let s = size as f64;
     let c = s / 2.0;
     let r = s * 0.36;
@@ -250,9 +328,8 @@ pub fn icon(indicator: Indicator, size: i32) -> ksni::Icon {
             let (px, py) = (x as f64 + 0.5, y as f64 + 0.5);
             // Signed distance to the shape (negative inside).
             let d = match indicator {
-                Indicator::Idle | Indicator::Picking => ((px - c).hypot(py - c) - r).abs() - stroke / 2.0,
                 Indicator::Recording => (px - c).hypot(py - c) - r,
-                Indicator::Listening => mic_distance(px / s, py / s) * s,
+                _ => ((px - c).hypot(py - c) - r).abs() - stroke / 2.0,
             };
             let fill = (0.5 - d).clamp(0.0, 1.0); // anti-aliased edge
             let edge = (0.5 - (d - 1.0)).clamp(0.0, 1.0); // a 1 px dark rim around it
@@ -266,28 +343,6 @@ pub fn icon(indicator: Indicator, size: i32) -> ksni::Icon {
     ksni::Icon { width: size, height: size, data }
 }
 
-/// A microphone in a unit square: a capsule, a U-shaped holder and a stand. Distance in units.
-fn mic_distance(x: f64, y: f64) -> f64 {
-    let capsule = {
-        let (cx, top, bottom, rad) = (0.5, 0.26, 0.48, 0.13);
-        let cy = y.clamp(top, bottom);
-        (x - cx).hypot(y - cy) - rad
-    };
-    let holder = {
-        let (cx, cy, rad, w) = (0.5, 0.48, 0.23, 0.035);
-        let ring = ((x - cx).hypot(y - cy) - rad).abs() - w;
-        if y < cy {
-            ring.max(cy - y)
-        } else {
-            ring
-        }
-    };
-    let stand = (x - 0.5).abs().max((y - 0.80).abs() - 0.06) - 0.035;
-    let base = (x - 0.5).abs().max((y - 0.86).abs()) - 0.0;
-    let base = base.max((x - 0.5).abs() - 0.16).max((y - 0.86).abs() - 0.035);
-    capsule.min(holder).min(stand).min(base)
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -299,37 +354,49 @@ mod tests {
 
     #[test]
     fn icons() {
-        let idle = icon(Indicator::Idle, 22);
+        let idle = icon(Indicator::Idle, 0, 22);
         assert_eq!(idle.data.len(), 22 * 22 * 4);
         assert_eq!(alpha(&idle, 11, 11), 0, "hollow");
         assert!(alpha(&idle, 11, 3) > 200, "ring");
-        let rec = icon(Indicator::Recording, 22);
+        let rec = icon(Indicator::Recording, 0, 22);
         assert_eq!(alpha(&rec, 11, 11), 255, "filled");
         assert_eq!(rec.data[(11 * 22 + 11) * 4 + 1], 0xE0, "red");
-        let mic = icon(Indicator::Listening, 44);
-        assert!(alpha(&mic, 22, 14) > 200, "capsule");
-        assert_eq!(alpha(&mic, 2, 2), 0);
+        let mic = icon(Indicator::Listening, 0, 44);
+        assert!(alpha(&mic, 12, 12) > 200, "mic capsule");
+        assert_eq!(mic.data[(12 * 44 + 12) * 4 + 1], 0xE0, "red");
+        assert_eq!(alpha(&mic, 0, 0), 0);
+        let loud = icon(Indicator::Listening, 3, 44);
+        assert!(alpha(&loud, 33, 8) > alpha(&mic, 33, 8), "louder: taller bars");
     }
 
     #[test]
     fn menu_lines() {
         let t = |_: SystemTime| "10:01".to_string();
+        let now = SystemTime::now();
         let mut s = Status::default();
-        assert_eq!(info_line(&s, &t), "Not recording");
+        assert_eq!(info_line(&s, now, &t), "Not recording");
         assert_eq!(toggle_label(&s), "Start recording…");
+        assert_eq!(title_text(&s, now), "Context Capsule");
         s.picking = true;
-        assert_eq!(info_line(&s, &t), "Pick a window or screen to record…");
+        assert_eq!(info_line(&s, now, &t), "Pick a window or screen to record…");
         assert_eq!(toggle_label(&s), "Cancel picking");
         s = Status {
             recording: true,
             session_id: Some("20261019-100103".into()),
-            started_at: Some(SystemTime::now()),
+            started_at: Some(now),
             events: 1,
             skip: Some(Skip::NotPicked),
             ..Default::default()
         };
-        assert_eq!(info_line(&s, &t), "Recording since 10:01 — 1 event — 20261019-100103");
+        let later = now + Duration::from_secs(754);
+        assert_eq!(info_line(&s, later, &t), "● Recording 12:34 — since 10:01 — 1 event — 20261019-100103");
         assert_eq!(toggle_label(&s), "Stop recording");
+        assert_eq!(title_text(&s, later), "Context Capsule ● 12:34");
+        assert_eq!(
+            tooltip_text(Indicator::Recording, &s, later),
+            "● Recording 12:34 — Ctrl+Alt+Shift+C to stop, Ctrl+Alt+Shift+V for a voice note"
+        );
+        assert!(tooltip_text(Indicator::Listening, &s, later).starts_with("Listening"));
     }
 
     #[test]

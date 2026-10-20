@@ -1,31 +1,21 @@
 // context-capsule — windows: a small message near the tray icon that fades by itself ("Voice note saved",
-// "Start recording first (Ctrl+Alt+Shift+C)"), and the "Listening…" banner that stays up until the voice
-// note ends (other messages show over it, then it comes back). A topmost borderless window: no
-// notification permission.
+// "Start recording first (Ctrl+Alt+Shift+C)"). A topmost borderless window: no notification permission.
+// Nothing stays on screen: while listening, the tray icon shows it.
 
 /// Seconds on screen before fading (like the Mac: short for good news and project changes, longer
 /// for problems).
 pub fn seconds_for(text: &str) -> u32 {
     if text == "Voice note saved" {
         2
-    } else if text.starts_with("Project: ") {
+    } else if text.starts_with("Project: ") || text.starts_with("Screen added") || text.starts_with("A screen stopped") {
         3
+    } else if text.contains("More screens?") {
+        5
     } else if text.starts_with("● ") || text.starts_with("■ ") {
         4 // recording started / stopped
     } else {
         6
     }
-}
-
-/// After a message's time is up: show the banner again if one is up, else fade out.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub enum AfterHold {
-    Banner,
-    Fade,
-}
-
-pub fn after_hold(banner_up: bool) -> AfterHold {
-    if banner_up { AfterHold::Banner } else { AfterHold::Fade }
 }
 
 /// Where a `w`×`h` toast goes: next to the tray icon on the taskbar's side, inside the work area.
@@ -83,10 +73,6 @@ mod win {
         font: HFONT,
         pad: i32,
         alpha: u8,
-        /// The banner that stays up (listening), and whether it is what's on screen now.
-        banner: Option<String>,
-        showing_banner: bool,
-        icon: Option<RECT>,
     }
 
     thread_local! {
@@ -95,9 +81,6 @@ mod win {
             font: HFONT::default(),
             pad: 12,
             alpha: OPAQUE,
-            banner: None,
-            showing_banner: false,
-            icon: None,
         });
     }
 
@@ -138,36 +121,12 @@ mod win {
             }
         }
 
-        /// Show `text` near the tray icon for a few seconds, then fade (or go back to the banner).
+        /// Show `text` near the tray icon for a few seconds, then fade.
         pub fn show(&self, text: &str, icon: Option<RECT>) {
             present(self.hwnd, text, icon);
-            STATE.with(|s| s.borrow_mut().showing_banner = false);
             // SAFETY: a timer on our own window.
             unsafe {
                 SetTimer(Some(self.hwnd), HOLD, seconds_for(text) * 1000, None);
-            }
-        }
-
-        /// Put up a banner that stays until `None` (the voice note ended), or take it down.
-        pub fn set_banner(&self, text: Option<&str>, icon: Option<RECT>) {
-            let showing = STATE.with(|s| {
-                let mut s = s.borrow_mut();
-                s.banner = text.map(str::to_string);
-                s.icon = icon;
-                s.showing_banner
-            });
-            match text {
-                Some(text) => {
-                    // SAFETY: timers on our own window.
-                    unsafe {
-                        let _ = KillTimer(Some(self.hwnd), HOLD);
-                    }
-                    present(self.hwnd, text, icon);
-                    STATE.with(|s| s.borrow_mut().showing_banner = true);
-                }
-                // A message on screen fades when its time is up; the banner fades now.
-                None if showing => fade(self.hwnd),
-                None => {}
             }
         }
     }
@@ -221,7 +180,6 @@ mod win {
     }
 
     fn fade(hwnd: HWND) {
-        STATE.with(|s| s.borrow_mut().showing_banner = false);
         // SAFETY: timers on our own window.
         unsafe {
             let _ = KillTimer(Some(hwnd), HOLD);
@@ -268,22 +226,10 @@ mod win {
         });
     }
 
-    /// Hold, then the banner again or fade out over about half a second.
+    /// Hold, then fade out over about half a second.
     fn tick(hwnd: HWND, id: usize) {
         if id == HOLD {
-            let (banner, icon) = STATE.with(|s| (s.borrow().banner.clone(), s.borrow().icon));
-            match (after_hold(banner.is_some()), banner) {
-                (AfterHold::Banner, Some(text)) => {
-                    // SAFETY: a timer on our own window.
-                    unsafe {
-                        let _ = KillTimer(Some(hwnd), HOLD);
-                    }
-                    present(hwnd, &text, icon);
-                    STATE.with(|s| s.borrow_mut().showing_banner = true);
-                }
-                _ => fade(hwnd),
-            }
-            return;
+            return fade(hwnd);
         }
         // SAFETY: timers and attributes of our own window.
         unsafe {
@@ -315,12 +261,8 @@ mod tests {
         assert_eq!(seconds_for("Project: Client report"), 3);
         assert_eq!(seconds_for("● Recording started. Press Ctrl+Alt+Shift+C to stop, Ctrl+Alt+Shift+V to talk."), 4);
         assert_eq!(seconds_for("■ Recording stopped: 3 events saved."), 4);
-    }
-
-    #[test]
-    fn banner_comes_back_after_a_message() {
-        assert_eq!(after_hold(true), AfterHold::Banner);
-        assert_eq!(after_hold(false), AfterHold::Fade);
+        assert_eq!(seconds_for("● Recording started. Press X to stop, Y to talk. More screens? Menu → Add another screen."), 5);
+        assert_eq!(seconds_for("Screen added: 2 screens shared."), 3);
     }
 
     #[test]

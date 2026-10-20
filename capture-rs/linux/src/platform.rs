@@ -1,5 +1,6 @@
 // context-capsule — linux: the engine's seam to the desktop — the picked content, the front window
-// (AT-SPI, plus the real X11 window stack on X11), its text and title, OCR, the tray and messages.
+// (AT-SPI, plus the real X11 window stack on X11), its text and title, OCR, the tray, messages, the soft
+// start/stop sounds and the evening reminder.
 
 use crate::apps::ProcApp;
 use crate::atspi_front::{is_shell, Accessibility, ActiveWindow};
@@ -8,10 +9,11 @@ use crate::notify::Notifier;
 use crate::ocr::{Ocr, OcrResult, INSTALL_HINT};
 use crate::portal::{self, Capture, SourceKind};
 use crate::tray::Tray;
-use crate::{atspi_text, x11};
+use crate::{atspi_text, reminder, x11};
 use context_capsule_core::{
-    Frame, Front, Image, Indicator, ListedWindow, PickedContent, Platform, Rect, Status, WindowList,
+    Config, Cue, Frame, Front, Image, Indicator, ListedWindow, Membership, PickedContent, Platform, Rect, Status, WindowList,
 };
+use std::collections::HashMap;
 use std::future::Future;
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, SystemTime};
@@ -36,21 +38,30 @@ pub struct LinuxPlatform {
     current: Option<ActiveWindow>,
     /// The first document in the window's tree, from the latest text walk (for `location`).
     document: Option<atspi::ObjectRefOwned>,
-    /// The window whose size matches a picked window's stream (None: none, or more than one).
-    matched: Option<u64>,
+    /// Per shared window: the window whose size matches its stream (None: none, or more than one).
+    matched: HashMap<u32, Option<u64>>,
     ocr_hint_shown: bool,
+    /// The last status, to play a sound when recording or the mic starts or stops.
+    last_status: Status,
+    /// Where the data lives (config.json: "sounds").
+    config: std::path::PathBuf,
 }
 
-/// On Wayland no app knows where its window is. With a picked monitor, the front window counts as on
-/// it only when there is just one monitor; then it gets a sub-pixel frame at the monitor's centre:
-/// inside for the membership test (so accessibility text is read) but too small to crop, so OCR skips
-/// with `not_picked` instead of reading a guessed region. More (or unknown) monitors: an empty frame,
-/// so nothing is read.
-pub fn wayland_monitor_frame(pick: Rect, monitors: usize) -> Rect {
-    if monitors == 1 && !pick.is_empty() {
-        Rect::new(pick.mid_x(), pick.mid_y(), 0.5, 0.5)
-    } else {
-        Rect::ZERO
+/// On Wayland no app knows where its window is. With picked monitors, the front window counts as on one
+/// only when every monitor is shared (one monitor, or several added one by one); then it gets a sub-pixel
+/// frame at the first shared monitor's centre: inside for the membership test (so accessibility text is
+/// read) but too small to crop, so OCR skips with `not_picked` instead of reading a guessed region. Not
+/// every (or an unknown number of) monitor shared: an empty frame, so nothing is read.
+pub fn wayland_monitor_frame(picks: &[Rect], monitors: usize) -> Rect {
+    let mut shared: Vec<Rect> = vec![];
+    for p in picks.iter().filter(|p| !p.is_empty()) {
+        if !shared.iter().any(|s| Membership::same_frame(s, p)) {
+            shared.push(*p);
+        }
+    }
+    match shared.first() {
+        Some(first) if monitors >= 1 && shared.len() >= monitors => Rect::new(first.mid_x(), first.mid_y(), 0.5, 0.5),
+        _ => Rect::ZERO,
     }
 }
 
@@ -67,6 +78,7 @@ impl LinuxPlatform {
         notifier: Notifier,
         tray: Tray,
         locale: &str,
+        config: std::path::PathBuf,
     ) -> LinuxPlatform {
         LinuxPlatform {
             rt,
@@ -81,8 +93,10 @@ impl LinuxPlatform {
             ocr: Ocr::new(locale),
             current: None,
             document: None,
-            matched: None,
+            matched: HashMap::new(),
             ocr_hint_shown: false,
+            last_status: Status::default(),
+            config,
         }
     }
 
@@ -125,19 +139,27 @@ impl LinuxPlatform {
             return Some(front); // the shell's own menus: no app window
         }
         let size = a.extents.map_or(Rect::ZERO, |r| Rect::new(0.0, 0.0, r.width, r.height));
-        let frame = match self.capture.source() {
-            Some(src) if src.kind == SourceKind::Monitor => {
-                wayland_monitor_frame(portal::monitor_rect(&src, &self.monitors()), self.monitors().len())
-            }
-            Some(src) => {
-                let candidates = match &self.a11y {
-                    Some(a11y) => self.wait(a11y.window_sizes()).unwrap_or_default(),
-                    None => vec![],
-                };
-                self.matched = portal::match_window(src.size_rect(), &candidates);
-                size
-            }
-            None => size,
+        let sources = self.capture.sources();
+        let windows: Vec<(u32, Rect)> =
+            sources.iter().filter(|(_, s)| s.kind == SourceKind::Window).map(|(id, s)| (*id, s.size_rect())).collect();
+        if !windows.is_empty() {
+            let candidates = match &self.a11y {
+                Some(a11y) => self.wait(a11y.window_sizes()).unwrap_or_default(),
+                None => vec![],
+            };
+            self.matched = windows.iter().map(|(id, size)| (*id, portal::match_window(*size, &candidates))).collect();
+        }
+        let monitors = self.monitors();
+        let shared: Vec<Rect> = sources
+            .iter()
+            .filter(|(_, s)| s.kind == SourceKind::Monitor)
+            .map(|(_, s)| portal::monitor_rect(s, &monitors))
+            .collect();
+        // Shared monitors: placed only when every monitor is shared. Windows only: matched by id.
+        let frame = if sources.iter().any(|(_, s)| s.kind == SourceKind::Monitor) {
+            wayland_monitor_frame(&shared, monitors.len())
+        } else {
+            size
         };
         let window = ListedWindow {
             id: a.id(),
@@ -174,10 +196,17 @@ impl LinuxPlatform {
             Some(w) if WindowList::is_normal(&w) => Some(w),
             _ => WindowList::front(pid, &list).cloned(),
         };
-        if let Some(src) = self.capture.source().filter(|s| s.kind == SourceKind::Window) {
+        let windows: Vec<(u32, Rect)> = self
+            .capture
+            .sources()
+            .into_iter()
+            .filter(|(_, s)| s.kind == SourceKind::Window)
+            .map(|(id, s)| (id, s.size_rect()))
+            .collect();
+        if !windows.is_empty() {
             let candidates: Vec<(u64, Rect)> =
                 list.iter().filter(|w| WindowList::is_normal(w)).map(|w| (w.id, w.frame)).collect();
-            self.matched = portal::match_window(src.size_rect(), &candidates);
+            self.matched = windows.iter().map(|(id, size)| (*id, portal::match_window(*size, &candidates))).collect();
         }
         Some(Front { app_name, app_id, pid, window, list, overlay })
     }
@@ -190,16 +219,24 @@ impl Platform for LinuxPlatform {
 
     fn stop_capture(&mut self) {
         self.capture.stop();
-        self.matched = None;
+        self.matched.clear();
     }
 
-    fn picked(&self) -> Option<PickedContent> {
-        let src = self.capture.source()?;
-        Some(portal::picked_content(&src, &self.monitors(), self.matched))
+    fn add_source(&mut self) {
+        self.capture.present_add();
     }
 
-    fn latest_frame(&self) -> Option<Frame> {
-        self.capture.frames.latest()
+    fn picked(&self) -> Vec<PickedContent> {
+        let monitors = self.monitors();
+        self.capture
+            .sources()
+            .into_iter()
+            .map(|(id, src)| portal::picked_content(&src, &monitors, self.matched.get(&id).copied().flatten()).with_source(id))
+            .collect()
+    }
+
+    fn latest_frame(&self, source: u32) -> Option<Frame> {
+        self.capture.latest_frame(source)
     }
 
     fn front(&mut self, is_excluded: &dyn Fn(Option<&str>, &str) -> bool) -> Option<Front> {
@@ -270,7 +307,16 @@ impl Platform for LinuxPlatform {
     }
 
     fn status_changed(&mut self, status: &Status) {
+        let cues = Cue::changes(&self.last_status, status);
+        if !cues.is_empty() && Config::load(&self.config).sounds {
+            cues.into_iter().for_each(reminder::play_cue);
+        }
+        self.last_status = status.clone();
         self.tray.set_status(status);
+    }
+
+    fn remind(&mut self) {
+        reminder::ask_and_make(self.notifier.clone());
     }
 }
 
@@ -293,7 +339,7 @@ mod tests {
     fn wayland_single_monitor_reads_text_but_never_guesses_ocr() {
         let monitor = Rect::new(0.0, 0.0, 1920.0, 1080.0);
         let pick = PickedContent::display(monitor);
-        let mut front = ListedWindow::new(1, 1, wayland_monitor_frame(monitor, 1));
+        let mut front = ListedWindow::new(1, 1, wayland_monitor_frame(&[monitor], 1));
         front.layer = 0;
         assert!(Membership::contains(&pick, &front), "accessibility text is read");
         assert_eq!(
@@ -308,10 +354,25 @@ mod tests {
         let monitor = Rect::new(1920.0, 0.0, 1920.0, 1080.0);
         let pick = PickedContent::display(monitor);
         for n in [0, 2, 3] {
-            let front = ListedWindow::new(1, 1, wayland_monitor_frame(monitor, n));
+            let front = ListedWindow::new(1, 1, wayland_monitor_frame(&[monitor], n));
             assert!(!Membership::contains(&pick, &front), "{n} monitors: cannot tell where the window is");
         }
-        assert!(wayland_monitor_frame(Rect::ZERO, 1).is_empty());
+        assert!(wayland_monitor_frame(&[Rect::ZERO], 1).is_empty());
+        assert!(wayland_monitor_frame(&[monitor, monitor], 2).is_empty(), "the same monitor twice is one");
+    }
+
+    #[test]
+    fn wayland_every_monitor_shared_reads_text() {
+        let (left, right) = (Rect::new(0.0, 0.0, 1920.0, 1080.0), Rect::new(1920.0, 0.0, 1920.0, 1080.0));
+        let frame = wayland_monitor_frame(&[right, left], 2);
+        let picks = [PickedContent::display(right).with_source(1), PickedContent::display(left).with_source(2)];
+        let front = ListedWindow::new(1, 1, frame);
+        assert_eq!(Membership::pick(&front, &picks).map(|p| p.source), Some(1), "both shared: text is read");
+        assert_eq!(
+            Membership::ocr_decision(&picks[0], &front, std::slice::from_ref(&front)),
+            OcrDecision::Skip(Skip::NotPicked),
+            "OCR still fails closed"
+        );
     }
 
     #[test]

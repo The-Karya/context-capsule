@@ -5,6 +5,7 @@
 use crate::clock;
 use crate::events::Event;
 use crate::redact::{char_count, Redactor};
+use std::sync::atomic::{AtomicU32, Ordering};
 use std::sync::mpsc::{channel, Receiver, Sender};
 use std::sync::Arc;
 use std::time::{Duration, SystemTime};
@@ -150,9 +151,21 @@ impl VoiceOutcome {
     }
 }
 
+/// How loud the mic is right now (0…1), for the tray's moving bars. Never stored.
+static LEVEL: AtomicU32 = AtomicU32::new(0);
+
 pub struct Voice;
 
 impl Voice {
+    /// The mic's latest loudness (the voice engine sets it for each buffer, and 0 when the mic closes).
+    pub fn set_level(level: f32) {
+        LEVEL.store(level.clamp(0.0, 1.0).to_bits(), Ordering::Relaxed);
+    }
+
+    pub fn level() -> f32 {
+        f32::from_bits(LEVEL.load(Ordering::Relaxed))
+    }
+
     /// Longest note; the mic closes on its own after this.
     pub const MAX_DURATION: Duration = Duration::from_secs(120);
     /// Shorter than this is a double press, not speech.

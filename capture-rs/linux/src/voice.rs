@@ -242,8 +242,10 @@ mod whisper {
             let sink = captured.clone();
             let push = move |samples: &[f32]| {
                 let mono = to_mono(samples, channels);
+                let level = Voice::peak(&mono);
+                Voice::set_level(level); // the tray's moving bars; never stored
                 let mut c = sink.lock().unwrap();
-                c.peak = c.peak.max(Voice::peak(&mono));
+                c.peak = c.peak.max(level);
                 let room = cap.saturating_sub(c.mono.len());
                 c.mono.extend_from_slice(&mono[..mono.len().min(room)]);
             };
@@ -286,6 +288,7 @@ mod whisper {
             };
             let Mic { _stream, captured, rate } = mic;
             drop(_stream); // the mic closes now
+            Voice::set_level(0.0);
             let Captured { mono, peak } = std::mem::take(&mut *captured.lock().unwrap());
             let seconds = mono.len() as f64 / rate.max(1) as f64;
             let ctx = self.ctx.lock().unwrap().clone();
@@ -307,6 +310,7 @@ mod whisper {
 
         fn cancel(&mut self) {
             self.mic = None;
+            Voice::set_level(0.0);
         }
 
         fn device_name(&self) -> Option<String> {
