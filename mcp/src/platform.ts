@@ -37,9 +37,9 @@ const WORDS: Record<OS, PlatformWords> = {
     machine: "this Mac",
   },
   windows: {
-    recordKey: "Ctrl+Alt+Shift+C",
-    recordKeyShort: "Ctrl+Alt+Shift+C",
-    voiceKeyShort: "Ctrl+Alt+Shift+V",
+    recordKey: "Alt+C",
+    recordKeyShort: "Alt+C",
+    voiceKeyShort: "Alt+V",
     picker: "the Windows picker",
     tray: "system tray (bottom right; it may be under the ^ arrow)",
     openApp:
@@ -49,9 +49,9 @@ const WORDS: Record<OS, PlatformWords> = {
     machine: "this PC",
   },
   linux: {
-    recordKey: "Ctrl+Alt+Shift+C",
-    recordKeyShort: "Ctrl+Alt+Shift+C",
-    voiceKeyShort: "Ctrl+Alt+Shift+V",
+    recordKey: "Alt+C",
+    recordKeyShort: "Alt+C",
+    voiceKeyShort: "Alt+V",
     picker: "the screen-sharing picker",
     tray: "panel's tray",
     openApp:

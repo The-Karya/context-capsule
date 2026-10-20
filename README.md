@@ -22,8 +22,8 @@ capsule is written **for Claude**: people can read it, but they don't have to.
 
 | | macOS 14+ | Windows 10 / 11 | Linux (Wayland, X11) |
 |---|---|---|---|
-| Start / stop contextualizing | ⌥C | Ctrl+Alt+Shift+C | Ctrl+Alt+Shift+C |
-| Speak a note | ⌥V | Ctrl+Alt+Shift+V | Ctrl+Alt+Shift+V |
+| Start / stop contextualizing | ⌥C | Alt+C | Alt+C |
+| Speak a note | ⌥V | Alt+V | Alt+V |
 | Status | in daily use | built, first tests now | built, not yet tried on a real desktop |
 
 ## Get started

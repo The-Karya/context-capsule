@@ -107,8 +107,8 @@ files. Build script `capture/build.sh` → `capture/build/Context Capsule.app`
 
 Same behaviour and the same files as `capture/`, through a shared crate
 (`capture-rs/core`: a port of the Swift logic, tested against the same vectors so
-events are byte-identical) and one tray app per OS. Hotkeys **Ctrl+Alt+Shift+C**
-(record) and **Ctrl+Alt+Shift+V** (voice note).
+events are byte-identical) and one tray app per OS. Hotkeys **Alt+C**
+(start/stop contextualizing) and **Alt+V** (speak a note) — the same keys as the Mac's ⌥C / ⌥V.
 
 | | Windows 10 1903+ / 11 | Linux (Wayland, X11) |
 |---|---|---|
