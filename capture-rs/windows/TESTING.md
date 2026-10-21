@@ -216,8 +216,19 @@ after 7 days instead of 30; capsules are never deleted).
 4. Tell us: did it work, and did the capsules match what you did?
 5. Back in Context Capsule (tray → **Open Context Capsule**): ✅ **Home → Recent capsules**
    lists them; **Capsules** groups them by project (*Whole project* first). On one capsule,
-   click **⋯** → **Copy file** and paste into a chat or a folder ✅ the file arrives;
-   **Copy text**, **Save a copy…**, **Show in folder** and **Open** work too.
+   click **⋯** → **Copy file**.
+6. **Check before sharing**: if the capsule has names, emails, phone numbers, links, amounts
+   or file paths, ✅ the window shows *Check before sharing* with them in groups (People,
+   Emails, …), all checked. Uncheck one, click **Share**, and paste into a chat or a folder
+   ✅ the checked ones say `[removed]`, the unchecked one is still there. Click **Open** on the
+   capsule ✅ your saved capsule is unchanged. Try **Copy text** and **Save a copy…** the same
+   way, and **Cancel** (or Esc) once ✅ nothing is copied. A capsule with nothing private
+   ✅ copies at once. **Show in folder** works too.
+7. **Search**: on **Capsules**, type a word from one capsule's title or *In short* in the search
+   box ✅ only matching capsules stay; Esc clears it. **Ask Claude** is grey while the box is
+   empty. Type a question (e.g. *what did I decide about pricing?*) and click **Ask Claude** (or
+   press Enter) ✅ Claude opens on a new chat with *Use Context Capsule to search my capsules: …*
+   typed in.
 
 ## 11. Send us the results
 
@@ -246,16 +257,24 @@ after 7 days instead of 30; capsules are never deleted).
 3. Settings → Apps → Installed apps: ✅ *Context Capsule*, publisher *Karya*, version 0.1.0.
 4. If open at login was on (part 1): Settings → Apps → Startup ✅ still lists Context Capsule
    (it now starts the installed copy).
-5. Right-click the tray icon → **Check for updates**. ✅ A message says *You have the latest
+5. **Open a capsule someone sent**: save a copy of one of your capsules to the Desktop
+   (Capsules → ⋯ → **Save a copy…**). Right-click it → **Open with** (Windows 11: *Show more
+   options* first if needed) ✅ *Context Capsule* is in the list, and double-clicking a `.md`
+   file still opens your usual app. Choose **Context Capsule** ✅ Claude opens on a new chat with
+   *Use Context Capsule to continue from the capsule at C:\Users\…* typed in (with Context
+   Capsule running, and again after quitting it). Do the same with any other `.md` file ✅ a box
+   says *Not a capsule*. **Capsules → Open a capsule…** does the same from a file dialog.
+6. Right-click the tray icon → **Check for updates**. ✅ A message says *You have the latest
    version.* or *Couldn't check for updates. Try again later.* (until we publish a release,
    the second one is expected). An update itself can only be tested once a newer release is
    out: then a box says *Context Capsule 0.2.0 is ready. Restart to update.*, **Restart now**
    starts the new version within a few seconds, and Settings → Apps shows the new version.
-6. Settings → Apps → Context Capsule → **Uninstall**. ✅ The tray icon goes away, and a box asks
+7. Settings → Apps → Context Capsule → **Uninstall**. ✅ The tray icon goes away, and a box asks
    *Also delete your recordings and capsules?* Click **No**. ✅ *Context Capsule is removed.*
-7. ✅ The Start menu entry, the Settings → Apps entry and the folder
+8. ✅ The Start menu entry, the Settings → Apps entry and the folder
    `%LOCALAPPDATA%\Programs\Context Capsule` are gone, and
-   `C:\Users\<you>\.context-capsule\` is still there.
+   `C:\Users\<you>\.context-capsule\` is still there. Right-click a `.md` file → **Open with**
+   ✅ Context Capsule is no longer offered.
 
 ## Notes for the tester
 

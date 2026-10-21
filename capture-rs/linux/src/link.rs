@@ -1,10 +1,11 @@
 // context-capsule — linux: the line from the tray and the engine's thread to the window (which lives on the
-// GTK thread): open it, show the latest status, quit. Without the window (no display, or built without the
+// GTK thread): open it, show the latest status, open a capsule someone sent, quit. Without the window (no display, or built without the
 // "window" feature) the link is off and every call does nothing.
 #![cfg_attr(not(feature = "window"), allow(dead_code))]
 
 use context_capsule_core::window::Section;
 use context_capsule_core::Status;
+use std::path::PathBuf;
 use std::sync::Arc;
 
 /// What the window is told.
@@ -14,6 +15,8 @@ pub enum UiMsg {
     Open(Option<Section>),
     /// The engine's status changed.
     Status(Box<Status>),
+    /// A capsule someone sent was opened with Context Capsule: Claude carries on from it.
+    OpenCapsule(PathBuf),
     /// The engine stopped: close everything.
     Quit,
 }
@@ -41,6 +44,10 @@ impl WindowLink {
 
     pub fn open(&self, section: Option<Section>) {
         self.send(UiMsg::Open(section));
+    }
+
+    pub fn open_capsule(&self, path: PathBuf) {
+        self.send(UiMsg::OpenCapsule(path));
     }
 
     pub fn status(&self, status: &Status) {
@@ -74,10 +81,12 @@ mod tests {
         assert!(on.is_on());
         on.open(Some(Section::Settings));
         on.status(&Status { recording: true, ..Default::default() });
+        on.open_capsule(PathBuf::from("/tmp/a.capsule.md"));
         on.quit();
         let got = got.lock().unwrap();
         assert_eq!(got[0], UiMsg::Open(Some(Section::Settings)));
         assert!(matches!(&got[1], UiMsg::Status(s) if s.recording));
-        assert_eq!(got[2], UiMsg::Quit);
+        assert_eq!(got[2], UiMsg::OpenCapsule(PathBuf::from("/tmp/a.capsule.md")));
+        assert_eq!(got[3], UiMsg::Quit);
     }
 }

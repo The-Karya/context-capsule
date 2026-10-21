@@ -320,6 +320,18 @@ pub const SAVE_COPY: &str = "Save a copy…";
 pub const COPIED_FILE: &str = "Copied. Paste it in WhatsApp, Slack, email or any chat.";
 pub const COPIED_TEXT: &str = "Text copied. Paste it into a chat, or into Claude.";
 
+/// Capsules: open one someone sent, search, and ask Claude.
+pub const OPEN_CAPSULE: &str = "Open a capsule…";
+pub const SEARCH_CAPSULES: &str = "Search capsules";
+pub const ASK_CLAUDE: &str = "Ask Claude";
+pub const NO_MATCHES: &str = "No capsules match. Ask Claude to search inside them.";
+
+/// Before a capsule is shared (Copy file, Copy text, Save a copy…).
+pub const CHECK_TITLE: &str = "Check before sharing";
+pub const CHECK_INTRO: &str =
+    "These might be private. Checked ones become [removed] in the copy you share. Your saved capsule stays as it is.";
+pub const SHARE: &str = "Share";
+
 pub const PROJECTS_INTRO: &str = "Work is sorted into these by itself, from words in window names and web addresses.";
 pub const NO_PROJECTS: &str = "No projects yet. Claude makes them when it sorts your day.";
 pub const EDIT: &str = "Edit";

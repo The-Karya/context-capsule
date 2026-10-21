@@ -58,7 +58,16 @@ system accent color.
   *Shares all your screens. Private apps are never read.*); today's time per project; the three newest capsules. On the side (under it when the window is
   narrow): the shortcuts, **Working on** (Find by itself, each project, New project), and
   **Make today's capsules** (opens Claude with the request typed in).
-- **Capsules** — by project; Open, and Copy file / Copy text / Save a copy… / Show in folder.
+- **Capsules** — by project; Open, and Copy file / Copy text / Save a copy… / Show in folder. A search
+  box filters by title and *In short* as you type; **Ask Claude** (or Enter; off while the box is
+  empty) opens Claude with *Use Context Capsule to search my capsules: …* typed in. **Open a capsule…**
+  picks a `.md` file someone sent (see below).
+- **Check before sharing** — Copy file, Copy text and Save a copy… first show a dialog with what in the
+  capsule might be private, by group (People, Emails, Phone numbers, Links, Money, Files), each with a
+  check box, all checked. **Share** uses a copy with the checked ones replaced by `[removed]` (Copy
+  file: a temporary file in `$TMPDIR/context-capsule-shared/`); the saved capsule never changes.
+  Nothing found: it shares at once. Plain rules, no AI, the same as the Mac's (core `share_check`,
+  cases in `spec/share-check.json`).
 - **Projects** — each project and what finds it; Edit (name, clues) and Delete (asked first).
   Saved to projects.json; the recorder reads it again by itself.
 - **Settings** — your name; Set up (Voice notes: the speech model, downloaded only after you say
@@ -89,6 +98,14 @@ nothing): `context-capsule --window-only` (Home) or `--window-only=settings` (`h
 `CONTEXT_CAPSULE_WINDOW_SIZE=1100x760` opens the window at that size (for pictures of it, e.g. under
 Xvfb, where there is no window manager to resize it).
 
+**Opening a capsule someone sent**: the app's desktop entry has `MimeType=text/markdown;` and
+`Exec=… %f`, so it is offered under *Open With* for `.md` files (never made the default app). Opening
+one (or `context-capsule --open <file>`, or **Open a capsule…**) checks it looks like a capsule (front
+matter with `capsule:` and `title:`), then opens Claude on a new chat with *Use Context Capsule to
+continue from the capsule at <full path>.* typed in (also on the clipboard). Not a capsule: *Not a
+capsule*, nothing opened. If Context Capsule already runs, GApplication hands it the file (its
+`open` signal) and the new copy quits.
+
 Evening reminder: at 18:00 (`"remind_at"`, `false` = off), if something was recorded today and
 no capsule exists for today, it asks "Make today's capsules?" once a day (zenity / kdialog, else a
 notification with buttons). **Make** copies the request (`wl-copy`, `xclip` or `xsel`) and opens
@@ -100,7 +117,8 @@ Claude on a new chat with the request typed in (`xdg-open`); press Enter. Record
 The release is one file, `Context-Capsule-<version>-x86_64.AppImage`. Make it runnable
 (Properties → Allow executing, or `chmod +x`) and open it. The first time it asks *Add Context
 Capsule to your apps?* — **Add** writes `~/.local/share/applications/com.thekarya.contextcapsule.desktop`
-(pointing at the AppImage) and its icon. Open at login points at the AppImage too. It uses the
+(pointing at the AppImage, offered for `.md` files under Open With) and its icon; an entry written by an
+older version is brought up to date at the next start. Open at login points at the AppImage too. It uses the
 system's PipeWire, D-Bus, ALSA and Tesseract (the "run" packages below). Built on Debian 12, so it
 needs glibc 2.36 or newer (Ubuntu 23.04+, Fedora 37+, Debian 12+).
 

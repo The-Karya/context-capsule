@@ -14,7 +14,9 @@ use context_capsule_core::{
     hotkeys_taken_message, look, AppLog, Config, Cue, Engine, Exclusion, Front, Indicator, Location,
     Msg, Options, Paths, PlatformText, ProjectItem, Projects, Redactor, Status, Voice,
 };
+use context_capsule_core::claude;
 use std::cell::{Cell, RefCell};
+use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicU32, Ordering};
 use std::sync::mpsc::{channel, Receiver, Sender};
 use std::sync::Arc;
@@ -23,15 +25,17 @@ use windows::core::{w, HSTRING};
 use windows::Win32::Foundation::{GetLastError, ERROR_ALREADY_EXISTS, HWND, LPARAM, LRESULT, POINT, WPARAM};
 use windows::Win32::Globalization::{GetTimeFormatEx, GetUserDefaultLocaleName, TIME_NOSECONDS};
 use windows::Win32::System::Console::{AttachConsole, ATTACH_PARENT_PROCESS};
+use windows::Win32::System::DataExchange::COPYDATASTRUCT;
 use windows::Win32::System::LibraryLoader::GetModuleHandleW;
 use windows::Win32::System::Threading::CreateMutexW;
 use windows::Win32::UI::HiDpi::{SetProcessDpiAwarenessContext, DPI_AWARENESS_CONTEXT_PER_MONITOR_AWARE_V2};
 use windows::Win32::UI::Shell::{NINF_KEY, NIN_SELECT};
 use windows::Win32::UI::WindowsAndMessaging::{
-    AppendMenuW, CreatePopupMenu, CreateWindowExW, DefWindowProcW, DestroyMenu, DestroyWindow, DispatchMessageW, GetCursorPos,
-    GetMessageW, PostMessageW, PostQuitMessage, RegisterClassW, RegisterWindowMessageW, SetForegroundWindow, TrackPopupMenu,
-    TranslateMessage, HMENU, MF_CHECKED, MF_GRAYED, MF_POPUP, MF_SEPARATOR, MF_STRING, MSG, TPM_BOTTOMALIGN, TPM_NONOTIFY,
-    TPM_RETURNCMD, TPM_RIGHTBUTTON, WINDOW_EX_STYLE, WM_APP, WM_CLOSE, WM_CONTEXTMENU, WM_DESTROY, WM_ENDSESSION, WM_HOTKEY, WM_NULL,
+    AllowSetForegroundWindow, AppendMenuW, CreatePopupMenu, CreateWindowExW, DefWindowProcW, DestroyMenu, DestroyWindow,
+    DispatchMessageW, FindWindowW, GetCursorPos, GetMessageW, PostMessageW, PostQuitMessage, RegisterClassW, RegisterWindowMessageW,
+    SendMessageW, SetForegroundWindow, TrackPopupMenu, TranslateMessage, ASFW_ANY, HMENU, MF_CHECKED, MF_GRAYED, MF_POPUP,
+    MF_SEPARATOR, MF_STRING, MSG, TPM_BOTTOMALIGN, TPM_NONOTIFY, TPM_RETURNCMD, TPM_RIGHTBUTTON, WINDOW_EX_STYLE, WM_APP, WM_CLOSE,
+    WM_CONTEXTMENU, WM_COPYDATA, WM_DESTROY, WM_ENDSESSION, WM_HOTKEY, WM_NULL,
     WM_QUERYENDSESSION, WM_SETTINGCHANGE, WM_TIMER, WNDCLASSW, WS_EX_TOOLWINDOW, WS_POPUP, KillTimer, SetTimer,
 };
 
@@ -74,7 +78,44 @@ pub enum UiCmd {
     Remind,
     /// Fresh numbers and lists for the Context Capsule window, read off the UI thread.
     WindowData(Box<crate::layout::Data>),
+    /// A capsule someone sent was opened (Open with → Context Capsule, maybe forwarded by a second copy).
+    OpenCapsule(PathBuf),
     EngineDone,
+}
+
+/// WM_COPYDATA from a second copy started with `--open <path>`: dwData says what the bytes are (UTF-16 path).
+const COPYDATA_OPEN: usize = 0x4343_4F50; // "CCOP"
+
+/// Started with `--open <path>` while Context Capsule already runs: hand the path to it. false: no running copy.
+fn forward_open(path: &Path) -> bool {
+    // SAFETY: looks up a window class by name.
+    let Ok(hwnd) = (unsafe { FindWindowW(w!("ContextCapsuleTray"), None) }) else { return false };
+    if hwnd.is_invalid() {
+        return false;
+    }
+    let wide: Vec<u16> = path.as_os_str().to_string_lossy().encode_utf16().collect();
+    let data = COPYDATASTRUCT { dwData: COPYDATA_OPEN, cbData: (wide.len() * 2) as u32, lpData: wide.as_ptr() as *mut _ };
+    // SAFETY: `data` and `wide` live until SendMessage returns (the receiver copies them). The running copy may
+    // bring Claude or a message to the front.
+    unsafe {
+        let _ = AllowSetForegroundWindow(ASFW_ANY);
+        SendMessageW(hwnd, WM_COPYDATA, None, Some(LPARAM(&data as *const COPYDATASTRUCT as isize))).0 == 1
+    }
+}
+
+/// The path in a WM_COPYDATA from `forward_open`.
+///
+/// # Safety
+/// `lp` must be the LPARAM of a WM_COPYDATA message being handled now.
+unsafe fn copied_path(lp: LPARAM) -> Option<PathBuf> {
+    // SAFETY: Windows passes a COPYDATASTRUCT valid for this message; cbData bytes at lpData.
+    let data = unsafe { (lp.0 as *const COPYDATASTRUCT).as_ref()? };
+    if data.dwData != COPYDATA_OPEN || data.lpData.is_null() || data.cbData == 0 || data.cbData > 64 * 1024 {
+        return None;
+    }
+    // SAFETY: as above.
+    let wide = unsafe { std::slice::from_raw_parts(data.lpData as *const u16, data.cbData as usize / 2) };
+    Some(PathBuf::from(String::from_utf16_lossy(wide)))
 }
 
 /// A handle to the UI thread that any thread may hold.
@@ -146,11 +187,18 @@ pub fn run() {
         // Started from a terminal: show our log lines there.
         let _ = AttachConsole(ATTACH_PARENT_PROCESS);
     }
+    // Opened with a capsule (Open with → Context Capsule, or `--open <path>`).
+    let args: Vec<String> = std::env::args().collect();
+    let open = claude::open_arg(&args, &std::env::current_dir().unwrap_or_default());
     // One recorder at a time.
     // SAFETY: a named mutex held for the life of the process.
     let _single = unsafe { CreateMutexW(None, true, w!("Local\\ContextCapsuleRecorder")) };
     // SAFETY: reads this thread's last error.
     if unsafe { GetLastError() } == ERROR_ALREADY_EXISTS {
+        // The running one opens the capsule.
+        if open.as_deref().is_some_and(forward_open) {
+            return;
+        }
         win::alert(None, "Context Capsule", "Context Capsule is already running. Look for its icon in the tray.");
         return;
     }
@@ -197,7 +245,9 @@ pub fn run() {
             look_timer: false,
         })
     });
-    if !setup::seen() {
+    if let Some(path) = open {
+        Ui::of(hwnd).post(UiCmd::OpenCapsule(path));
+    } else if !setup::seen() {
         open_window(hwnd, Some(context_capsule_core::window::Section::Settings)); // first launch
     }
     if !taken.is_empty() {
@@ -329,6 +379,13 @@ extern "system" fn proc(hwnd: HWND, msg: u32, wp: WPARAM, lp: LPARAM) -> LRESULT
         WM_SETTINGCHANGE => {
             with_app(|a| a.tray.retheme()); // light / dark taskbar
         }
+        // A second copy, opened with a capsule, hands it to us.
+        WM_COPYDATA => {
+            // SAFETY: this is a WM_COPYDATA being handled now.
+            let Some(path) = (unsafe { copied_path(lp) }) else { return LRESULT(0) };
+            Ui::of(hwnd).post(UiCmd::OpenCapsule(path)); // after the sender is released
+            return LRESULT(1);
+        }
         // Another copy (install, uninstall) or "Restart now" asks us to quit: end cleanly, like Quit.
         WM_CLOSE => quit(hwnd),
         WM_QUERYENDSESSION => return LRESULT(1),
@@ -399,6 +456,12 @@ fn handle(hwnd: HWND, cmd: UiCmd) {
             }
         }
         UiCmd::WindowData(data) => main_window::set_data(*data),
+        UiCmd::OpenCapsule(path) => {
+            if let Some(log) = with_app(|a| a.log.clone()) {
+                let ui = Ui::of(hwnd);
+                std::thread::spawn(move || reminder::open_received(&ui, &log, &path));
+            }
+        }
         // Quitting: let an open alert (e.g. "Nothing was saved") be read first.
         UiCmd::EngineDone if ALERTS.get() > 0 => CLOSE_PENDING.set(true),
         UiCmd::EngineDone => close(hwnd),

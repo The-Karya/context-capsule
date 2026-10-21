@@ -93,6 +93,12 @@ impl CapsuleSummary {
         day_label(&self.created.chars().take(10).collect::<String>(), today)
     }
 
+    /// The search box on Capsules: every word typed is in the title or "In short" (any letter case). Empty: all.
+    pub fn matches(&self, query: &str) -> bool {
+        let hay = format!("{} {}", self.title, self.in_short).to_lowercase();
+        query.split_whitespace().all(|w| hay.contains(&w.to_lowercase()))
+    }
+
     /// Made this week (not the growing project capsule, which is rewritten every day).
     pub fn made_since(&self, since: chrono::DateTime<chrono::Utc>) -> bool {
         self.kind != "project" && crate::stats::parse_iso(&self.created).is_some_and(|c| c >= since)
@@ -114,6 +120,11 @@ pub fn day_label(ymd: &str, today: NaiveDate) -> String {
 /// Today, local time (for labels).
 pub fn today() -> NaiveDate {
     Local::now().date_naive()
+}
+
+/// The capsules that match the search box (all of them when it's empty).
+pub fn search(capsules: &[CapsuleSummary], query: &str) -> Vec<CapsuleSummary> {
+    capsules.iter().filter(|c| c.matches(query)).cloned().collect()
 }
 
 /// One project's capsules (or "Other" for capsules without one).
@@ -198,6 +209,18 @@ mod tests {
         assert_eq!((c.label(today).as_str(), c.when(today).as_str()), ("Today", ""));
         c.kind = String::new();
         assert_eq!(c.label(today), "web ", "a one-off capsule: its title");
+    }
+
+    #[test]
+    fn search_box() {
+        let mut c = cap("web", "daily", "2026-10-19", "2026-10-19T18:00:00Z");
+        c.title = "Pricing page".into();
+        c.in_short = "Moved Teams to $12 after the Acme call.".into();
+        assert!(c.matches("") && c.matches("  "));
+        assert!(c.matches("pricing") && c.matches("ACME teams"), "any case, every word, title or In short");
+        assert!(!c.matches("pricing figma"));
+        let other = cap("app", "daily", "2026-10-18", "2026-10-18T18:00:00Z");
+        assert_eq!(search(&[c.clone(), other], "acme"), vec![c]);
     }
 
     #[test]

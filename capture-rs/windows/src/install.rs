@@ -1,7 +1,8 @@
 // context-capsule — windows: easy install without admin or an installer — the downloaded exe offers "Install
 // Context Capsule?" and copies itself to %LOCALAPPDATA%\Programs\Context Capsule, with a Start menu shortcut and
-// an entry in Settings → Apps (HKCU, so no admin). `--uninstall` takes it all away again (the user's recordings
-// only if they say so). The Claude extension is inside the exe and written next to it.
+// an entry in Settings → Apps and an "Open with" choice for .md files (never the default; all HKCU, so no admin).
+// `--uninstall` takes it all away again (the user's recordings only if they say so). The Claude extension is
+// inside the exe and written next to it.
 //! "Just run it" runs the copy where it is; it asks again next time it is opened, but never at login
 //! (`--login`). Also the file swap updates use: rename the running exe to `.old` (Windows allows that), move the new one in.
 
@@ -35,6 +36,8 @@ pub enum Launch {
     Uninstall,
     /// Started by the old version after an update; wait for that process (this pid) to end first.
     Updated(u32),
+    /// Opened with a capsule (Open with → Context Capsule): never asks to install.
+    Open,
 }
 
 impl Launch {
@@ -45,11 +48,49 @@ impl Launch {
                 "--uninstall" => return Launch::Uninstall,
                 LOGIN_ARG => return Launch::Login,
                 "--updated" => return Launch::Updated(it.next().and_then(|p| p.parse().ok()).unwrap_or(0)),
+                a if a == OPEN_ARG || a.starts_with("--open=") => return Launch::Open,
                 _ => {}
             }
         }
         Launch::Normal
     }
+}
+
+/// In the Open with command: the file follows.
+pub const OPEN_ARG: &str = "--open";
+/// Context Capsule as an "Open with" choice for .md files (never the default app): this ProgID, listed under
+/// .md's OpenWithProgids, all under HKCU\Software\Classes (no admin).
+pub const PROG_ID: &str = "ContextCapsule.Capsule";
+pub const CLASSES: &str = r"Software\Classes";
+pub const MD_OPEN_WITH: &str = r"Software\Classes\.md\OpenWithProgids";
+
+/// The keys under HKCU this sets up for Open with: (key, value name ("" = the key's default), data).
+pub fn open_with_values(exe: &Path) -> Vec<(String, &'static str, String)> {
+    let exe_s = exe.to_string_lossy();
+    let prog = format!(r"{CLASSES}\{PROG_ID}");
+    let app = applications_key(exe);
+    vec![
+        (prog.clone(), "", "Capsule".to_string()),
+        (format!(r"{prog}\DefaultIcon"), "", format!("\"{exe_s}\",0")),
+        (format!(r"{prog}\shell\open"), "FriendlyAppName", DISPLAY_NAME.to_string()),
+        (format!(r"{prog}\shell\open\command"), "", open_command(exe)),
+        (MD_OPEN_WITH.to_string(), PROG_ID, String::new()),
+        (app.clone(), "FriendlyAppName", DISPLAY_NAME.to_string()),
+        (format!(r"{app}\SupportedTypes"), ".md", String::new()),
+        (format!(r"{app}\shell\open\command"), "", open_command(exe)),
+    ]
+}
+
+/// `Software\Classes\Applications\context-capsule.exe` (the exe's file name).
+pub fn applications_key(exe: &Path) -> String {
+    let full = exe.to_string_lossy();
+    let name = full.rsplit(['\\', '/']).next().filter(|n| !n.is_empty()).unwrap_or(EXE_NAME);
+    format!(r"{CLASSES}\Applications\{name}")
+}
+
+/// `"<exe>" --open "%1"`
+pub fn open_command(exe: &Path) -> String {
+    format!("\"{}\" {OPEN_ARG} \"%1\"", exe.to_string_lossy())
 }
 
 /// `%LOCALAPPDATA%\Programs\Context Capsule`
@@ -205,7 +246,7 @@ mod win {
     use windows::Win32::System::Com::{CoCreateInstance, IPersistFile, CLSCTX_INPROC_SERVER};
     use windows::Win32::System::Registry::{RegDeleteTreeW, HKEY_CURRENT_USER};
     use windows::Win32::System::Threading::{OpenProcess, WaitForSingleObject, PROCESS_SYNCHRONIZE};
-    use windows::Win32::UI::Shell::{IShellLinkW, ShellLink};
+    use windows::Win32::UI::Shell::{IShellLinkW, SHChangeNotify, ShellLink, SHCNE_ASSOCCHANGED, SHCNF_IDLIST};
     use windows::Win32::UI::WindowsAndMessaging::{
         FindWindowW, GetWindowThreadProcessId, MessageBoxW, PostMessageW, IDYES, MB_DEFBUTTON2, MB_ICONQUESTION, MB_SETFOREGROUND,
         MB_TOPMOST, MB_YESNO, WM_CLOSE,
@@ -234,7 +275,7 @@ mod win {
                 wait_for_exit(pid, Duration::from_secs(60));
                 log.write(&format!("update: now running {}", version()));
             }
-            Launch::Normal | Launch::Login => {}
+            Launch::Normal | Launch::Login | Launch::Open => {}
         }
         let Ok(exe) = std::env::current_exe() else { return true };
         remove_leftovers(&exe);
@@ -251,8 +292,39 @@ mod win {
         }
         if installed {
             register_uninstall(&exe); // keeps DisplayVersion right after an update
+            register_open_with(&exe); // installed before this was added, or moved
         }
         true
+    }
+
+    /// Context Capsule in .md files' "Open with" list (not the default app). Only writes when something changed.
+    fn register_open_with(exe: &Path) {
+        let values = open_with_values(exe);
+        let same = values.iter().all(|(key, name, data)| win::reg_string(key, name).as_deref() == Some(data.as_str()));
+        if same {
+            return;
+        }
+        for (key, name, data) in &values {
+            let _ = win::set_reg_string(key, name, data);
+        }
+        associations_changed();
+    }
+
+    fn unregister_open_with(exe: &Path) {
+        win::delete_reg_value(MD_OPEN_WITH, PROG_ID);
+        let app = applications_key(exe);
+        // SAFETY: deletes our own keys under HKCU (missing is fine).
+        unsafe {
+            let _ = RegDeleteTreeW(HKEY_CURRENT_USER, &HSTRING::from(format!(r"{CLASSES}\{PROG_ID}")));
+            let _ = RegDeleteTreeW(HKEY_CURRENT_USER, &HSTRING::from(app));
+        }
+        associations_changed();
+    }
+
+    /// Tell Explorer the file types changed (the Open with list is read again).
+    fn associations_changed() {
+        // SAFETY: a plain notification with no items.
+        unsafe { SHChangeNotify(SHCNE_ASSOCCHANGED, SHCNF_IDLIST, None, None) };
     }
 
     /// "Install Context Capsule?" Install / Just run it. true: installed and the installed copy started.
@@ -298,6 +370,7 @@ mod win {
             }
         }
         register_uninstall(&target);
+        register_open_with(&target);
         // Open at login keeps working, now with the installed copy.
         if win::reg_string(RUN_KEY, RUN_VALUE).is_some() {
             let _ = win::set_reg_string(RUN_KEY, RUN_VALUE, &crate::setup::run_command(&target.to_string_lossy()));
@@ -389,6 +462,8 @@ mod win {
         }
         win::delete_reg_value(RUN_KEY, RUN_VALUE);
         win::delete_reg_value(STARTUP_APPROVED_KEY, RUN_VALUE);
+        let installed_exe = env_dir("LOCALAPPDATA").map(|l| install_dir(&l).join(EXE_NAME)).unwrap_or_else(|| PathBuf::from(EXE_NAME));
+        unregister_open_with(&installed_exe);
         // SAFETY: deletes our own keys under HKCU (missing is fine).
         unsafe {
             let _ = RegDeleteTreeW(HKEY_CURRENT_USER, &HSTRING::from(UNINSTALL_KEY));
@@ -433,6 +508,21 @@ mod tests {
         assert_eq!(Launch::parse(&a(&["cc.exe", "--login"])), Launch::Login);
         assert_eq!(Launch::parse(&a(&["cc.exe", "--updated", "4242"])), Launch::Updated(4242));
         assert_eq!(Launch::parse(&a(&["cc.exe", "--updated"])), Launch::Updated(0));
+        assert_eq!(Launch::parse(&a(&["cc.exe", "--open", r"C:\x\a.capsule.md"])), Launch::Open);
+    }
+
+    #[test]
+    fn open_with_only() {
+        let exe = Path::new(r"C:\Users\s\AppData\Local\Programs\Context Capsule\context-capsule.exe");
+        let v = open_with_values(exe);
+        let get = |k: &str, n: &str| v.iter().find(|(key, name, _)| key == k && *name == n).map(|(_, _, d)| d.clone());
+        let cmd = get(r"Software\Classes\ContextCapsule.Capsule\shell\open\command", "").unwrap();
+        assert_eq!(cmd, format!("\"{}\" --open \"%1\"", exe.display()));
+        assert_eq!(get(r"Software\Classes\.md\OpenWithProgids", "ContextCapsule.Capsule").as_deref(), Some(""));
+        assert!(get(r"Software\Classes\Applications\context-capsule.exe\SupportedTypes", ".md").is_some());
+        // Never the default: .md's own default value and UserChoice are not touched.
+        assert!(!v.iter().any(|(key, name, _)| key == r"Software\Classes\.md" && name.is_empty()));
+        assert!(v.iter().all(|(key, _, _)| key.starts_with(r"Software\Classes\") && !key.contains("UserChoice")));
     }
 
     #[test]

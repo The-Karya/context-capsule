@@ -8,12 +8,13 @@
 //! Keyboard: Tab / Shift+Tab between controls, Enter or Space to press, arrows and Page Up / Down to scroll.
 
 use crate::app::{Ui, UiCmd};
-use crate::layout::{self, Action, Data, Field, Node, View, HEADER, SIDEBAR};
+use crate::layout::{self, Action, Data, Field, Node, ShareHow, ShareView, View, HEADER, SIDEBAR};
 use crate::paint::{self, Faces, Feel, Fonts, GdiMeasure, Theme};
 use crate::setup::{self, Done};
 use crate::{input, reminder, tray, win, windows_list};
 use context_capsule_core::settings::{self, Appearance, ConfigFile, ShareScreens};
 use context_capsule_core::window::{self as w, HomeNumbers, Section, WINDOWS_KEYS};
+use context_capsule_core::claude::search_prompt;
 use context_capsule_core::{AppLog, CapsuleSummary, Config, Msg, Paths, Projects, Status, WorkStats};
 use std::cell::RefCell;
 use std::collections::HashMap;
@@ -62,6 +63,8 @@ const EN_CHANGE: u32 = 0x0300;
 const EM_LIMITTEXT: u32 = 0x00C5;
 const EM_SETSEL: u32 = 0x00B1;
 const ES_AUTOHSCROLL: u32 = 0x0080;
+/// A grey hint in an empty text box (Common Controls 6).
+const EM_SETCUEBANNER: u32 = 0x1501;
 const FIELD_ID: usize = 300;
 /// Scroll this far per mouse-wheel notch or arrow key.
 const STEP: f64 = 48.0;
@@ -110,6 +113,10 @@ struct Win {
     fonts: Fonts,
     field_brush: HBRUSH,
     notice: Option<(String, Instant)>,
+    /// Capsules' search box.
+    search: String,
+    /// "Check before sharing", shown instead of the page while a capsule is about to be shared.
+    share: Option<ShareView>,
     /// Dragging the scroll bar: (pointer y in DIPs, scroll) when it started.
     drag: Option<(f64, f64)>,
     scale: f64,
@@ -183,6 +190,8 @@ pub fn show(section: Option<Section>, ctx: Ctx, status: &Status) {
         // SAFETY: a brush we delete when the window goes away.
         field_brush: unsafe { CreateSolidBrush(paint::colorref(theme.field)) },
         notice: None,
+        search: String::new(),
+        share: None,
         drag: None,
         scale,
         size: (0.0, 0.0),
@@ -373,6 +382,9 @@ impl Win {
     }
 
     fn go(&mut self, s: Section) {
+        if self.share.take().is_some() {
+            self.scroll = 0.0;
+        }
         if s != self.section {
             self.section = s;
             self.scroll = 0.0;
@@ -435,6 +447,8 @@ impl Win {
             voice: cfg!(feature = "voice"),
             auto_update: Some(crate::update::auto_update()),
             keys: &WINDOWS_KEYS,
+            search: &self.search,
+            share: self.share.as_ref(),
         };
         // SAFETY: the screen DC, only for measuring text; released below.
         let dc = unsafe { GetDC(Some(self.hwnd)) };
@@ -553,6 +567,10 @@ impl Win {
             )
             .unwrap_or_default();
             SendMessageW(h, EM_LIMITTEXT, Some(WPARAM(200)), None);
+            if f == Field::Search {
+                let hint = HSTRING::from(w::SEARCH_CAPSULES);
+                SendMessageW(h, EM_SETCUEBANNER, Some(WPARAM(1)), Some(LPARAM(hint.as_ptr() as isize)));
+            }
             let _ = SetWindowSubclass(h, Some(field_proc), 1, 0);
             h
         };
@@ -975,6 +993,44 @@ fn perform(action: Action, at: POINT) {
             with_win(|w| w.rebuild());
         }
         Action::CheckUpdates => crate::update::check_now(),
+        Action::OpenCapsule => {
+            if let Some(path) = win::open_capsule_dialog(hwnd) {
+                let (ui, log) = (ctx.ui.clone(), ctx.log.clone());
+                std::thread::spawn(move || reminder::open_received(&ui, &log, &path));
+            }
+        }
+        Action::AskClaude => {
+            let Some(question) = with_win(|w| w.search.trim().to_string()).filter(|q| !q.is_empty()) else { return };
+            let (ui, log) = (ctx.ui.clone(), ctx.log.clone());
+            std::thread::spawn(move || reminder::ask_claude(&ui, &log, &search_prompt(&question), "ask claude"));
+        }
+        Action::ShareToggle(i) => {
+            with_win(|w| {
+                if let Some(on) = w.share.as_mut().and_then(|s| s.checked.get_mut(i)) {
+                    *on = !*on;
+                }
+                w.rebuild();
+            });
+        }
+        Action::ShareGo => {
+            let taken = with_win(|w| {
+                let s = w.share.take();
+                w.scroll = 0.0;
+                w.rebuild();
+                s
+            });
+            let Some(share) = taken.flatten() else { return };
+            let removed = share.checked.iter().filter(|c| **c).count();
+            ctx.log.write(&format!("share: {removed} of {} item(s) removed", share.items.len()));
+            share_now(hwnd, share.how, &share.path, Some(&share.shared_text()));
+        }
+        Action::ShareCancel => {
+            with_win(|w| {
+                w.share = None;
+                w.scroll = 0.0;
+                w.rebuild();
+            });
+        }
         Action::AddApp => {
             let apps = open_apps(&config.exclude_apps);
             let mut labels: Vec<String> = apps.iter().map(|(_, n)| n.clone()).collect();
@@ -999,38 +1055,89 @@ fn perform(action: Action, at: POINT) {
 /// "Choose…" → an app that isn't open right now.
 const BROWSE: &str = "Find an app…";
 
-/// Copy file, Copy text, Save a copy…, Show in folder.
+/// Copy file, Copy text, Save a copy…, Show in folder. Sharing first shows "Check before sharing" when
+/// something in the capsule might be private.
 fn more(hwnd: HWND, path: &Path, at: POINT) {
     let items = [w::COPY_FILE, w::COPY_TEXT, w::SAVE_COPY, WINDOWS_KEYS.show_in_folder].map(String::from);
+    let how = match menu(hwnd, &items, None, at) {
+        Some(0) => ShareHow::CopyFile,
+        Some(1) => ShareHow::CopyText,
+        Some(2) => ShareHow::SaveCopy,
+        Some(3) => {
+            win::show_in_folder(path);
+            return;
+        }
+        _ => return,
+    };
+    let Ok(text) = std::fs::read_to_string(path) else {
+        win::alert(Some(hwnd), "Couldn't open the capsule", &path.display().to_string());
+        return;
+    };
+    match ShareView::new(path.to_path_buf(), how, text) {
+        Some(view) => {
+            with_win(|w| {
+                w.share = Some(view);
+                w.scroll = 0.0;
+                w.focus = None;
+                w.rebuild();
+            });
+        }
+        // Nothing that looks private: straight through, the file as it is.
+        None => share_now(hwnd, how, path, None),
+    }
+}
+
+/// Copy the file, copy the text, or save a copy. `text`: the checked items already removed (a temporary copy
+/// is shared; the saved capsule never changes); None: the capsule as it is.
+fn share_now(hwnd: HWND, how: ShareHow, path: &Path, text: Option<&str>) {
     let note = |s: &str| {
         with_win(|w| w.notice(s));
     };
-    match menu(hwnd, &items, None, at) {
-        Some(0) => {
-            if win::copy_file(path) {
+    let name = path.file_name().map(|f| f.to_string_lossy().into_owned()).unwrap_or_default();
+    match how {
+        ShareHow::CopyFile => {
+            let file = match text {
+                None => Some(path.to_path_buf()),
+                Some(t) => temp_copy(&name, t),
+            };
+            if file.is_some_and(|f| win::copy_file(&f)) {
                 note(w::COPIED_FILE);
             }
         }
-        Some(1) => {
-            if std::fs::read_to_string(path).is_ok_and(|t| win::copy_text(&t)) {
+        ShareHow::CopyText => {
+            let copied = match text {
+                Some(t) => win::copy_text(t),
+                None => std::fs::read_to_string(path).is_ok_and(|t| win::copy_text(&t)),
+            };
+            if copied {
                 note(w::COPIED_TEXT);
             }
         }
-        Some(2) => {
-            let name = path.file_name().map(|f| f.to_string_lossy().into_owned()).unwrap_or_default();
+        ShareHow::SaveCopy => {
             if let Some(dest) = win::save_dialog(hwnd, &name) {
                 let dest: PathBuf = dest;
-                match std::fs::copy(path, &dest) {
-                    Ok(_) => note(&format!("Saved to {}.", dest.parent().and_then(|p| p.file_name()).map(|f| f.to_string_lossy().into_owned()).unwrap_or_default())),
+                let saved = match text {
+                    Some(t) => std::fs::write(&dest, t),
+                    None => std::fs::copy(path, &dest).map(|_| ()),
+                };
+                match saved {
+                    Ok(()) => note(&format!("Saved to {}.", dest.parent().and_then(|p| p.file_name()).map(|f| f.to_string_lossy().into_owned()).unwrap_or_default())),
                     Err(e) => win::alert(Some(hwnd), "Couldn't save the copy", &e.to_string()),
                 }
             }
         }
-        Some(3) => {
-            win::show_in_folder(path);
-        }
-        _ => {}
     }
+}
+
+/// The shared copy: a file with the capsule's name in a temporary folder (it stays there to be pasted; the next
+/// share replaces it).
+fn temp_copy(name: &str, text: &str) -> Option<PathBuf> {
+    let dir = std::env::temp_dir().join("Context Capsule").join("shared");
+    let _ = std::fs::remove_dir_all(&dir);
+    std::fs::create_dir_all(&dir).ok()?;
+    let file = dir.join(if name.is_empty() { "capsule.capsule.md" } else { name });
+    std::fs::write(&file, text).ok()?;
+    Some(file)
 }
 
 fn wheel_delta(wp: WPARAM) -> f64 {
@@ -1219,6 +1326,7 @@ extern "system" fn proc(hwnd: HWND, msg: u32, wp: WPARAM, lp: LPARAM) -> LRESULT
                         w.keyboard = true;
                         return w.focus.and_then(|f| w.press(f));
                     }
+                    k if k == VK_ESCAPE.0 && w.share.is_some() => return Some((Action::ShareCancel, POINT::default())),
                     k if k == VK_ESCAPE.0 && w.editing.is_some() => return Some((Action::CancelEdit, POINT::default())),
                     k if k == VK_DOWN.0 => w.scroll_to(w.scroll + STEP),
                     k if k == VK_UP.0 => w.scroll_to(w.scroll - STEP),
@@ -1246,7 +1354,10 @@ extern "system" fn proc(hwnd: HWND, msg: u32, wp: WPARAM, lp: LPARAM) -> LRESULT
             });
         }
         WM_FIELD_ENTER => {
-            with_win(|w| {
+            let ask = with_win(|w| {
+                if field_of_hwnd(w, HWND(lp.0 as *mut _)) == Some(Field::Search) {
+                    return true; // Enter in the search box: Ask Claude
+                }
                 if w.editing.is_some() {
                     w.save_edit();
                 } else {
@@ -1255,9 +1366,25 @@ extern "system" fn proc(hwnd: HWND, msg: u32, wp: WPARAM, lp: LPARAM) -> LRESULT
                         let _ = SetFocus(Some(w.hwnd));
                     }
                 }
+                false
             });
+            if ask == Some(true) {
+                perform(Action::AskClaude, POINT::default());
+            }
         }
-        WM_FIELD_ESCAPE => perform(Action::CancelEdit, POINT::default()),
+        WM_FIELD_ESCAPE => {
+            let from = HWND(lp.0 as *mut _);
+            if with_win(|w| field_of_hwnd(w, from)) == Some(Some(Field::Search)) {
+                // Esc in the search box clears it. Outside the borrow: EN_CHANGE comes back at once and shows
+                // every capsule again.
+                // SAFETY: our own child control.
+                unsafe {
+                    let _ = SetWindowTextW(from, &HSTRING::from(""));
+                }
+            } else {
+                perform(Action::CancelEdit, POINT::default());
+            }
+        }
         WM_COMMAND => {
             let (id, code) = (wp.0 & 0xFFFF, (wp.0 >> 16) as u32 & 0xFFFF);
             if let Some(f) = field_of(id) {
@@ -1267,6 +1394,10 @@ extern "system" fn proc(hwnd: HWND, msg: u32, wp: WPARAM, lp: LPARAM) -> LRESULT
                         w.invalidate();
                     }
                     EN_KILLFOCUS => w.invalidate(),
+                    EN_CHANGE if f == Field::Search => {
+                        w.search = w.field_text(Field::Search);
+                        w.rebuild();
+                    }
                     EN_CHANGE if f == Field::Name && !w.setting_text => {
                         let typed = w.field_text(Field::Name);
                         let _ = ConfigFile::set(&w.ctx.paths.config(), settings::KEY_AUTHOR, settings::author_value(&typed));

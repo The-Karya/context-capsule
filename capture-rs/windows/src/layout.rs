@@ -6,6 +6,7 @@
 
 use crate::setup::{Done, Step};
 use context_capsule_core::capsules::{self, CapsuleSummary};
+use context_capsule_core::share_check::{self, Kind};
 use context_capsule_core::settings::{self, Appearance};
 use context_capsule_core::window::{self as w, HomeNumbers, Keys, Section};
 use context_capsule_core::{Config, Project, Status};
@@ -110,6 +111,8 @@ pub enum Style {
     Row { selected: bool },
     /// A button that opens a list of choices (a chevron on the right).
     Dropdown,
+    /// A full-width row with a check box on the left ("Check before sharing").
+    Check { on: bool },
 }
 
 /// The text boxes the window shows (real Windows edit controls, placed where the layout says).
@@ -118,10 +121,49 @@ pub enum Field {
     Name,
     ProjectName,
     ProjectClues,
+    /// Capsules: filters by title and "In short" as you type.
+    Search,
 }
 
 impl Field {
-    pub const ALL: [Field; 3] = [Field::Name, Field::ProjectName, Field::ProjectClues];
+    pub const ALL: [Field; 4] = [Field::Name, Field::ProjectName, Field::ProjectClues, Field::Search];
+}
+
+/// What happens once "Check before sharing" says Share.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum ShareHow {
+    CopyFile,
+    CopyText,
+    SaveCopy,
+}
+
+/// "Check before sharing": a capsule about to be shared, what was found in it, and which are checked.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct ShareView {
+    pub path: PathBuf,
+    pub how: ShareHow,
+    /// The capsule's text (never changed: Share uses a copy).
+    pub text: String,
+    pub items: Vec<(Kind, String)>,
+    pub checked: Vec<bool>,
+}
+
+impl ShareView {
+    /// None: nothing found, share straight away.
+    pub fn new(path: PathBuf, how: ShareHow, text: String) -> Option<ShareView> {
+        let items = share_check::find(&text).items();
+        if items.is_empty() {
+            return None;
+        }
+        let checked = vec![true; items.len()];
+        Some(ShareView { path, how, text, items, checked })
+    }
+
+    /// The text to share: the checked items replaced by `[removed]`.
+    pub fn shared_text(&self) -> String {
+        let chosen: Vec<String> = self.items.iter().zip(&self.checked).filter(|(_, on)| **on).map(|((_, s), _)| s.clone()).collect();
+        share_check::remove(&self.text, &chosen)
+    }
 }
 
 /// What a button does.
@@ -157,6 +199,13 @@ pub enum Action {
     /// Settings → Updates.
     AutoUpdate,
     CheckUpdates,
+    /// Capsules: a capsule someone sent (a file dialog), and Claude searching them.
+    OpenCapsule,
+    AskClaude,
+    /// Check before sharing: one item's check box, Share, Cancel.
+    ShareToggle(usize),
+    ShareGo,
+    ShareCancel,
 }
 
 #[derive(Clone, Debug, PartialEq)]
@@ -275,6 +324,10 @@ pub struct View<'a> {
     /// "Update automatically" is on; None: no Updates section.
     pub auto_update: Option<bool>,
     pub keys: &'a Keys,
+    /// What's typed in Capsules' search box.
+    pub search: &'a str,
+    /// "Check before sharing", shown instead of the page while a capsule is about to be shared.
+    pub share: Option<&'a ShareView>,
 }
 
 pub struct Layout {
@@ -461,11 +514,12 @@ pub fn layout(v: &View, width: f64, height: f64, m: &dyn Measure) -> Layout {
     let ph = 26.0;
     header.push(Node::Pill { r: Rect::new(x0 + cw - pw, (HEADER - ph) / 2.0 + 4.0, pw, ph), text: pill, live: v.status.recording });
     // Home's greeting is its title.
-    let th = m.text(v.section.title(), Font::Title, cw - pw - 16.0, 1).1;
-    if v.section != Section::Home {
+    let title = if v.share.is_some() { w::CHECK_TITLE } else { v.section.title() };
+    let th = m.text(title, Font::Title, cw - pw - 16.0, 1).1;
+    if v.section != Section::Home || v.share.is_some() {
         header.push(Node::Text {
             r: Rect::new(x0, (HEADER - th) / 2.0 + 4.0, cw - pw - 16.0, th),
-            text: v.section.title().into(),
+            text: title.into(),
             font: Font::Title,
             ink: Ink::Primary,
             align: Align::Left,
@@ -474,12 +528,13 @@ pub fn layout(v: &View, width: f64, height: f64, m: &dyn Measure) -> Layout {
     }
 
     let mut col = Col::new(x0, cw, 8.0, m);
-    match v.section {
-        Section::Home => home(&mut col, v, wide),
-        Section::Capsules => capsules_page(&mut col, v),
-        Section::Projects => projects_page(&mut col, v),
-        Section::Settings => settings_page(&mut col, v),
-        Section::Help => help_page(&mut col, v),
+    match (v.share, v.section) {
+        (Some(share), _) => share_page(&mut col, share),
+        (None, Section::Home) => home(&mut col, v, wide),
+        (None, Section::Capsules) => capsules_page(&mut col, v),
+        (None, Section::Projects) => projects_page(&mut col, v),
+        (None, Section::Settings) => settings_page(&mut col, v),
+        (None, Section::Help) => help_page(&mut col, v),
     }
     let height = col.y + PAD;
     Layout { sidebar, header, content: col.nodes, height, column: Rect::new(x0, 0.0, cw, 0.0) }
@@ -808,19 +863,83 @@ fn capsule_card(col: &mut Col, list: &[CapsuleSummary], today: chrono::NaiveDate
 }
 
 fn capsules_page(col: &mut Col, v: &View) {
-    col.button(col.x, w::MAKE_TODAYS, Action::Make, Style::Standard);
+    let mw = col.button(col.x, w::MAKE_TODAYS, Action::Make, Style::Standard);
+    col.button(col.x + mw + 8.0, w::OPEN_CAPSULE, Action::OpenCapsule, Style::Standard);
+    col.gap(BUTTON_H + 16.0);
+
+    // Search as you type, or ask Claude (it reads inside every capsule).
+    let asking = !v.search.trim().is_empty();
+    let aw = button_width(col.m, w::ASK_CLAUDE, Style::Accent);
+    col.nodes.push(Node::Field { r: Rect::new(col.x, col.y, (col.w - aw - 8.0).max(80.0), BUTTON_H), field: Field::Search });
+    col.nodes.push(Node::Button {
+        r: Rect::new(col.x + col.w - aw, col.y, aw, BUTTON_H),
+        action: Action::AskClaude,
+        label: w::ASK_CLAUDE.into(),
+        icon: None,
+        style: Style::Accent,
+        enabled: asking,
+        check: false,
+    });
     col.gap(BUTTON_H + GAP);
+
     if v.data.capsules.is_empty() {
         col.para(&w::no_capsules(v.keys), Font::Body, Ink::Secondary);
         return;
     }
-    for (i, g) in capsules::groups(&v.data.capsules, &v.data.projects).iter().enumerate() {
+    let shown = capsules::search(&v.data.capsules, v.search);
+    if shown.is_empty() {
+        col.para(w::NO_MATCHES, Font::Body, Ink::Secondary);
+        return;
+    }
+    for (i, g) in capsules::groups(&shown, &v.data.projects).iter().enumerate() {
         if i > 0 {
             col.gap(GAP);
         }
         col.caption(&g.title);
         capsule_card(col, &g.items, v.today);
     }
+}
+
+/// "Check before sharing": what was found, by group, each with a check box (all checked), then Cancel and Share.
+fn share_page(col: &mut Col, share: &ShareView) {
+    col.para(w::CHECK_INTRO, Font::Body, Ink::Secondary);
+    col.gap(GAP);
+    let mut at = 0;
+    for kind in Kind::ALL {
+        let rows: Vec<(usize, &str)> =
+            share.items.iter().enumerate().filter(|(_, (k, _))| *k == kind).map(|(i, (_, s))| (i, s.as_str())).collect();
+        if rows.is_empty() {
+            continue;
+        }
+        if at > 0 {
+            col.gap(GAP);
+        }
+        at += 1;
+        col.caption(kind.title());
+        col.card(|out, x, w, top, _m| {
+            let mut y = top + 6.0;
+            for (i, text) in &rows {
+                out.push(Node::Button {
+                    r: Rect::new(x + 6.0, y, w - 12.0, 34.0),
+                    action: Action::ShareToggle(*i),
+                    label: (*text).into(),
+                    icon: None,
+                    style: Style::Check { on: share.checked.get(*i).copied().unwrap_or(false) },
+                    enabled: true,
+                    check: false,
+                });
+                y += 36.0;
+            }
+            y - 2.0 + 6.0
+        });
+    }
+    col.gap(GAP);
+    let sw = button_width(col.m, w::SHARE, Style::Accent);
+    let cw = button_width(col.m, w::CANCEL, Style::Standard);
+    let right = col.x + col.w;
+    col.button(right - sw - 8.0 - cw, w::CANCEL, Action::ShareCancel, Style::Standard);
+    col.button(right - sw, w::SHARE, Action::ShareGo, Style::Accent);
+    col.gap(BUTTON_H);
 }
 
 // MARK: Projects
@@ -1171,6 +1290,53 @@ mod tests {
             voice: true,
             auto_update: Some(true),
             keys: &WINDOWS_KEYS,
+            search: "",
+            share: None,
+        }
+    }
+
+    #[test]
+    fn capsules_search_ask_and_open() {
+        let (status, data) = (Status::default(), data());
+        let mut v = view(Section::Capsules, &status, &data);
+        let l = layout(&v, 1000.0, 700.0, &Fake);
+        let ask = |l: &Layout| l.content.iter().find_map(|n| if let Node::Button { action: Action::AskClaude, enabled, .. } = n { Some(*enabled) } else { None });
+        assert_eq!(ask(&l), Some(false), "Ask Claude: off while the box is empty");
+        assert!(find(&l, "Open a capsule…").is_some());
+        assert!(l.content.iter().any(|n| matches!(n, Node::Field { field: Field::Search, .. })));
+        assert_eq!(texts(&l).iter().filter(|x| *x == "Open").count(), 3);
+        v.search = "APP 10-18";
+        let l = layout(&v, 1000.0, 700.0, &Fake);
+        assert_eq!(ask(&l), Some(true));
+        let t = texts(&l);
+        assert_eq!(t.iter().filter(|x| *x == "Open").count(), 1, "only the matching capsule: {t:?}");
+        assert!(t.iter().any(|x| x == "Mobile app") && !t.iter().any(|x| x == "Website"), "by title, any case");
+        v.search = "nothing like this";
+        assert!(texts(&layout(&v, 1000.0, 700.0, &Fake)).iter().any(|x| x == w::NO_MATCHES));
+    }
+
+    #[test]
+    fn check_before_sharing() {
+        let (status, data) = (Status::default(), data());
+        let text = "---\ncapsule: 1\ntitle: T\n---\n\n## In short\nMet Ana at ana@acme.com about $12,000.\n\n## People, links and files\n- Ana Ruiz — client\n";
+        let mut share = ShareView::new(PathBuf::from("C:/c/t.capsule.md"), ShareHow::CopyText, text.into()).unwrap();
+        assert!(ShareView::new(PathBuf::from("x"), ShareHow::CopyFile, "Nothing private.".into()).is_none(), "nothing found: straight through");
+        let mut v = view(Section::Capsules, &status, &data);
+        v.share = Some(&share);
+        let l = layout(&v, 1000.0, 700.0, &Fake);
+        let t = texts(&l);
+        for word in ["Check before sharing", "People", "Emails", "Money", "Ana Ruiz", "ana@acme.com", "$12,000", "Share", "Cancel"] {
+            assert!(t.iter().any(|x| x == word), "{word}: {t:?}");
+        }
+        assert!(!t.iter().any(|x| x == "Make today's capsules"), "instead of the page");
+        let checks: Vec<bool> = l.content.iter().filter_map(|n| if let Node::Button { style: Style::Check { on }, .. } = n { Some(*on) } else { None }).collect();
+        assert_eq!(checks, [true, true, true], "all checked");
+        assert_eq!(share.shared_text(), "---\ncapsule: 1\ntitle: T\n---\n\n## In short\nMet Ana at [removed] about [removed].\n\n## People, links and files\n- [removed] — client\n");
+        share.checked[2] = false;
+        assert!(share.shared_text().contains("$12,000") && !share.shared_text().contains("ana@"));
+        let rects: Vec<Rect> = controls(&l.content).iter().map(|i| l.content[*i].rect()).collect();
+        for (i, a) in rects.iter().enumerate() {
+            assert!(rects[i + 1..].iter().all(|b| !a.overlaps(b)), "controls don't overlap");
         }
     }
 

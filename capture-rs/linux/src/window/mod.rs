@@ -11,11 +11,13 @@ mod help;
 mod home;
 mod projects;
 mod settings;
+mod share;
 mod widgets;
 
 use crate::link::{UiMsg, WindowLink};
 use crate::ui;
 use adw::prelude::*;
+use context_capsule_core::claude::{self, new_chat_url, Opened};
 use context_capsule_core::reminder::{CLAUDE_NEW_CHAT, DAY_PROMPT};
 use context_capsule_core::settings::{Appearance, ConfigFile};
 use context_capsule_core::stats::sunday_first;
@@ -52,18 +54,22 @@ thread_local! {
 
 impl Gtk {
     /// Start GTK. None: there is no display (or GTK can't start); the app then runs without a window.
-    pub fn start() -> Option<Gtk> {
+    /// `open`: a capsule this launch was asked to open (Open with); a running Context Capsule is handed it.
+    pub fn start(open: Option<&std::path::Path>) -> Option<Gtk> {
         if let Err(e) = gtk::init() {
             eprintln!("Context Capsule: no window ({e}); the tray and hotkeys still work");
             return None;
         }
         let _ = adw::init();
-        let app = adw::Application::builder().application_id(crate::APP_ID).build();
+        let app = adw::Application::builder().application_id(crate::APP_ID).flags(gio::ApplicationFlags::HANDLES_OPEN).build();
         if let Err(e) = app.register(None::<&gio::Cancellable>) {
             eprintln!("Context Capsule: {e}");
         }
         if app.is_remote() {
-            app.activate(); // the running one opens its window
+            match open {
+                Some(path) => app.open(&[gio::File::for_path(path)], ""), // the running one opens the capsule
+                None => app.activate(),                                    // the running one opens its window
+            }
         }
         Some(Gtk { app })
     }
@@ -98,6 +104,12 @@ impl Gtk {
             // Launched again (the app menu): open the window.
             if !first.replace(false) {
                 handle(UiMsg::Open(None));
+            }
+        });
+        // Launched again with a capsule (Open with → Context Capsule): GApplication hands us the file.
+        app.connect_open(|_, files, _| {
+            for path in files.iter().filter_map(|f| f.path()) {
+                handle(UiMsg::OpenCapsule(path));
             }
         });
         let _hold = app.hold(); // a tray app: no window is fine
@@ -178,18 +190,24 @@ impl Ui {
                     w.set_status(*status);
                 }
             }
+            UiMsg::OpenCapsule(path) => self.window().ctx.open_received(&path),
             UiMsg::Quit => self.app.quit(),
         }
     }
 
-    /// Show the window (built the first time), on `section` if given, with fresh numbers.
-    fn open(self: &Rc<Self>, section: Option<Section>) {
+    /// The window, built the first time (not shown).
+    fn window(self: &Rc<Self>) -> Rc<Window> {
         let existing = self.window.borrow().clone();
-        let w = existing.unwrap_or_else(|| {
+        existing.unwrap_or_else(|| {
             let w = Window::build(&self.app, &self.paths, &self.tx, &self.locale, self.status.borrow().clone());
             *self.window.borrow_mut() = Some(w.clone());
             w
-        });
+        })
+    }
+
+    /// Show the window (built the first time), on `section` if given, with fresh numbers.
+    fn open(self: &Rc<Self>, section: Option<Section>) {
+        let w = self.window();
         w.show(section.unwrap_or(w.section.get()));
         w.reload_numbers();
         w.ctx.win.present();
@@ -263,9 +281,31 @@ impl Ctx {
 
     /// "Make today's capsules": Claude on a new chat with the request typed in (also on the clipboard).
     pub fn make_capsules(&self) {
-        self.copy_text(DAY_PROMPT);
-        if !self.open_uri(CLAUDE_NEW_CHAT) {
-            widgets::message(&self.win, ui::CANT_OPEN_CLAUDE, &ui::cant_open_claude_body(DAY_PROMPT));
+        debug_assert_eq!(new_chat_url(DAY_PROMPT), CLAUDE_NEW_CHAT);
+        self.ask_claude(DAY_PROMPT);
+    }
+
+    /// Claude on a new chat with `prompt` typed in (also on the clipboard). Can't: say how to do it by hand.
+    pub fn ask_claude(&self, prompt: &str) {
+        self.copy_text(prompt);
+        if !self.open_uri(&new_chat_url(prompt)) {
+            self.win.present();
+            widgets::message(&self.win, ui::CANT_OPEN_CLAUDE, &ui::cant_open_claude_body(prompt));
+        }
+    }
+
+    /// A capsule someone sent (Open with, or "Open a capsule…"): Claude carries on from it. Not a capsule: say so.
+    pub fn open_received(&self, path: &std::path::Path) {
+        match claude::open_file(path) {
+            Opened::Capsule { prompt } => self.ask_claude(&prompt),
+            Opened::NotACapsule => {
+                self.win.present();
+                widgets::message(&self.win, claude::NOT_A_CAPSULE, claude::NOT_A_CAPSULE_BODY);
+            }
+            Opened::Unreadable => {
+                self.win.present();
+                widgets::message(&self.win, claude::NOT_A_CAPSULE, claude::CANT_READ);
+            }
         }
     }
 }

@@ -549,6 +549,18 @@ fn button(dc: HDC, fonts: &mut Fonts, t: &Theme, p: [f32; 4], label: &str, icon:
                     ink = t.accent; // a link, like "See all"
                 }
             }
+            Style::Check { on } => {
+                if feel.hover || feel.pressed {
+                    g.fill(p, 4.0 * k, if feel.pressed { t.subtle_selected } else { t.subtle_hover });
+                }
+                let b = [p[0] + 10.0 * k, p[1] + (p[3] - 18.0 * k) / 2.0, 18.0 * k, 18.0 * k];
+                if on {
+                    g.fill(b, 4.0 * k, t.accent);
+                } else {
+                    g.fill(b, 4.0 * k, t.field);
+                    g.stroke(b, 4.0 * k, t.text2, k);
+                }
+            }
             Style::Nav { selected } | Style::Row { selected } => {
                 if selected {
                     g.fill(p, 4.0 * k, t.subtle_selected);
@@ -580,6 +592,12 @@ fn button(dc: HDC, fonts: &mut Fonts, t: &Theme, p: [f32; 4], label: &str, icon:
             if check {
                 text(dc, fonts, [p[0] + p[2] - 32.0 * k, p[1], 20.0 * k, p[3]], crate::layout::glyph::CHECK, Font::IconSmall, t.accent, Align::Center, 1);
             }
+        }
+        Style::Check { on } => {
+            if on {
+                text(dc, fonts, [p[0] + 10.0 * k, p[1], 18.0 * k, p[3]], crate::layout::glyph::CHECK, Font::IconSmall, t.on_accent, Align::Center, 1);
+            }
+            text(dc, fonts, [p[0] + 40.0 * k, p[1], p[2] - 48.0 * k, p[3]], label, Font::Body, ink, Align::Left, 1);
         }
         Style::Dropdown => {
             text(dc, fonts, [p[0] + 12.0 * k, p[1], p[2] - 44.0 * k, p[3]], label, Font::Body, ink, Align::Left, 1);

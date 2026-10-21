@@ -233,6 +233,11 @@ pub fn save_dialog(owner: HWND, file_name: &str) -> Option<std::path::PathBuf> {
     file_dialog(owner, file_name, true, "Capsule (*.md)\0*.md\0All files\0*.*\0\0", "md", None)
 }
 
+/// The standard Open dialog for a capsule someone sent (.md). None: cancelled.
+pub fn open_capsule_dialog(owner: HWND) -> Option<std::path::PathBuf> {
+    file_dialog(owner, "", false, "Capsule (*.md)\0*.md\0All files\0*.*\0\0", "md", None)
+}
+
 /// The standard Open dialog for an app (.exe). None: cancelled.
 pub fn open_app_dialog(owner: HWND) -> Option<std::path::PathBuf> {
     let programs = std::env::var("ProgramFiles").unwrap_or_else(|_| r"C:\Program Files".into());

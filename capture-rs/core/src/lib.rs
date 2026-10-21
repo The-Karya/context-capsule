@@ -7,6 +7,7 @@
 
 pub mod applog;
 pub mod capsules;
+pub mod claude;
 pub mod clock;
 pub mod engine;
 pub mod events;
@@ -24,6 +25,7 @@ pub mod projects;
 pub mod redact;
 pub mod reminder;
 pub mod settings;
+pub mod share_check;
 pub mod state;
 pub mod stats;
 pub mod text;

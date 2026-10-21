@@ -31,7 +31,7 @@ mod voice;
 mod window;
 mod x11;
 
-use context_capsule_core::{Engine, Msg, Options, Paths, PlatformText, VoiceEngine};
+use context_capsule_core::{claude, Engine, Msg, Options, Paths, PlatformText, VoiceEngine};
 use desktop::{Overview, SessionKind};
 use link::WindowLink;
 use std::sync::{mpsc, Arc, Mutex};
@@ -66,20 +66,30 @@ fn main() {
         std::process::exit(window::run_alone(paths, section, locale));
     }
     let probe = args.iter().any(|a| a == "--probe");
+    // Opened with a capsule someone sent (Open with → Context Capsule: `%f` in the desktop entry, or `--open`).
+    let open = claude::open_arg(&args, &std::env::current_dir().unwrap_or_default());
 
     // The window's GTK lives on this (main) thread. Start it first: if Context Capsule is already running,
-    // this only opens that one's window.
+    // this only opens that one's window (or hands it the capsule).
     #[cfg(feature = "window")]
-    let gtk = if probe { None } else { window::Gtk::start() };
+    let gtk = if probe { None } else { window::Gtk::start(open.as_deref()) };
     #[cfg(feature = "window")]
     if gtk.as_ref().is_some_and(window::Gtk::is_remote) {
-        eprintln!("Context Capsule is already running: opened its window");
+        eprintln!("Context Capsule is already running: {}", if open.is_some() { "it opens the capsule" } else { "opened its window" });
         return;
     }
     #[cfg(feature = "window")]
     let link = gtk.as_ref().map_or_else(WindowLink::off, window::Gtk::link);
     #[cfg(not(feature = "window"))]
     let link = WindowLink::off();
+    // With the window: it opens the capsule once it's ready. Without: below, once notifications work.
+    let open_later = match open {
+        Some(path) if link.is_on() => {
+            link.open_capsule(path);
+            None
+        }
+        other => other,
+    };
 
     if !probe {
         if let Some(line) = autostart::install_once(&paths.root, &env) {
@@ -112,6 +122,9 @@ fn main() {
     } else {
         tray::Tray::spawn(&handle, tx.clone(), notifier.clone(), link.clone())
     };
+    if let Some(path) = open_later {
+        open_without_window(&path, &notifier);
+    }
     if !probe && !tray.is_shown() {
         notifier.toast("Context Capsule is running, but this desktop shows no tray icon (on GNOME, install the AppIndicator extension). Use the hotkeys: Alt+C to start contextualizing.");
     }
@@ -223,6 +236,21 @@ fn main() {
     }
     rt.shutdown_timeout(Duration::from_secs(1));
     update::relaunch_if_pending();
+}
+
+/// A capsule someone sent, with no window (no display, or built without it): Claude through xdg-open; else
+/// a notification says what's wrong.
+fn open_without_window(path: &std::path::Path, notifier: &notify::Notifier) {
+    match claude::open_file(path) {
+        claude::Opened::Capsule { prompt } => {
+            let opened = std::process::Command::new("xdg-open").arg(claude::new_chat_url(&prompt)).status().is_ok_and(|s| s.success());
+            if !opened {
+                notifier.toast(&format!("Couldn't open Claude. In Claude, type: {prompt}"));
+            }
+        }
+        claude::Opened::NotACapsule => notifier.toast(claude::NOT_A_CAPSULE_BODY),
+        claude::Opened::Unreadable => notifier.toast(claude::CANT_READ),
+    }
 }
 
 #[cfg(feature = "voice")]

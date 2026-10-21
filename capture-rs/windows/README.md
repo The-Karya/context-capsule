@@ -78,6 +78,20 @@ The download is one file, `Context-Capsule-<version>-windows.exe`. No admin, no 
   failure keeps the current version and is only logged (shown only after **Check for updates**,
   in the tray menu and in Settings → Updates). No network = no update, silently. Nothing about you is sent.
 - Settings → Updates: *Update automatically* (`auto_update`), the version, and **Check for updates**.
+- **Open with**: Install (and every start of the installed copy, when something changed) adds
+  Context Capsule to the *Open with* list of `.md` files, never as the default app: the ProgID
+  `HKCU\Software\Classes\ContextCapsule.Capsule` (`shell\open\command` = `"<exe>" --open "%1"`),
+  listed under `.md\OpenWithProgids`, and `Applications\context-capsule.exe` (name, `.md`).
+  Uninstall removes them.
+
+## Opening a capsule someone sent
+
+Right-click a capsule file → **Open with** → **Context Capsule** (or **Open a capsule…** on the
+Capsules page). It checks the file looks like a capsule (front matter with `capsule:` and
+`title:`), then opens Claude on a new chat with *Use Context Capsule to continue from the capsule
+at <full path>.* typed in (no Claude link registered: on the clipboard, and the app opens). Not a
+capsule: *Not a capsule*, nothing opened. When Context Capsule already runs, the new copy hands
+the path to it (`WM_COPYDATA` to the tray window) and quits; else it starts as usual and opens it.
 
 ## The Context Capsule window
 
@@ -96,7 +110,15 @@ Projects) and *Context Capsule* (Settings, Help); the page title and a small sta
   capsules.
 - **Capsules**: by project, the growing *Whole project* capsule first, then days, newest first.
   Open, and ⋯ → Copy file (paste it into a chat, an email or a folder), Copy text, Save a copy…,
-  Show in folder.
+  Show in folder. A search box filters by title and *In short* as you type; **Ask Claude** (or
+  Enter in the box; off while it's empty) opens Claude with *Use Context Capsule to search my
+  capsules: …* typed in. **Open a capsule…** picks a `.md` file someone sent (see below).
+- **Check before sharing**: Copy file, Copy text and Save a copy… first show what in the capsule
+  might be private, by group (People, Emails, Phone numbers, Links, Money, Files), each with a
+  check box, all checked, in the window instead of the page. **Share** uses a copy with the checked
+  ones replaced by `[removed]` (Copy file: a temporary file `%TEMP%\Context Capsule\shared\<name>`);
+  the saved capsule never changes. **Cancel** (or Esc) goes back. Nothing found: it shares at once.
+  Plain rules, no AI, the same as the Mac's (core `share_check`, cases in `spec/share-check.json`).
 - **Projects**: rename, change the words they're found by, delete (asks first).
 - **Settings**: your name (config.json `author`; it goes on your capsules), Set up (Voice notes:
   microphone allowed? **Allow** opens the Windows microphone settings; Connect Claude: opens
@@ -185,7 +207,9 @@ if set, else `%USERPROFILE%\.context-capsule` (the same rule as the MCP server).
 
 The pure rules (which window or screen was picked, UI Automation roles, window classes for
 toasts and overviews, 16 kHz resampling, model checks, menu text, toast placement, the window's
-layout at any size) run on any OS:
+layout at any size, Check before sharing and the Open with registry values) run on any OS. What
+"Check before sharing" finds, and the Claude links, are tested in core (`cargo test -p
+context-capsule-core`, including every case in `spec/share-check.json`):
 
 ```sh
 cd capture-rs && cargo test -p context-capsule-windows

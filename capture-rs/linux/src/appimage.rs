@@ -40,13 +40,24 @@ pub fn exec_quote(path: &str) -> String {
     out
 }
 
-/// The app menu entry.
+/// The app menu entry. MimeType and `%f`: offered under "Open With" for Markdown files (a capsule someone sent);
+/// it is never made the default app.
 pub fn menu_entry(exe: &str) -> String {
     format!(
         "[Desktop Entry]\nType=Application\nName=Context Capsule\nComment=Turn your work into context for Claude\n\
-         Exec={}\nIcon={ICON_NAME}\nTerminal=false\nCategories=Utility;\nX-GNOME-UsesNotifications=true\n",
+         Exec={} %f\nIcon={ICON_NAME}\nTerminal=false\nCategories=Utility;\nMimeType=text/markdown;\n\
+         X-GNOME-UsesNotifications=true\n",
         exec_quote(exe)
     )
+}
+
+/// Let the desktop know the entry's file types changed (best effort: not every system has the tool).
+fn file_types_changed(share: &Path) {
+    let _ = std::process::Command::new("update-desktop-database")
+        .arg(share.join("applications"))
+        .stdout(std::process::Stdio::null())
+        .stderr(std::process::Stdio::null())
+        .status();
 }
 
 /// `$XDG_DATA_HOME` (absolute), else `~/.local/share`.
@@ -75,8 +86,8 @@ fn refresh(share: &Path, exe: &Path) -> bool {
     let file = share.join("applications").join(DESKTOP_FILE);
     let Ok(old) = std::fs::read_to_string(&file) else { return false };
     let want = menu_entry(&exe.to_string_lossy());
-    if old != want && old.contains(&format!("Icon={ICON_NAME}")) {
-        let _ = std::fs::write(&file, want);
+    if old != want && old.contains(&format!("Icon={ICON_NAME}")) && std::fs::write(&file, want).is_ok() {
+        file_types_changed(share);
     }
     true
 }
@@ -101,7 +112,10 @@ pub fn offer_once(data_dir: &Path, notifier: &Notifier) {
     }
     let appdir = env("APPDIR").map(PathBuf::from);
     match add_to_apps(&share, &image, appdir.as_deref()) {
-        Ok(()) => eprintln!("Context Capsule: added to the apps"),
+        Ok(()) => {
+            file_types_changed(&share);
+            eprintln!("Context Capsule: added to the apps");
+        }
         Err(e) => eprintln!("Context Capsule: cannot add to the apps: {e}"),
     }
 }
@@ -115,7 +129,8 @@ mod tests {
         assert_eq!(exec_quote("/home/s/Apps/Context Capsule.AppImage"), "\"/home/s/Apps/Context Capsule.AppImage\"");
         assert_eq!(exec_quote("/a/$b\"c`d\\e%f"), "\"/a/\\$b\\\"c\\`d\\\\e%%f\"");
         let e = menu_entry("/x/cc.AppImage");
-        assert!(e.contains("Exec=\"/x/cc.AppImage\"\n") && e.contains("Icon=com.thekarya.contextcapsule\n"));
+        assert!(e.contains("Exec=\"/x/cc.AppImage\" %f\n") && e.contains("Icon=com.thekarya.contextcapsule\n"));
+        assert!(e.contains("MimeType=text/markdown;\n"), "offered for .md files (Open With), not made the default");
         assert!(e.starts_with("[Desktop Entry]\nType=Application\n"));
     }
 

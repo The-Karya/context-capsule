@@ -1,10 +1,12 @@
-# context-capsule — linux: desktop entry (the app id portals and notifications know us by).
+# context-capsule — linux: desktop entry (the app id portals and notifications know us by). MimeType and %f:
+# offered under "Open With" for Markdown files (a capsule someone sent), never made the default app.
 [Desktop Entry]
 Type=Application
 Name=Context Capsule
 Comment=Record what you work on, for your own AI
-Exec=context-capsule
+Exec=context-capsule %f
 Icon=media-record
 Terminal=false
 Categories=Utility;
+MimeType=text/markdown;
 X-GNOME-UsesNotifications=true
