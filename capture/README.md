@@ -21,7 +21,21 @@ time) has everything in one place, with a sidebar:
 - **Home** — Start / Stop contextualizing with a live timer, Speak a note, Add a screen, the
   current project (change it or make a new one), Make today's capsules.
 - **Capsules** — by project, with Share (Copy file — paste into WhatsApp, Slack, email…; Copy
-  text; Save a copy…; Show in Finder; More… for AirDrop/Mail/Messages) and Open.
+  text; Save a copy…; Show in Finder; More… for AirDrop/Mail/Messages) and Open. A search field
+  filters by title and "In short" as you type (Return only filters); **Ask Claude** opens Claude
+  with "Use Context Capsule to search my capsules: …". **Open a capsule…** picks a capsule someone
+  sent you (below).
+
+**Check before sharing.** Every share (Copy file, Copy text, Save a copy, More…) first lists what
+might be private — People, Emails, Phone numbers, Links, Money, Files — with a check box each (all
+on). **Share** sends a copy, same file name in a temporary folder, with the checked items replaced
+by `[removed]`; the saved capsule never changes. Nothing found: no box, it just shares. Plain rules
+in `Core.swift` (`ShareCheck`), tested against `../spec/share-check.json`, the same cases as Windows/Linux.
+
+**Opening a received capsule.** Context Capsule is in Finder's *Open With* for `.md` files (never
+the default app), and takes capsule files dropped on its window. If the file is a capsule (front
+matter with `capsule:` and `title:`), Claude opens with "Use Context Capsule to continue from the
+capsule at <path>." (connecting Claude first if needed); otherwise: "This isn't a capsule".
 - **Projects** — rename, edit how they're found, delete.
 - **Settings** — set up (read your apps, voice notes, Dictation, connect Claude, open at login),
   the evening reminder and its time, when to delete old recordings, sounds, the voice-note
@@ -183,7 +197,8 @@ false and `last_error` is `"cancelled"`.
 
 ```sh
 ./tests/run.sh      # redaction, exclusion, dedupe, file formats, picked-content membership,
-                    # front-window choice, Mission Control, frame freshness, OCR crop + masks, displays, AX text assembly + secure-field skipping, AX-vs-OCR choice
+                    # front-window choice, Mission Control, frame freshness, OCR crop + masks, displays, AX text assembly + secure-field skipping, AX-vs-OCR choice,
+                    # check before sharing (every case in ../spec/share-check.json), is-it-a-capsule, search
 "./build/Context Capsule.app/Contents/MacOS/ContextCapsule" --selftest   # OCR (whole, cropped, masked) on a generated image
 ```
 
@@ -191,12 +206,13 @@ false and `last_error` is `"cancelled"`.
 
 | file | does |
 |---|---|
-| `Sources/Core.swift` | pure logic: paths, JSON, times, redaction, exclusion, event log, picked-content membership, AX text assembly, AX-vs-OCR choice, voice notes (silence, events, the press-to-talk state machine) |
+| `Sources/Core.swift` | pure logic: paths, JSON, times, redaction, exclusion, event log, picked-content membership, AX text assembly, AX-vs-OCR choice, voice notes (silence, events, the press-to-talk state machine), check before sharing, is-it-a-capsule, search |
+| `Sources/Library.swift` | Share (with the "Check before sharing" box), opening Claude with a request, opening a received capsule |
 | `Sources/Picker.swift` | the system picker (`SCContentSharingPicker`) and the one `SCStream` of the picked content |
 | `Sources/Screen.swift` | front app + window, Accessibility text, Vision OCR |
 | `Sources/Recorder.swift` | sessions, 3 s sampling, notes into the session, state.json, control file |
 | `Sources/Voice.swift` | mic + on-device Apple Speech for voice notes |
-| `Sources/App.swift` | menu-bar icon and menu, ⌥C / ⌥V hotkeys, messages, Accessibility menu item |
+| `Sources/App.swift` | menu-bar icon and menu, ⌥C / ⌥V hotkeys, messages, Accessibility menu item, files opened with the app |
 | `Sources/UpdateCore.swift` | pure update logic: the feed, its Ed25519 signature, versions, when to check |
 | `Sources/Updater.swift` | updates (download, checks, same-signer check, swap and restart) and "Move to Applications?" |
 | `Sources/SelfTest.swift` | `--selftest` |

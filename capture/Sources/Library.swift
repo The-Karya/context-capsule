@@ -1,15 +1,19 @@
 // context-capsule — capture: the "My capsules" window — capsules by project (read, share, show in Finder),
 // a "Make today's capsules" button that opens Claude with the request typed in, and the projects list
-// (rename, edit how they're found, delete). Plain native look.
+// (rename, edit how they're found, delete), "Check before sharing", and opening a capsule someone sent.
+// Plain native look.
 
 import AppKit
 import SwiftUI
+import UniformTypeIdentifiers
 
 /// What the window shows; reloaded when it opens and after every change.
 final class LibraryModel: ObservableObject {
     @Published var capsules: [CapsuleSummary] = []
     @Published var projects: [Project] = []
     @Published var tab = 0
+    /// The Capsules page's search field: filters by title and "In short" as you type.
+    @Published var query = ""
     let paths: Paths
     var onProjectsChanged: () -> Void = {}
 
@@ -27,11 +31,12 @@ final class LibraryModel: ObservableObject {
 
     /// Projects with capsules (the growing capsule first, then days, newest first), then capsules with no project.
     var groups: [(title: String, items: [CapsuleSummary])] {
+        let shown = capsules.filter { $0.matches(query) }
         var order: [String] = []
-        for c in capsules where !order.contains(c.project) { order.append(c.project) }
+        for c in shown where !order.contains(c.project) { order.append(c.project) }
         order.sort { a, b in a.isEmpty ? false : b.isEmpty ? true : name(of: a).localizedCaseInsensitiveCompare(name(of: b)) == .orderedAscending }
         return order.map { p in
-            let items = capsules.filter { $0.project == p }.sorted { a, b in
+            let items = shown.filter { $0.project == p }.sorted { a, b in
                 if (a.kind == "project") != (b.kind == "project") { return a.kind == "project" }
                 return (a.date, a.created) > (b.date, b.created)
             }
@@ -64,28 +69,71 @@ final class LibraryModel: ObservableObject {
     func delete(_ id: String) { save(projects.filter { $0.id != id }) }
 }
 
-/// Sharing a capsule anywhere: copy the file (paste into WhatsApp, Slack, Gmail…), copy its text, or save a copy.
+/// Sharing a capsule anywhere: copy the file (paste into WhatsApp, Slack, Gmail…), copy its text, save a copy, or
+/// AirDrop / Mail / Messages. Every one first shows "Check before sharing" (when something private-looking is found),
+/// and shares a copy with the checked items replaced by [removed]. The saved capsule is never changed.
 enum Share {
     static var toast: ((String) -> Void)?
 
-    static func copyFile(_ url: URL) {
+    static func copyFile(_ capsule: URL) {
+        guard let url = checked(capsule) else { return }
         let pb = NSPasteboard.general
         pb.clearContents()
         pb.writeObjects([url as NSURL])
         toast?("Copied. Paste it in WhatsApp, Slack, email or any chat.")
     }
 
-    static func copyText(_ url: URL) {
-        guard let text = try? String(contentsOf: url, encoding: .utf8) else { return }
+    static func copyText(_ capsule: URL) {
+        guard let url = checked(capsule), let text = try? String(contentsOf: url, encoding: .utf8) else { return }
         let pb = NSPasteboard.general
         pb.clearContents()
         pb.setString(text, forType: .string)
         toast?("Text copied. Paste it into a chat, or into Claude.")
     }
 
-    static func saveCopy(_ url: URL) {
+    /// AirDrop, Mail, Messages…: the system share menu, under the mouse in the front window.
+    static func more(_ capsule: URL) {
+        guard let url = checked(capsule) else { return }
+        guard let window = NSApp.keyWindow ?? NSApp.mainWindow, let view = window.contentView else { return }
+        let point = view.convert(window.mouseLocationOutsideOfEventStream, from: nil)
+        NSSharingServicePicker(items: [url]).show(relativeTo: NSRect(x: point.x, y: point.y, width: 1, height: 1),
+                                                  of: view, preferredEdge: .minY)
+    }
+
+    /// The file to share: the capsule itself when nothing is found or nothing is checked, a cleaned copy (same name,
+    /// in a temporary folder) otherwise, or nil when cancelled.
+    static func checked(_ capsule: URL) -> URL? {
+        guard let text = try? String(contentsOf: capsule, encoding: .utf8) else { return capsule }
+        let groups = ShareCheck.find(text).filter { !$0.items.isEmpty }
+        if groups.isEmpty { return capsule }
+        guard let remove = ShareCheckPanel.ask(groups) else { return nil }
+        if remove.isEmpty { return capsule }
+        let fm = FileManager.default
+        let base = fm.temporaryDirectory.appendingPathComponent("context-capsule-share", isDirectory: true)
+        // Copies from earlier shares, after a day (they may still be waiting on the clipboard before that).
+        for old in (try? fm.contentsOfDirectory(at: base, includingPropertiesForKeys: [.creationDateKey])) ?? [] {
+            if let made = try? old.resourceValues(forKeys: [.creationDateKey]).creationDate, made < Date().addingTimeInterval(-86_400) {
+                try? fm.removeItem(at: old)
+            }
+        }
+        let folder = base.appendingPathComponent(UUID().uuidString, isDirectory: true)
+        let copy = folder.appendingPathComponent(capsule.lastPathComponent)
+        do {
+            try fm.createDirectory(at: folder, withIntermediateDirectories: true)
+            try ShareCheck.remove(text, remove).write(to: copy, atomically: true, encoding: .utf8)
+        } catch {
+            AppLog.shared.write("share: cannot make the cleaned copy: \(error.localizedDescription)")
+            toast?("Couldn't make the copy to share: \(error.localizedDescription)")
+            return nil
+        }
+        AppLog.shared.write("share: \(remove.count) item(s) removed from the copy")
+        return copy
+    }
+
+    static func saveCopy(_ capsule: URL) {
+        guard let url = checked(capsule) else { return }
         let panel = NSSavePanel()
-        panel.nameFieldStringValue = url.lastPathComponent
+        panel.nameFieldStringValue = capsule.lastPathComponent
         panel.directoryURL = FileManager.default.urls(for: .desktopDirectory, in: .userDomainMask).first
         panel.canCreateDirectories = true
         NSApp.activate(ignoringOtherApps: true)
@@ -101,32 +149,134 @@ enum Share {
     }
 }
 
+/// "Check before sharing": what might be private, a check box for each (all checked), Share or Cancel.
+enum ShareCheckPanel {
+    /// The checked items, or nil when cancelled.
+    static func ask(_ groups: [ShareCheck.Group]) -> [String]? {
+        let alert = NSAlert()
+        alert.messageText = "Check before sharing"
+        alert.informativeText = "Checked items become [removed] in the copy you share. Your saved capsule stays the same."
+        alert.addButton(withTitle: "Share")
+        alert.addButton(withTitle: "Cancel")
+
+        let width: CGFloat = 320
+        let stack = NSStackView()
+        stack.orientation = .vertical
+        stack.alignment = .leading
+        stack.spacing = 4
+        stack.edgeInsets = NSEdgeInsets(top: 2, left: 0, bottom: 2, right: 0)
+        var boxes: [(NSButton, String)] = []
+        for (i, group) in groups.enumerated() {
+            let title = NSTextField(labelWithString: group.title)
+            title.font = .systemFont(ofSize: NSFont.smallSystemFontSize, weight: .semibold)
+            title.textColor = .secondaryLabelColor
+            stack.addArrangedSubview(title)
+            if i > 0 { stack.setCustomSpacing(12, after: stack.arrangedSubviews[stack.arrangedSubviews.count - 2]) }
+            for item in group.items {
+                let box = NSButton(checkboxWithTitle: item, target: nil, action: nil)
+                box.state = .on
+                box.lineBreakMode = .byTruncatingMiddle
+                box.toolTip = item
+                box.widthAnchor.constraint(lessThanOrEqualToConstant: width - 16).isActive = true
+                box.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
+                stack.addArrangedSubview(box)
+                boxes.append((box, item))
+            }
+        }
+        stack.translatesAutoresizingMaskIntoConstraints = false
+        let fitting = stack.fittingSize.height
+        let height = min(fitting, 300)
+
+        let scroll = NSScrollView(frame: NSRect(x: 0, y: 0, width: width, height: height))
+        scroll.drawsBackground = false
+        scroll.hasVerticalScroller = fitting > height
+        scroll.borderType = .noBorder
+        let flipped = FlippedView()
+        flipped.translatesAutoresizingMaskIntoConstraints = false
+        flipped.addSubview(stack)
+        scroll.documentView = flipped
+        NSLayoutConstraint.activate([
+            stack.leadingAnchor.constraint(equalTo: flipped.leadingAnchor),
+            stack.trailingAnchor.constraint(equalTo: flipped.trailingAnchor),
+            stack.topAnchor.constraint(equalTo: flipped.topAnchor),
+            stack.bottomAnchor.constraint(equalTo: flipped.bottomAnchor),
+            flipped.widthAnchor.constraint(equalToConstant: width - (fitting > height ? 16 : 0)),
+        ])
+        alert.accessoryView = scroll
+
+        NSApp.activate(ignoringOtherApps: true)
+        guard alert.runModal() == .alertFirstButtonReturn else { return nil }
+        return boxes.filter { $0.0.state == .on }.map(\.1)
+    }
+
+    private final class FlippedView: NSView { override var isFlipped: Bool { true } }
+}
+
 enum Claude {
     /// Open the Claude app on a new chat with the request typed in (also on the clipboard, just in case).
-    /// Not connected yet: connect first. No Claude app: say where to get it.
-    static func makeTodaysCapsules() {
+    /// Not connected yet: connect first (`again` says what to click afterwards). No Claude app: say where to get it.
+    static func open(_ prompt: String, why: String, again: String) {
         let pasteboard = NSPasteboard.general
         pasteboard.clearContents()
-        pasteboard.setString(ClaudeLink.dayPrompt, forType: .string)
+        pasteboard.setString(prompt, forType: .string)
         guard NSWorkspace.shared.urlForApplication(withBundleIdentifier: ClaudeConnect.desktopBundleID) != nil else {
             ClaudeConnect.connect() // explains how to get the Claude app
             return
         }
-        // Without the connection, Claude can't see the recordings: connect first instead of opening an empty chat.
+        // Without the connection, Claude can't see the capsules: connect first instead of opening an empty chat.
         guard ClaudeConnect.isConnected else {
-            AppLog.shared.write("make today's capsules: not connected yet, connecting first")
+            AppLog.shared.write("open Claude: not connected yet, connecting first")
             let alert = NSAlert()
             alert.messageText = "Connect Claude first"
-            alert.informativeText = "Claude needs Context Capsule installed to read your day. Click Connect, then Install in Claude. "
-                + "After that, click Make today's capsules again."
+            alert.informativeText = "Claude needs Context Capsule installed \(why). Click Connect, then Install in Claude. "
+                + "After that, \(again)."
             alert.addButton(withTitle: "Connect")
             alert.addButton(withTitle: "Cancel")
             NSApp.activate(ignoringOtherApps: true)
             if alert.runModal() == .alertFirstButtonReturn { ClaudeConnect.connect() }
             return
         }
-        AppLog.shared.write("make today's capsules: opening Claude")
-        NSWorkspace.shared.open(ClaudeLink.newChat(prefill: ClaudeLink.dayPrompt) ?? ClaudeLink.newChat)
+        AppLog.shared.write("open Claude with a request")
+        NSWorkspace.shared.open(ClaudeLink.newChat(prefill: prompt) ?? ClaudeLink.newChat)
+    }
+
+    static func makeTodaysCapsules() {
+        open(ClaudeLink.dayPrompt, why: "to read your day", again: "click Make today's capsules again")
+    }
+
+    /// Ask your capsules (the Capsules page).
+    static func ask(_ question: String) {
+        guard !question.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return }
+        open(ClaudeLink.searchPrompt(question), why: "to search your capsules", again: "click Ask Claude again")
+    }
+
+    /// A capsule someone sent: check it is one, then Claude carries on from it.
+    static func continueFrom(_ url: URL) {
+        guard let text = try? String(contentsOf: url, encoding: .utf8), CapsuleSummary.isCapsule(text) else {
+            AppLog.shared.write("open: not a capsule")
+            let alert = NSAlert()
+            alert.messageText = "This isn't a capsule"
+            alert.informativeText = "\(url.lastPathComponent) isn't a Context Capsule file."
+            alert.addButton(withTitle: "OK")
+            NSApp.activate(ignoringOtherApps: true)
+            alert.runModal()
+            return
+        }
+        AppLog.shared.write("open: a capsule")
+        open(ClaudeLink.continuePrompt(path: url.path), why: "to read the capsule", again: "open the capsule again")
+    }
+
+    /// "Open a capsule…": pick a .md file.
+    static func pickCapsule() {
+        let panel = NSOpenPanel()
+        panel.allowedContentTypes = [UTType(filenameExtension: "md") ?? .plainText]
+        panel.allowsMultipleSelection = false
+        panel.prompt = "Open"
+        panel.message = "Pick a capsule someone sent you."
+        panel.directoryURL = FileManager.default.urls(for: .downloadsDirectory, in: .userDomainMask).first
+        NSApp.activate(ignoringOtherApps: true)
+        guard panel.runModal() == .OK, let url = panel.url else { return }
+        continueFrom(url)
     }
 }
 
@@ -178,7 +328,7 @@ struct CapsuleRow: View {
                     Button("Save a copy…") { Share.saveCopy(capsule.url) }
                     Button("Show in Finder") { NSWorkspace.shared.activateFileViewerSelecting([capsule.url]) }
                     Divider()
-                    ShareLink("More…", item: capsule.url)
+                    Button("More…") { Share.more(capsule.url) }
                 } label: {
                     Image(systemName: "square.and.arrow.up")
                 }
@@ -202,6 +352,7 @@ struct CapsuleRow: View {
             Button("Copy file") { Share.copyFile(capsule.url) }
             Button("Copy text") { Share.copyText(capsule.url) }
             Button("Save a copy…") { Share.saveCopy(capsule.url) }
+            Button("More…") { Share.more(capsule.url) }
             Button("Show in Finder") { NSWorkspace.shared.activateFileViewerSelecting([capsule.url]) }
         }
     }

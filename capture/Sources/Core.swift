@@ -1132,6 +1132,172 @@ enum ClaudeLink {
     }
 }
 
+// MARK: - Opening a received capsule, asking your capsules
+
+extension ClaudeLink {
+    /// Opening a received capsule (SPEC "Opening a received capsule").
+    static func continuePrompt(path: String) -> String { "Use Context Capsule to continue from the capsule at \(path)." }
+    /// Ask Claude on the Capsules page (SPEC "Ask your capsules").
+    static func searchPrompt(_ question: String) -> String {
+        "Use Context Capsule to search my capsules: \(question.trimmingCharacters(in: .whitespacesAndNewlines))"
+    }
+}
+
+extension CapsuleSummary {
+    /// A capsule file: front matter that has `capsule:` and `title:`.
+    static func isCapsule(_ text: String) -> Bool {
+        let t = text.hasPrefix("\u{FEFF}") ? String(text.dropFirst()) : text
+        let lines = t.replacingOccurrences(of: "\r\n", with: "\n").split(separator: "\n", omittingEmptySubsequences: false)
+        guard lines.first?.trimmingCharacters(in: .whitespaces) == "---" else { return false }
+        var keys = Set<String>()
+        for line in lines.dropFirst() {
+            if line.trimmingCharacters(in: .whitespaces) == "---" { return keys.contains("capsule") && keys.contains("title") }
+            if let colon = line.firstIndex(of: ":") { keys.insert(line[..<colon].trimmingCharacters(in: .whitespaces)) }
+        }
+        return false
+    }
+
+    /// The search field on the Capsules page: every word of the query is in the title or "In short".
+    func matches(_ query: String) -> Bool {
+        let words = query.split(whereSeparator: { $0.isWhitespace })
+        guard !words.isEmpty else { return true }
+        let hay = title + " " + inShort
+        return words.allSatisfy { hay.range(of: $0, options: [.caseInsensitive, .diacriticInsensitive]) != nil }
+    }
+}
+
+// MARK: - Check before sharing
+
+/// What in a capsule might be private, found with plain rules (SPEC "Check before sharing"; the cases in
+/// spec/share-check.json are shared with the Windows/Linux app). No AI.
+enum ShareCheck {
+    enum Kind: String, CaseIterable { case people, emails, phones, links, money, files }
+
+    struct Group: Equatable {
+        var kind: Kind
+        var items: [String]
+        var title: String {
+            switch kind {
+            case .people: return "People"
+            case .emails: return "Emails"
+            case .phones: return "Phone numbers"
+            case .links: return "Links"
+            case .money: return "Money"
+            case .files: return "Files"
+            }
+        }
+    }
+
+    static let mark = "[removed]"
+
+    private static func re(_ p: String) -> NSRegularExpression {
+        try! NSRegularExpression(pattern: p, options: [.anchorsMatchLines])
+    }
+    private static let link = re(#"https?://[^\s)>\]]+"#)
+    private static let email = re(#"[A-Za-z0-9._%+\-]+@[A-Za-z0-9.\-]+\.[A-Za-z]{2,}"#)
+    private static let file = re(#"(?:^|(?<=[\s(]))(?:~/[^\s/]\S*|/[^\s/]+/[^\s/]\S*|[A-Za-z]:\\\S+)"#)
+    private static let phone = re(#"(?<![\w+])[+\d][\d .()\-]*\d(?!\w)"#)
+    private static let date = re(#"\d{4}-\d{2}-\d{2}"#)
+    private static let amount = #"\d+(?:,\d{3})*(?:\.\d+)?"#
+    private static let moneySign = re(#"[$€£₹] ?"# + amount + #"(?:(?: ?(?:million|billion|bn)|[kKmMbB])(?!\w))?"#)
+    private static let moneyWord = re(#"(?<![\w.,])"# + amount + #" ?(?:USD|EUR|GBP|INR|dollars|euros|pounds|rupees)(?!\w)"#)
+    private static let handle = re(#"(?<![\w@])@[A-Za-z0-9_]+"#)
+    private static let frontEnd = re(#"^---[ \t]*\r?$"#)
+
+    /// The text after a leading `---` front matter block.
+    static func body(_ text: String) -> String {
+        guard text.hasPrefix("---\n") || text.hasPrefix("---\r\n") else { return text }
+        let ns = text as NSString
+        let start = text.hasPrefix("---\r\n") ? 5 : 4
+        guard let m = frontEnd.firstMatch(in: text, range: NSRange(location: start, length: ns.length - start)) else { return text }
+        return ns.substring(from: m.range.location + m.range.length)
+    }
+
+    /// Every match of `r` in `s` (trailing `. , ; :` dropped when `trim`); blanks them out in `s` (same length) when `blank`.
+    private static func take(_ r: NSRegularExpression, in s: inout String, blank: Bool, trim: Bool = false) -> [String] {
+        let ns = s as NSString
+        var found: [String] = []
+        var ranges: [NSRange] = []
+        for m in r.matches(in: s, range: NSRange(location: 0, length: ns.length)) {
+            var range = m.range
+            while trim, range.length > 0,
+                  ".,;:".contains(ns.substring(with: NSRange(location: range.location + range.length - 1, length: 1))) {
+                range.length -= 1
+            }
+            guard range.length > 0 else { continue }
+            found.append(ns.substring(with: range))
+            ranges.append(range)
+        }
+        if blank {
+            let out = NSMutableString(string: s)
+            for range in ranges.reversed() { out.replaceCharacters(in: range, with: String(repeating: " ", count: range.length)) }
+            s = out as String
+        }
+        return found
+    }
+
+    /// The start of each bullet in the `## People…` section that looks like a name (1–4 capitalised words).
+    static func bulletNames(_ body: String) -> [String] {
+        var names: [String] = []
+        var inPeople = false
+        for raw in body.components(separatedBy: "\n") {
+            let line = raw.trimmingCharacters(in: .whitespacesAndNewlines)
+            if line.hasPrefix("#") {
+                inPeople = line.hasPrefix("## ") && line.dropFirst(3).trimmingCharacters(in: .whitespaces).lowercased().hasPrefix("people")
+                continue
+            }
+            guard inPeople, line.hasPrefix("- ") || line.hasPrefix("* ") else { continue }
+            var item = String(line.dropFirst(2)).replacingOccurrences(of: "**", with: "")
+            for stop in [" — ", " – ", " - ", ":", "(", ","] {
+                if let r = item.range(of: stop) { item = String(item[..<r.lowerBound]) }
+            }
+            item = item.trimmingCharacters(in: .whitespaces)
+            let words = item.split(separator: " ")
+            guard (1...4).contains(words.count),
+                  words.allSatisfy({ $0.first?.isUppercase == true }),
+                  !item.contains(where: { $0.isNumber || $0 == "/" || $0 == "@" }),
+                  !item.lowercased().contains("http") else { continue }
+            names.append(item)
+        }
+        return names
+    }
+
+    /// All six groups, in order; each lists its items once, in order of first appearance in the body.
+    static func find(_ text: String) -> [Group] {
+        let original = body(text)
+        var s = original
+        let links = take(link, in: &s, blank: true, trim: true)
+        let emails = take(email, in: &s, blank: true)
+        let files = take(file, in: &s, blank: false, trim: true)
+        let phones = take(phone, in: &s, blank: false).filter { p in
+            (8...15).contains(p.filter(\.isNumber).count)
+                && date.firstMatch(in: p, range: NSRange(location: 0, length: (p as NSString).length)) == nil
+        }
+        let money = take(moneySign, in: &s, blank: false) + take(moneyWord, in: &s, blank: false)
+        let people = take(handle, in: &s, blank: false) + bulletNames(original)
+
+        let ns = original as NSString
+        func ordered(_ items: [String]) -> [String] {
+            var seen = Set<String>()
+            return items.filter { seen.insert($0).inserted }.enumerated()
+                .sorted { a, b in (ns.range(of: a.element).location, a.offset) < (ns.range(of: b.element).location, b.offset) }
+                .map(\.element)
+        }
+        return [Group(kind: .people, items: ordered(people)), Group(kind: .emails, items: ordered(emails)),
+                Group(kind: .phones, items: ordered(phones)), Group(kind: .links, items: ordered(links)),
+                Group(kind: .money, items: ordered(money)), Group(kind: .files, items: ordered(files))]
+    }
+
+    /// Every occurrence of each item (longest first) becomes `[removed]`.
+    static func remove(_ text: String, _ items: [String]) -> String {
+        var out = text
+        for item in Set(items).filter({ !$0.isEmpty }).sorted(by: { ($0.count, $0) > ($1.count, $1) }) {
+            out = out.replacingOccurrences(of: item, with: mark)
+        }
+        return out
+    }
+}
+
 // MARK: - Evening reminder and clean-up
 
 enum Reminder {

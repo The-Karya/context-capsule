@@ -624,6 +624,53 @@ check(ClaudeLink.newChat(prefill: "Make my capsules for today.")?.absoluteString
       == "claude://claude.ai/new?q=Make%20my%20capsules%20for%20today.", "Claude link with the message typed in")
 check(ClaudeLink.dayPrompt.contains("Context Capsule"), "the request names the app")
 
+// MARK: opening a received capsule, asking your capsules
+
+check(CapsuleSummary.isCapsule(capText), "a capsule is a capsule")
+check(CapsuleSummary.isCapsule("---\r\ncapsule: 1\r\ntitle: X\r\n---\r\nbody"), "a capsule with Windows line ends")
+check(!CapsuleSummary.isCapsule("---\ntitle: Notes\n---\nbody"), "front matter without capsule: is not a capsule")
+check(!CapsuleSummary.isCapsule("---\ncapsule: 1\n---\nbody"), "front matter without title: is not a capsule")
+check(!CapsuleSummary.isCapsule("# Notes\ncapsule: 1\ntitle: X\n"), "no front matter is not a capsule")
+check(!CapsuleSummary.isCapsule("---\ncapsule: 1\ntitle: X\n"), "front matter never closed is not a capsule")
+check(ClaudeLink.continuePrompt(path: "/Users/a/Downloads/x.capsule.md")
+      == "Use Context Capsule to continue from the capsule at /Users/a/Downloads/x.capsule.md.", "continue prompt")
+check(ClaudeLink.searchPrompt("  what did we decide on pricing? ")
+      == "Use Context Capsule to search my capsules: what did we decide on pricing?", "search prompt")
+check(cs.matches("") && cs.matches("pricing") && cs.matches("WEBSITE redesigned") && !cs.matches("pricing kittens"),
+      "search filters by title and In short, every word")
+check(CapsuleSummary(url: capURL, title: "Café plans").matches("cafe"), "search ignores accents")
+
+// MARK: check before sharing (spec/share-check.json, shared with the Windows/Linux app)
+
+let caseFile = URL(fileURLWithPath: #filePath).deletingLastPathComponent().appendingPathComponent("../../spec/share-check.json")
+if let data = try? Data(contentsOf: caseFile), let cases = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+   let finds = cases["find"] as? [[String: Any]], let removes = cases["remove"] as? [[String: Any]], !finds.isEmpty, !removes.isEmpty {
+    for c in finds {
+        let name = c["name"] as? String ?? "?"
+        let expect = c["expect"] as? [String: [String]] ?? [:]
+        let got = ShareCheck.find(c["text"] as? String ?? "")
+        check(got.map(\.kind) == ShareCheck.Kind.allCases, "share check: all six groups, in order (\(name))")
+        for g in got {
+            check(g.items == (expect[g.kind.rawValue] ?? ["<missing in json>"]), "share check: \(name) / \(g.kind.rawValue)",
+                  "\(g.items) vs \(expect[g.kind.rawValue] ?? [])")
+        }
+    }
+    for c in removes {
+        let got = ShareCheck.remove(c["text"] as? String ?? "", c["remove"] as? [String] ?? [])
+        check(got == c["expect"] as? String, "share check: remove", got)
+    }
+} else {
+    check(false, "share check: cannot read \(caseFile.standardized.path)")
+}
+check(ShareCheck.find("## In short\nCall (020) 7946 0958 or 2026-10-19.\n")[2].items == ["020) 7946 0958"],
+      "phones: a date is not a phone")
+check(ShareCheck.find("## People, links and files\n- **Ana**: design\n- the team\n- Bob 2\n")[0].items == ["Ana"],
+      "people: only bullets that look like names")
+check(ShareCheck.find("x\n## Notes\n- Ana Lima\n")[0].items.isEmpty, "people: only in the People section")
+check(ShareCheck.find("Raised $1.5m. Mail a@b.co about https://e.com/a@b.co")[1].items == ["a@b.co"], "emails not inside links")
+check(ShareCheck.remove("Ana and Ana Lima", ["Ana", "Ana Lima"]) == "[removed] and [removed]", "remove: longest first")
+check(ShareCheck.remove("same", []) == "same", "remove: nothing checked")
+
 // MARK: reminder and clean-up
 
 check(Reminder.parse("18:00") == 1080 && Reminder.parse("7:5") == 425 && Reminder.parse("25:00") == nil, "reminder time")

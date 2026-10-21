@@ -210,6 +210,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         Claude.makeTodaysCapsules()
     }
 
+    /// A capsule someone sent, opened with Context Capsule (Finder → Open With): Claude carries on from it.
+    /// At launch this can come before applicationDidFinishLaunching, so it waits a turn.
+    func application(_ application: NSApplication, open urls: [URL]) {
+        let files = urls.filter(\.isFileURL)
+        DispatchQueue.main.async { files.forEach(Claude.continueFrom) }
+    }
+
     func menuWillOpen(_ menu: NSMenu) { refresh() } // the Accessibility check mark may have changed
 
     func applicationWillTerminate(_ notification: Notification) {

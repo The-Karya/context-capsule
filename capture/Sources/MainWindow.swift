@@ -1,5 +1,6 @@
 // context-capsule — capture: the Context Capsule window — one place for everything: Home (start/stop, speak a note,
-// add a screen, project, make today's capsules), Capsules, Projects, Settings (setup and preferences) and Help.
+// add a screen, project, make today's capsules), Capsules (search, Ask Claude, open a capsule someone sent), Projects,
+// Settings (setup and preferences) and Help. Capsule files dropped on the window are opened in Claude.
 // Plain native look with a sidebar, like System Settings.
 
 import AppKit
@@ -119,6 +120,12 @@ struct MainView: View {
         }
         .frame(minWidth: 760, minHeight: 540)
         .onAppear { library.reload() }
+        // A capsule someone sent, dropped on the window: Claude carries on from it.
+        .dropDestination(for: URL.self) { urls, _ in
+            guard let url = urls.first(where: \.isFileURL) else { return false }
+            DispatchQueue.main.async { Claude.continueFrom(url) }
+            return true
+        }
     }
 }
 
@@ -411,14 +418,28 @@ private struct CapsulesView: View {
     @ObservedObject var library: LibraryModel
     @ObservedObject var app: AppModel
 
+    private var empty: Bool { library.query.trimmingCharacters(in: .whitespaces).isEmpty }
+
     var body: some View {
         HStack {
             Title(text: "Capsules")
             Spacer()
+            Button("Open a capsule…", action: Claude.pickCapsule)
+                .help("Open a capsule someone sent you. Claude carries on from it.")
             Button("Make today's capsules", action: app.makeCapsules)
         }
+        HStack(spacing: 8) {
+            SearchField(text: $library.query, prompt: "Search your capsules")
+            Button("Ask Claude") { Claude.ask(library.query) }
+                .disabled(empty)
+                .help("Claude searches all your capsules for this.")
+        }
+        .padding(.bottom, 4)
         if library.capsules.isEmpty {
             Text("No capsules yet. Start contextualizing (⌥C), then make today's capsules.")
+                .font(.system(size: 13)).foregroundStyle(.secondary)
+        } else if library.groups.isEmpty {
+            Text("No titles match. Ask Claude to look inside every capsule.")
                 .font(.system(size: 13)).foregroundStyle(.secondary)
         } else {
             ForEach(library.groups, id: \.title) { group in
@@ -433,6 +454,39 @@ private struct CapsulesView: View {
                 }
             }
         }
+    }
+}
+
+/// The Mac's own search field. Filters as you type; Return does nothing more.
+private struct SearchField: NSViewRepresentable {
+    @Binding var text: String
+    let prompt: String
+
+    final class Coordinator: NSObject, NSSearchFieldDelegate {
+        var parent: SearchField
+        init(_ parent: SearchField) { self.parent = parent }
+        func controlTextDidChange(_ note: Notification) {
+            if let field = note.object as? NSSearchField { parent.text = field.stringValue }
+        }
+    }
+
+    func makeCoordinator() -> Coordinator { Coordinator(self) }
+
+    func makeNSView(context: Context) -> NSSearchField {
+        let field = NSSearchField()
+        field.placeholderString = prompt
+        field.delegate = context.coordinator
+        field.sendsWholeSearchString = false
+        field.sendsSearchStringImmediately = true
+        field.controlSize = .large
+        field.font = .systemFont(ofSize: 13)
+        field.stringValue = text
+        return field
+    }
+
+    func updateNSView(_ field: NSSearchField, context: Context) {
+        context.coordinator.parent = self
+        if field.stringValue != text { field.stringValue = text }
     }
 }
 

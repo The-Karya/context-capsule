@@ -39,6 +39,28 @@ cat > "$APP/Contents/Info.plist" <<PLIST
   <key>LSMinimumSystemVersion</key><string>$MIN_MACOS</string>
   <key>LSUIElement</key><true/>
   <key>NSHighResolutionCapable</key><true/>
+  <!-- Offered for .md files in "Open With" (a capsule someone sent), never the default app for them. -->
+  <key>CFBundleDocumentTypes</key>
+  <array>
+    <dict>
+      <key>CFBundleTypeName</key><string>Capsule</string>
+      <key>CFBundleTypeRole</key><string>Viewer</string>
+      <key>LSHandlerRank</key><string>Alternate</string>
+      <key>LSItemContentTypes</key>
+      <array><string>net.daringfireball.markdown</string><string>public.plain-text</string></array>
+      <key>CFBundleTypeExtensions</key><array><string>md</string></array>
+    </dict>
+  </array>
+  <key>UTImportedTypeDeclarations</key>
+  <array>
+    <dict>
+      <key>UTTypeIdentifier</key><string>net.daringfireball.markdown</string>
+      <key>UTTypeDescription</key><string>Markdown</string>
+      <key>UTTypeConformsTo</key><array><string>public.plain-text</string></array>
+      <key>UTTypeTagSpecification</key>
+      <dict><key>public.filename-extension</key><array><string>md</string><string>markdown</string></array></dict>
+    </dict>
+  </array>
   <key>NSMicrophoneUsageDescription</key>
   <string>Context Capsule listens only while you hold a voice note (⌥V, then ⌥V again), to turn what you say about your work into text. Audio is never saved and never leaves this Mac.</string>
   <key>NSSpeechRecognitionUsageDescription</key>
