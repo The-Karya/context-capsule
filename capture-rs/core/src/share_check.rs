@@ -129,13 +129,12 @@ pub fn find(text: &str) -> Found {
 /// A copy of `text` with every occurrence of each of `items` (longest first) in the body replaced by `[removed]`.
 /// The front matter stays as it is.
 pub fn remove(text: &str, items: &[String]) -> String {
-    let start = body_start(text);
+    // The whole file, front matter too: a name in the title is just as private.
     let mut items: Vec<&str> = items.iter().map(String::as_str).filter(|i| !i.is_empty()).collect();
     items.sort_by_key(|i| std::cmp::Reverse(i.len()));
     items.dedup();
-    let body = &text[start..];
+    let body = text;
     let mut out = String::with_capacity(text.len());
-    out.push_str(&text[..start]);
     // One pass, left to right, longest item first at each place: a short item never matches inside a
     // `[removed]` put there for a longer one.
     let mut i = 0;
@@ -500,9 +499,9 @@ mod tests {
     }
 
     #[test]
-    fn front_matter_is_kept_and_short_items_never_match_inside_removed() {
+    fn front_matter_too_and_short_items_never_match_inside_removed() {
         let text = "---\ntitle: Re: Ana\n---\n\nAna said re.\n";
-        assert_eq!(remove(text, &["re".into(), "Ana".into()]), "---\ntitle: Re: Ana\n---\n\n[removed] said [removed].\n");
+        assert_eq!(remove(text, &["re".into(), "Ana".into()]), "---\ntitle: Re: [removed]\n---\n\n[removed] said [removed].\n");
         assert_eq!(remove("removed re", &["re".into(), "removed".into()]), "[removed] [removed]");
         assert_eq!(body_start("---\na: b\n---\nbody"), "---\na: b\n---\n".len());
         assert_eq!(body_start("no front matter"), 0);

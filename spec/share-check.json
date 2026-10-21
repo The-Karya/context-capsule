@@ -77,6 +77,21 @@
         "priya@acme.com"
       ],
       "expect": "Call [removed] at [removed]. [removed] agreed."
+    },
+    {
+      "text": "---\ntitle: Call Priya Shah\n---\n\nPriya Shah agreed.\n",
+      "remove": [
+        "Priya Shah"
+      ],
+      "expect": "---\ntitle: Call [removed]\n---\n\n[removed] agreed.\n"
+    },
+    {
+      "text": "removed re",
+      "remove": [
+        "re",
+        "removed"
+      ],
+      "expect": "[removed] [removed]"
     }
   ]
 }

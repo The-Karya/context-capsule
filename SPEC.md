@@ -362,7 +362,7 @@ Rules (on the body only: a leading `---` front matter block is skipped):
    bullet (bold removed) up to ` — `, ` – `, ` - `, `:`, `(` or `,`, when it is 1–4 words that each start with
    a capital letter, with no digits, `/`, `@` or `http`.
 Each group lists items once, in order of first appearance in the body. Removing replaces every occurrence of
-each checked item (longest first) with `[removed]`.
+each checked item (longest first) with `[removed]`, in the whole file (front matter too).
 
 ## Opening a received capsule (all recorders)
 

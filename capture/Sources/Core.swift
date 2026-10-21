@@ -1289,10 +1289,21 @@ enum ShareCheck {
     }
 
     /// Every occurrence of each item (longest first) becomes `[removed]`.
+    /// One pass, left to right, the longest item first at each place, so a short item never matches inside a
+    /// `[removed]` put there for a longer one. The whole file, front matter too.
     static func remove(_ text: String, _ items: [String]) -> String {
-        var out = text
-        for item in Set(items).filter({ !$0.isEmpty }).sorted(by: { ($0.count, $0) > ($1.count, $1) }) {
-            out = out.replacingOccurrences(of: item, with: mark)
+        let list = Set(items).filter { !$0.isEmpty }.sorted { ($0.count, $0) > ($1.count, $1) }
+        guard !list.isEmpty else { return text }
+        var out = ""
+        var i = text.startIndex
+        scan: while i < text.endIndex {
+            for item in list where text[i...].hasPrefix(item) {
+                out += mark
+                i = text.index(i, offsetBy: item.count)
+                continue scan
+            }
+            out.append(text[i])
+            i = text.index(after: i)
         }
         return out
     }
