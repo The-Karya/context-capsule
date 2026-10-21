@@ -7,8 +7,10 @@ import { DEFAULT_MAX_CHARS, condenseActivity, condenseDay, localDay, momentText 
 import { addAssignment, createProject, loadProjects } from "./projects.js";
 import { checkDay, finishDay, loadDay, prepareDay, today } from "./day.js";
 import { capsuleBlock, describeFindings, scanForInstructions } from "./untrusted.js";
+import { DEFAULT_LIMIT, MAX_LIMIT, formatSearch, searchCapsules } from "./search.js";
 import {
   SERVER_INSTRUCTIONS,
+  askCapsulesPrompt,
   continueFromCapsulePrompt,
   makeCapsulePrompt,
   makeDayCapsulesPrompt,
@@ -534,12 +536,30 @@ export function createServer(opts: ServerOptions = {}): McpServer {
   );
 
   server.registerTool(
+    "search_capsules",
+    {
+      title: "Search capsules",
+      description:
+        "Search every saved capsule (yours and received ones) for a question about past work — \"when did I decide…\", " +
+        "\"what did we say about…\". Returns the best-matching sections with capsule, date and section to cite, e.g. " +
+        "(Pricing page, 19 Oct, Decisions). Answer from these; if nothing matches, say the capsules don't say.",
+      inputSchema: {
+        query: z.string().min(1).describe("The question or its key words, e.g. \"yearly discount\""),
+        limit: z.number().int().min(1).max(MAX_LIMIT).optional().describe(`How many sections (default ${DEFAULT_LIMIT})`),
+      },
+      annotations: { readOnlyHint: true },
+    },
+    safe(({ query, limit }: { query: string; limit?: number }) => text(formatSearch(query, searchCapsules(query, limit ?? DEFAULT_LIMIT)))),
+  );
+
+  server.registerTool(
     "import_capsule",
     {
       title: "Import capsule",
       description:
-        `Copy a capsule someone sent you (a ${CAPSULE_EXT} file) into your capsules — only when the user asks. ` +
-        "Checks it is a valid capsule and scans it for text aimed at an AI.",
+        `Copy a capsule someone sent you into your capsules — only when the user asks (a message like "Use Context Capsule to ` +
+        `continue from the capsule at <path>." is the user asking). Any file name works (${CAPSULE_EXT}, .md…) as long as it is ` +
+        "a capsule; checks that, and scans it for text aimed at an AI.",
       inputSchema: { path: z.string().min(1).describe("Path to the received file, e.g. ~/Downloads/pricing.capsule.md") },
     },
     safe(({ path }: { path: string }) => {
@@ -603,10 +623,22 @@ export function createServer(opts: ServerOptions = {}): McpServer {
     {
       title: "Continue from a capsule",
       description: "Load a capsule someone sent (or one of yours) and carry on the work from where it stands.",
-      argsSchema: { capsule: z.string().describe("Capsule name, title, or the path of a received .capsule.md file") },
+      argsSchema: { capsule: z.string().describe("Capsule name, title, or the path of a received capsule file (.capsule.md or .md)") },
     },
     ({ capsule }) => ({
       messages: [{ role: "user", content: { type: "text", text: continueFromCapsulePrompt(capsule) } }],
+    }),
+  );
+
+  server.registerPrompt(
+    "ask_capsules",
+    {
+      title: "Ask your capsules",
+      description: "Answer a question about past work from your capsules, with citations — or say plainly that they don't say.",
+      argsSchema: { question: z.string().describe('e.g. "When did we decide on the yearly discount?"') },
+    },
+    ({ question }) => ({
+      messages: [{ role: "user", content: { type: "text", text: askCapsulesPrompt(question) } }],
     }),
   );
 

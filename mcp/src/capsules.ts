@@ -464,13 +464,40 @@ export function readCapsule(name: string): { info: CapsuleInfo; text: string } {
 
 // ---------- import / export ----------
 
+/**
+ * The path as the user (or the app's "continue from the capsule at <path>." message) gave it: quotes, backticks,
+ * <angle brackets> and file:// URLs removed; a sentence's trailing "." dropped when the file has none.
+ */
+export function cleanCapsulePath(from: string): string {
+  let p = from.trim().replace(/^[<`"'“‘]+|[>`"'”’]+$/g, "").trim();
+  if (/^file:\/\//i.test(p)) {
+    try {
+      p = decodeURIComponent(new URL(p).pathname);
+      if (/^\/[A-Za-z]:\//.test(p)) p = p.slice(1); // file:///C:/…
+    } catch {
+      p = p.replace(/^file:\/\//i, "");
+    }
+  }
+  const resolved = path.resolve(expandHome(p));
+  if (!fs.existsSync(resolved) && /[.,;:]+$/.test(p)) {
+    const bare = path.resolve(expandHome(p.replace(/[.,;:]+$/, "")));
+    if (fs.existsSync(bare)) return bare;
+  }
+  return resolved;
+}
+
+/** Copy a received capsule in. Any file name works (.capsule.md, .md, .txt…) as long as the text is a capsule. */
 export function importCapsule(from: string): { path: string; slug: string; title: string; already: boolean } {
-  const src = path.resolve(expandHome(from.trim()));
+  const src = cleanCapsulePath(from);
   if (!fs.existsSync(src)) throw new Error(`No file at ${src}. Check the path (drag the file into the chat to get it).`);
   if (!fs.statSync(src).isFile()) throw new Error(`${src} is a folder, not a capsule file.`);
   const text = fs.readFileSync(src, "utf8");
   const v = validateCapsuleText(text);
-  if (!v.ok) throw new Error(`Can't import ${path.basename(src)}: ${v.error}`);
+  if (!v.ok)
+    throw new Error(
+      `${path.basename(src)} isn't a Context Capsule, so nothing was imported. ${v.error} ` +
+        `Tell the user in one line, and ask them for the capsule file the sender exported (it starts with a --- block with capsule: 1 and a title).`,
+    );
   const title = String(v.front.title);
 
   // same content already imported? don't make a copy

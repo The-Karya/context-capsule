@@ -96,6 +96,10 @@
       "description": "Read a capsule"
     },
     {
+      "name": "search_capsules",
+      "description": "Find what your capsules say about something"
+    },
+    {
       "name": "import_capsule",
       "description": "Add a capsule someone sent you"
     },
@@ -122,6 +126,14 @@
         "capsule"
       ],
       "text": "Pick up the work in this capsule: ${arguments.capsule}"
+    },
+    {
+      "name": "ask_capsules",
+      "description": "Ask your capsules",
+      "arguments": [
+        "question"
+      ],
+      "text": "Answer this from my capsules: ${arguments.question}"
     },
     {
       "name": "review_capsule",

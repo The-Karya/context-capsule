@@ -155,9 +155,10 @@ extension. Claude gets:
   `get_session_activity`, `get_moment` (zoom in on a stretch, nothing shortened),
   `list_sessions`, projects (`list_projects`, `create_project`, `set_project`,
   `assign_project`), and capsules (`save_capsule`, `list_capsules`, `get_capsule`,
-  `import_capsule`, `export_capsule`).
+  `import_capsule`, `export_capsule`, `search_capsules` (answers "when did I decide…" from
+  every capsule, with citations)).
 - **Prompts:** `make_day_capsules`, `make_capsule`, `continue_from_capsule`, `review_capsule`
-  (a second look before sharing).
+  (a second look before sharing), `ask_capsules`.
 - **Resources:** every capsule as `capsule://<name>`.
 
 All of Claude's instructions live in one playbook (`mcp/src/playbook.ts`). Details:

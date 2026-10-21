@@ -85,13 +85,17 @@ claude mcp add context-capsule -- node /Users/you/context-capsule/mcp/dist/index
 | `save_capsule` `{title, markdown, session_ids?}` | saves `capsules/<slug>.capsule.md` with front matter; never overwrites |
 | `list_capsules` | title, author, created, path |
 | `get_capsule` `{name}` | the full text (by name, file name or title) |
-| `import_capsule` `{path}` | copies a received capsule in, after checking it |
+| `search_capsules` `{query, limit?=8}` | searches every saved capsule (received ones too) section by section, by the question's words; matches in Decisions, Where things stand and Next steps and newer capsules rank higher. Returns the best sections, each to cite like *(Pricing page, 19 Oct, Decisions)*, or says plainly that nothing matches. Read-only, no network |
+| `import_capsule` `{path}` | copies a received capsule in, after checking it. Any file name works (`.capsule.md`, `.md`…) as long as it is a capsule; otherwise a clear "isn't a Context Capsule" and nothing is imported |
 | `export_capsule` `{name, to_path?}` | copies a capsule to the Desktop (or a path) to send |
 
 Also:
 
 - Prompt **`make_capsule`** `{session_id}`: how to write a good capsule.
 - Prompt **`continue_from_capsule`** `{capsule}`: load a capsule (yours or received) and carry on the work.
+  The apps open Claude with `Use Context Capsule to continue from the capsule at <path>.`; Claude imports it, then follows this.
+- Prompt **`ask_capsules`** `{question}`: answer a question about past work from your capsules
+  (`search_capsules`, then `get_capsule` if needed), short, with citations, or say they don't say.
 - Prompt **`make_day_capsules`** `{date?}`: split a day by project, sort unsorted work with
   you, write a daily capsule per project and update each project's growing capsule.
 - Resources **`capsule://<slug>`**: every capsule, so Claude can read them directly.

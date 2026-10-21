@@ -58,6 +58,7 @@ describe("built server over stdio (node)", () => {
         "list_sessions",
         "recording_status",
         "save_capsule",
+        "search_capsules",
         "start_recording",
         "stop_recording",
       ].sort(),
@@ -79,8 +80,14 @@ describe("built server over stdio (node)", () => {
     expect(t.length).toBeLessThanOrEqual(5000);
   });
 
-  test("lists the make_capsule prompt", async () => {
+  test("lists the make_capsule and ask_capsules prompts", async () => {
     const { prompts } = await client.listPrompts();
     expect(prompts.map((p) => p.name)).toContain("make_capsule");
+    expect(prompts.map((p) => p.name)).toContain("ask_capsules");
+  });
+
+  test("search_capsules answers plainly with no capsules", async () => {
+    const t = textOf(await client.callTool({ name: "search_capsules", arguments: { query: "pricing" } }));
+    expect(t).toContain("no saved capsules yet");
   });
 });

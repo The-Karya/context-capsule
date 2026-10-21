@@ -237,7 +237,8 @@ Tools:
 | `save_capsule` `{title, markdown, session_ids?}` | validates + writes `capsules/<slug>.capsule.md` with front matter; returns path |
 | `list_capsules` | title, author, created, path |
 | `get_capsule` `{name}` | full text |
-| `import_capsule` `{path}` | copies a received `.capsule.md` into `capsules/` (validates format) |
+| `import_capsule` `{path}` | copies a received capsule (any file name: `.capsule.md`, `.md`…) into `capsules/` (validates format; "isn't a Context Capsule" otherwise) |
+| `search_capsules` `{query, limit?=8}` | read-only: ranks every saved capsule's `## ` sections by the query's words (stop words dropped; Decisions / Where things stand / Next steps and newer capsules weigh more); returns title, name, kind, date, section and text, each in a `<capsule>` block, cited as *(Pricing page, 19 Oct, Decisions)*; nothing found → says so and points to `get_day_activity` |
 | `export_capsule` `{name, to_path?}` | copies to Desktop (default) or a path; returns the path, ready to email |
 | `list_projects` | projects with their clues, time spent today, and their capsules |
 | `create_project` `{name, match?}` | adds a project to `projects.json` |
@@ -270,6 +271,9 @@ yet…"); it fixes them and saves again.
 
 Prompt `continue_from_capsule` `{capsule}`: import if it's a file, `get_capsule`, follow
 "For Claude", reply in three lines (whose work, where it stands, next step), then carry on.
+
+Prompt `ask_capsules` `{question}`: `search_capsules`, then `get_capsule` if needed; answer short with
+citations; say plainly when the capsules don't say.
 
 All of Claude's instructions (server instructions, capsule format, prompts) live in
 `mcp/src/playbook.ts`; every capsule records the playbook version in its front matter
