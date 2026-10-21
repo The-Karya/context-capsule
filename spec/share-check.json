@@ -1,0 +1,82 @@
+{
+  "about": "Golden cases for 'Check before sharing' (see SPEC.md). Mac (Swift) and Windows/Linux (Rust) must give exactly these results.",
+  "find": [
+    {
+      "name": "everything",
+      "text": "---\ncapsule: 1\ntitle: Pricing\nauthor: Saachi\n---\n\n## In short\nMet Priya Shah about pricing. Email priya@acme.com or call +44 20 7946 0958.\nBudget is $12,000 for Q4, decided on 2026-10-19 at 10:14.\nSee https://acme.com/pricing, and the file ~/Documents/pricing.xlsx.\nPing @devraj on Slack.\n\n## People, links and files\n- **Priya Shah** — head of sales at Acme\n- Dev Raj (engineer)\n- https://acme.com/pricing\n",
+      "expect": {
+        "people": [
+          "Priya Shah",
+          "@devraj",
+          "Dev Raj"
+        ],
+        "emails": [
+          "priya@acme.com"
+        ],
+        "phones": [
+          "+44 20 7946 0958"
+        ],
+        "links": [
+          "https://acme.com/pricing"
+        ],
+        "money": [
+          "$12,000"
+        ],
+        "files": [
+          "~/Documents/pricing.xlsx"
+        ]
+      }
+    },
+    {
+      "name": "nothing",
+      "text": "## In short\nRefactored the parser on 2026-10-19 at 10:14. Version 2.3.1 is 40% faster.\n",
+      "expect": {
+        "people": [],
+        "emails": [],
+        "phones": [],
+        "links": [],
+        "money": [],
+        "files": []
+      }
+    },
+    {
+      "name": "front matter is skipped",
+      "text": "---\ntitle: Call Ana\nauthor: Saachi Badal\nsource: https://x.example/a\n---\n\n## In short\nNothing private.\n",
+      "expect": {
+        "people": [],
+        "emails": [],
+        "phones": [],
+        "links": [],
+        "money": [],
+        "files": []
+      }
+    },
+    {
+      "name": "money and windows paths",
+      "text": "## What was done\nPaid €450 and 1,200 USD. Saved to C:\\Users\\ana\\report.docx today.\n",
+      "expect": {
+        "people": [],
+        "emails": [],
+        "phones": [],
+        "links": [],
+        "money": [
+          "€450",
+          "1,200 USD"
+        ],
+        "files": [
+          "C:\\Users\\ana\\report.docx"
+        ]
+      }
+    }
+  ],
+  "remove": [
+    {
+      "text": "Call Priya Shah at priya@acme.com. Priya Shah agreed.",
+      "remove": [
+        "Priya Shah",
+        "priya@acme.com"
+      ],
+      "expect": "Call [removed] at [removed]. [removed] agreed."
+    }
+  ]
+}

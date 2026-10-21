@@ -336,3 +336,39 @@ ChatGPT remote connector (needs hosting), images, cloud sync, teams.
 
 - No secrets, no Karya-internal code or URLs. MIT. Clean, small, readable.
 - Every source file starts with a short header comment naming the project.
+
+## Check before sharing (all recorders)
+
+Before a capsule is shared (Copy file, Copy text, Save a copy, AirDrop/Share…), the app shows what's inside that
+might be private, grouped: **People, Emails, Phone numbers, Links, Money, Files**. Each item has a check box;
+"Share" sends a copy with the checked items replaced by `[removed]` (the saved capsule is never changed). With
+nothing found, sharing goes straight through. No AI: plain rules, the same on every platform
+(`spec/share-check.json` holds the cases both the Swift and the Rust code must pass).
+
+Rules (on the body only: a leading `---` front matter block is skipped):
+1. **links** `https?://` up to whitespace, `)`, `>`, `]`; trailing `. , ; :` dropped. **emails** `name@domain.tld`.
+   Both are found first, then blanked out (same length) so later rules can't match inside them.
+2. **files** start after start-of-line, whitespace or `(`: `~/…` or `/…` with at least two parts, or `C:\…`;
+   trailing `. , ; :` dropped.
+3. **phones** `+`/digit, then digits, spaces, `-`, `.`, `(`, `)`, ending in a digit, with 8–15 digits;
+   dates like `2026-10-19` are not phones.
+4. **money** a currency sign (`$ € £ ₹`) and an amount (`$12,000`, `€450`, `$1.5m`), or an amount and a code or
+   word (`1,200 USD`, `EUR`, `GBP`, `INR`, `dollars`, `euros`, `pounds`, `rupees`).
+5. **people** `@handles` (not inside an email), and in the `## People…` section, the start of each `-`/`*`
+   bullet (bold removed) up to ` — `, ` – `, ` - `, `:`, `(` or `,`, when it is 1–4 words that each start with
+   a capital letter, with no digits, `/`, `@` or `http`.
+Each group lists items once, in order of first appearance in the body. Removing replaces every occurrence of
+each checked item (longest first) with `[removed]`.
+
+## Opening a received capsule (all recorders)
+
+Context Capsule is offered for `.md` files ("Open With", not the default app) and accepts capsule files dropped
+on its window. Opening one checks it looks like a capsule (front matter with `capsule:` and `title:`), then opens
+Claude on a new chat with: `Use Context Capsule to continue from the capsule at <full path>.` (Claude imports it
+with import_capsule / continue_from_capsule). Not a capsule: a short message, nothing opened.
+
+## Ask your capsules
+
+The Capsules page has a search field (filters titles and "In short" as you type) and **Ask Claude**, which
+opens Claude with: `Use Context Capsule to search my capsules: <question>`. Claude uses the `search_capsules`
+tool (mcp/), which ranks every saved capsule section by the question's words and cites capsule, date and section.
