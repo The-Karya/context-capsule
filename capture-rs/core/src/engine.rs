@@ -307,6 +307,10 @@ impl<P: Platform> Engine<P> {
             Msg::NewProject { name, clue } => {
                 self.new_project(&name, clue.as_deref());
             }
+            Msg::Shortcuts(h) => {
+                self.opts.text = self.opts.text.clone().with_shortcuts(&h);
+                self.log.write(&format!("shortcuts: {} and {}", h.record, h.voice));
+            }
             Msg::Quit => {
                 self.shutdown();
                 return false;

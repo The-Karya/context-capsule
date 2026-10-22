@@ -548,6 +548,11 @@ fn voice_needs_recording() {
     assert_eq!(r.engine.platform().toasts, ["Start contextualizing first (Alt+C)"]);
     assert!(!r.engine.platform().indicators.contains(&Indicator::Listening));
     assert!(!r.voice.borrow().mic_open);
+    // Your own shortcuts: messages name the current one.
+    let mine = context_capsule_core::Hotkeys::DEFAULT.with(context_capsule_core::shortcuts::Which::Record, context_capsule_core::Shortcut::parse("Ctrl+Shift+R").unwrap());
+    r.engine.handle(Msg::Shortcuts(mine));
+    r.engine.toggle_voice();
+    assert_eq!(r.engine.platform().toasts[1], "Start contextualizing first (Ctrl+Shift+R)");
 }
 
 #[test]
@@ -1215,7 +1220,7 @@ fn starting_shares_all_screens_without_the_picker() {
     assert_eq!(s.sources, 2);
     assert!(s.every_screen_shared && !s.can_add_screen(), "nothing left to add");
     assert_eq!(s.add_screen_label(), "Add a screen (2 shared)");
-    assert_eq!(window::status_detail(&s, &window::WINDOWS_KEYS, ShareScreens::All), "0 moments saved · 2 screens shared");
+    assert_eq!(window::status_detail(&s, &window::Keys::windows(&Default::default()), ShareScreens::All), "0 moments saved · 2 screens shared");
     g.engine.handle(Msg::AddScreen);
     assert_eq!(g.engine.platform().added, 0, "every screen is shared already");
     assert!(g.engine.platform().toasts.is_empty() && g.engine.platform().alerts.is_empty(), "no text on screen");

@@ -8,6 +8,7 @@ use crate::look;
 use crate::platform::Status;
 use crate::projects::Project;
 use crate::settings::ShareScreens;
+use crate::shortcuts::Hotkeys;
 use crate::stats::{Totals, WorkStats};
 use std::time::SystemTime;
 
@@ -82,11 +83,11 @@ pub fn content_width(available: f64) -> (f64, bool) {
     (available.min(max).max(0.0), wide)
 }
 
-/// Keys and words that differ per platform.
-#[derive(Clone, Copy, Debug)]
+/// Keys and words that differ per platform. `record` / `voice`: the current shortcuts ("Alt+C").
+#[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Keys {
-    pub record: &'static str,
-    pub voice: &'static str,
+    pub record: String,
+    pub voice: String,
     /// "Ctrl+V, then Enter"
     pub paste: &'static str,
     /// "Show in folder" (Windows: File Explorer)
@@ -95,10 +96,19 @@ pub struct Keys {
     pub this_computer: &'static str,
 }
 
-pub const WINDOWS_KEYS: Keys =
-    Keys { record: "Alt+C", voice: "Alt+V", paste: "Ctrl+V, then Enter", show_in_folder: "Show in folder", this_computer: "this PC" };
-pub const LINUX_KEYS: Keys =
-    Keys { record: "Alt+C", voice: "Alt+V", paste: "Ctrl+V, then Enter", show_in_folder: "Show in folder", this_computer: "this computer" };
+pub const SHOW_IN_FOLDER: &str = "Show in folder";
+
+impl Keys {
+    /// Windows, with the current shortcuts.
+    pub fn windows(h: &Hotkeys) -> Keys {
+        Keys { record: h.record.label(), voice: h.voice.label(), paste: "Ctrl+V, then Enter", show_in_folder: SHOW_IN_FOLDER, this_computer: "this PC" }
+    }
+
+    /// Linux, with the current shortcuts.
+    pub fn linux(h: &Hotkeys) -> Keys {
+        Keys { record: h.record.label(), voice: h.voice.label(), paste: "Ctrl+V, then Enter", show_in_folder: SHOW_IN_FOLDER, this_computer: "this computer" }
+    }
+}
 
 // MARK: Home
 
@@ -256,8 +266,8 @@ pub const SEE_ALL: &str = "See all";
 pub const NEW_PROJECT: &str = "New project";
 
 /// The Shortcuts card: (keys, what).
-pub fn home_shortcuts(keys: &Keys) -> [(&'static str, &'static str); 2] {
-    [(keys.record, "Start or stop"), (keys.voice, "Speak a note")]
+pub fn home_shortcuts(keys: &Keys) -> [(String, &'static str); 2] {
+    [(keys.record.clone(), crate::shortcuts::START_OR_STOP), (keys.voice.clone(), crate::shortcuts::SPEAK_A_NOTE)]
 }
 pub const NONE_YET: &str = "None yet.";
 pub const MAKE_TITLE: &str = "Make today's capsules";
@@ -418,8 +428,12 @@ pub const HOW_IT_WORKS: &str = "How it works";
 pub const PRIVACY: &str = "Privacy";
 
 /// (what, keys)
-pub fn shortcuts(keys: &Keys) -> [(&'static str, &'static str); 3] {
-    [("Start or stop contextualizing", keys.record), ("Speak a note, then again when done", keys.voice), ("Make my capsules for today", "in Claude")]
+pub fn shortcuts(keys: &Keys) -> [(&'static str, String); 3] {
+    [
+        ("Start or stop contextualizing", keys.record.clone()),
+        ("Speak a note, then again when done", keys.voice.clone()),
+        ("Make my capsules for today", "in Claude".into()),
+    ]
 }
 
 pub const HOW: [&str; 3] = [
@@ -442,6 +456,10 @@ mod tests {
     use super::*;
     use std::time::Duration;
 
+    fn wk() -> Keys {
+        Keys::windows(&Hotkeys::DEFAULT)
+    }
+
     #[test]
     fn home_words() {
         assert_eq!(greeting(20, "Saachi"), "Good evening, Saachi.");
@@ -450,21 +468,21 @@ mod tests {
         let mut s = Status::default();
         assert_eq!(status_title(&s, now), "Not contextualizing");
         assert_eq!(toggle_button(&s), "Start contextualizing");
-        assert_eq!(status_detail(&s, &WINDOWS_KEYS, ShareScreens::Pick), "Alt+C to start. Pick the screen or window you work on. Only that is read.");
-        assert_eq!(status_detail(&s, &WINDOWS_KEYS, ShareScreens::All), "Alt+C to start. Shares all your screens. Private apps are never read.");
+        assert_eq!(status_detail(&s, &wk(), ShareScreens::Pick), "Alt+C to start. Pick the screen or window you work on. Only that is read.");
+        assert_eq!(status_detail(&s, &wk(), ShareScreens::All), "Alt+C to start. Shares all your screens. Private apps are never read.");
         s.picking = true;
         assert_eq!((status_title(&s, now).as_str(), toggle_button(&s)), ("Pick a window or screen", "Cancel"));
         s = Status { recording: true, session_id: Some("x".into()), started_at: Some(now), events: 1, sources: 1, ..Default::default() };
         assert_eq!(status_title(&s, now + Duration::from_secs(12)), "Contextualizing  0:12");
         assert_eq!(toggle_button(&s), "Stop");
-        assert_eq!(status_detail(&s, &WINDOWS_KEYS, ShareScreens::Pick), "1 moment saved");
+        assert_eq!(status_detail(&s, &wk(), ShareScreens::Pick), "1 moment saved");
         s.events = 12;
         s.sources = 2;
-        assert_eq!(status_detail(&s, &WINDOWS_KEYS, ShareScreens::All), "12 moments saved · 2 screens shared");
+        assert_eq!(status_detail(&s, &wk(), ShareScreens::All), "12 moments saved · 2 screens shared");
         assert_eq!(voice_button(&s), "Speak a note");
         s.listening = true;
         assert_eq!(voice_button(&s), "Done speaking");
-        assert_eq!(make_hint(&LINUX_KEYS), "Opens Claude with the request typed in");
+        assert_eq!(make_hint(&Keys::linux(&Hotkeys::DEFAULT)), "Opens Claude with the request typed in");
     }
 
     #[test]
@@ -503,7 +521,10 @@ mod tests {
         assert_eq!(status_pill(&Status::default(), now, 120.0), "Today 2 m");
         let rec = Status { recording: true, started_at: Some(now), ..Default::default() };
         assert_eq!(status_pill(&rec, now + std::time::Duration::from_secs(12), 0.0), "● 0:12");
-        assert_eq!(home_shortcuts(&WINDOWS_KEYS), [("Alt+C", "Start or stop"), ("Alt+V", "Speak a note")]);
+        assert_eq!(home_shortcuts(&wk()), [("Alt+C".into(), "Start or stop"), ("Alt+V".into(), "Speak a note")]);
+        let mine = Hotkeys::DEFAULT.with(crate::shortcuts::Which::Record, crate::Shortcut::parse("Ctrl+Shift+R").unwrap());
+        assert_eq!(home_shortcuts(&Keys::linux(&mine))[0].0, "Ctrl+Shift+R", "the current shortcut, not the default");
+        assert!(status_detail(&Status::default(), &Keys::windows(&mine), ShareScreens::Pick).starts_with("Ctrl+Shift+R to start."));
     }
 
     #[test]
@@ -516,8 +537,8 @@ mod tests {
         let p = Project { id: "web".into(), name: "Website".into(), clues: vec!["acme.com".into(), "figma".into()] };
         assert_eq!(found_by(&p), "Found by: acme.com, figma");
         assert_eq!(delete_question(&p), "Delete “Website”?");
-        assert_eq!(shortcuts(&WINDOWS_KEYS)[0], ("Start or stop contextualizing", "Alt+C"));
-        assert_eq!(privacy(&WINDOWS_KEYS)[0], "Recordings stay on this PC. No account, no cloud.");
-        assert!(no_capsules(&LINUX_KEYS).contains("(Alt+C)"));
+        assert_eq!(shortcuts(&wk())[0], ("Start or stop contextualizing", "Alt+C".to_string()));
+        assert_eq!(privacy(&wk())[0], "Recordings stay on this PC. No account, no cloud.");
+        assert!(no_capsules(&Keys::linux(&Hotkeys::DEFAULT)).contains("(Alt+C)"));
     }
 }

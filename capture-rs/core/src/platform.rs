@@ -233,6 +233,8 @@ pub enum Msg {
     PickProject(Option<String>),
     /// "New project from this window": the name the user typed, and the clue the dialog showed.
     NewProject { name: String, clue: Option<String> },
+    /// The shortcuts changed (Settings → Shortcuts): messages name the new ones from now on.
+    Shortcuts(crate::shortcuts::Hotkeys),
     /// Stop any session, write state.json, and return from `run`.
     Quit,
 }

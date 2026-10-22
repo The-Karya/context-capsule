@@ -3,6 +3,7 @@
 //! The mic and the on-device recognizer live in the platform ([`VoiceEngine`]); no audio is kept.
 
 use crate::clock;
+use std::borrow::Cow;
 use crate::events::Event;
 use crate::redact::{char_count, Redactor};
 use std::sync::atomic::{AtomicU32, Ordering};
@@ -35,10 +36,10 @@ impl VoicePermission {
 }
 
 /// The OS-specific words in user messages: hotkeys and where to fix things.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq, Eq)]
 pub struct PlatformText {
-    pub record_hotkey: &'static str,
-    pub voice_hotkey: &'static str,
+    pub record_hotkey: Cow<'static, str>,
+    pub voice_hotkey: Cow<'static, str>,
     /// Where to check the microphone input.
     pub sound_input: &'static str,
     /// Where to allow the microphone.
@@ -55,8 +56,8 @@ pub struct PlatformText {
 
 impl PlatformText {
     pub const MACOS: PlatformText = PlatformText {
-        record_hotkey: "⌥C",
-        voice_hotkey: "⌥V",
+        record_hotkey: Cow::Borrowed("⌥C"),
+        voice_hotkey: Cow::Borrowed("⌥V"),
         sound_input: "System Settings → Sound → Input",
         mic_privacy: "System Settings → Privacy & Security → Microphone",
         speech_privacy: "System Settings → Privacy & Security → Speech Recognition",
@@ -65,8 +66,8 @@ impl PlatformText {
         add_language: "add the language in System Settings → Keyboard → Dictation",
     };
     pub const WINDOWS: PlatformText = PlatformText {
-        record_hotkey: "Alt+C",
-        voice_hotkey: "Alt+V",
+        record_hotkey: Cow::Borrowed("Alt+C"),
+        voice_hotkey: Cow::Borrowed("Alt+V"),
         sound_input: "Settings → System → Sound → Input",
         mic_privacy: "Settings → Privacy & security → Microphone",
         speech_privacy: "Settings → Privacy & security → Speech",
@@ -75,8 +76,8 @@ impl PlatformText {
         add_language: "install a speech model for that language",
     };
     pub const LINUX: PlatformText = PlatformText {
-        record_hotkey: "Alt+C",
-        voice_hotkey: "Alt+V",
+        record_hotkey: Cow::Borrowed("Alt+C"),
+        voice_hotkey: Cow::Borrowed("Alt+V"),
         sound_input: "your Sound settings (Input)",
         mic_privacy: "your Privacy settings (Microphone)",
         speech_privacy: "your Privacy settings",
@@ -84,6 +85,13 @@ impl PlatformText {
         config_file: "config.json in your Context Capsule folder",
         add_language: "install a speech model for that language",
     };
+
+    /// With the current shortcuts (Windows and Linux: "Ctrl+Shift+R" as written).
+    pub fn with_shortcuts(mut self, h: &crate::shortcuts::Hotkeys) -> PlatformText {
+        self.record_hotkey = Cow::Owned(h.record.label());
+        self.voice_hotkey = Cow::Owned(h.voice.label());
+        self
+    }
 }
 
 /// The record hotkey was pressed while a voice note listens: recording waits, so one key never ends both.

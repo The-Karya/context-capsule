@@ -19,6 +19,8 @@ pub struct Config {
     pub sounds: bool,
     /// What starting shares: the picker (one screen or window) or every screen at once.
     pub share_screens: ShareScreens,
+    /// Your own shortcuts ("hotkeys": {"record": "Alt+C", "voice": "Alt+V"}).
+    pub hotkeys: crate::shortcuts::Hotkeys,
 }
 
 impl Default for Config {
@@ -31,6 +33,7 @@ impl Default for Config {
             keep_days: 30,
             sounds: true,
             share_screens: ShareScreens::Pick,
+            hotkeys: crate::shortcuts::Hotkeys::DEFAULT,
         }
     }
 }
@@ -39,7 +42,8 @@ impl Config {
     pub const REMIND_AT: &'static str = "18:00";
 
     /// Reads `{"exclude_apps": [...], "voice_locale": "en-GB", "author": "…", "remind_at": "18:00" | false,
-    /// "keep_recordings_days": 30, "sounds": true, "share_screens": "pick" | "all"}`; a missing or broken file means defaults.
+    /// "keep_recordings_days": 30, "sounds": true, "share_screens": "pick" | "all",
+    /// "hotkeys": {"record": "Alt+C", "voice": "Alt+V"}}`; a missing or broken file means defaults.
     pub fn load(path: &Path) -> Config {
         std::fs::read(path).map(|d| Config::parse(&d)).unwrap_or_default()
     }
@@ -72,7 +76,8 @@ impl Config {
         .clamp(0, u32::MAX as i64) as u32;
         let sounds = obj.get("sounds").and_then(|v| v.as_bool()).unwrap_or(true);
         let share_screens = obj.get("share_screens").and_then(|v| v.as_str()).map_or(ShareScreens::Pick, ShareScreens::parse);
-        Config { exclude_apps, voice_locale: text("voice_locale"), author: text("author"), remind_at, keep_days, sounds, share_screens }
+        let hotkeys = crate::shortcuts::Hotkeys::from_value(obj.get(crate::shortcuts::KEY_HOTKEYS), false);
+        Config { exclude_apps, voice_locale: text("voice_locale"), author: text("author"), remind_at, keep_days, sounds, share_screens, hotkeys }
     }
 }
 
@@ -122,5 +127,7 @@ mod tests {
         assert_eq!(c.share_screens, ShareScreens::Pick, "missing: pick");
         assert_eq!(Config::parse(br#"{"share_screens": "all"}"#).share_screens, ShareScreens::All);
         assert_eq!(Config::parse(br#"{"share_screens": true}"#).share_screens, ShareScreens::Pick, "not a string: pick");
+        assert_eq!(c.hotkeys, crate::shortcuts::Hotkeys::DEFAULT);
+        assert_eq!(Config::parse(br#"{"hotkeys": {"record": "Ctrl+Alt+R"}}"#).hotkeys.record.label(), "Ctrl+Alt+R");
     }
 }
