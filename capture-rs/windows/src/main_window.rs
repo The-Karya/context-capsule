@@ -1,6 +1,6 @@
 // context-capsule — windows: the Context Capsule window — one place for everything: Home (start / stop, speak a
 // note, add a screen, what you're working on, time per project, recent capsules, make today's capsules with your
-// AI), Capsules (with Copy my day / Save from clipboard), Projects, Settings (set up, Connect your AI, Your AI and
+// AI), Timeline (a day as it was recorded: search, Show all, delete, make a capsule from a recording), Capsules (with Copy my day / Save from clipboard), Projects, Settings (set up, Connect your AI, Your AI and
 // preferences) and Help. Opens from the tray ("Open Context Capsule"), and by
 // itself on Settings the first time.
 //! A plain Win32 window drawn in code with Windows 11's look (Segoe UI Variable, system colors and accent, light
@@ -9,12 +9,13 @@
 //! Keyboard: Tab / Shift+Tab between controls, Enter or Space to press, arrows and Page Up / Down to scroll.
 
 use crate::app::{Ui, UiCmd};
-use crate::layout::{self, Action, Data, Field, Node, ShareHow, ShareView, View, HEADER, SIDEBAR};
+use crate::layout::{self, Action, Data, Field, Node, ShareHow, ShareView, TimelineData, TimelineView, View, HEADER, SIDEBAR};
 use crate::paint::{self, Faces, Feel, Fonts, GdiMeasure, Theme};
 use crate::setup::{self, Done};
 use crate::{ai, hotkeys, input, tray, win, windows_list};
 use context_capsule_core::settings::{self, Appearance, ConfigFile, ShareScreens};
 use context_capsule_core::shortcuts::{self as shortcuts, Hotkeys, Pressed, Which};
+use context_capsule_core::timeline as tl;
 use context_capsule_core::window::{self as w, HomeNumbers, Keys, Section};
 use context_capsule_core::{AppLog, CapsuleSummary, Config, Msg, Paths, Projects, Status, WorkStats};
 use std::cell::RefCell;
@@ -57,6 +58,12 @@ const TICK: usize = 1;
 const STATS: usize = 2;
 /// Home's numbers are read again this often while the window is open.
 const STATS_EVERY_MS: u32 = 60_000;
+/// Today's Timeline is read again this often (seconds) while recording.
+const TIMELINE_EVERY: u32 = 5;
+/// "this PC", in the Timeline's delete questions.
+const THIS_PC: &str = "this PC";
+/// The Timeline's day menu: at most this many days.
+const DAYS_IN_MENU: usize = 30;
 /// From a text box: Tab (wParam 1 = backwards), Enter, Esc.
 const WM_FIELD_TAB: u32 = WM_APP + 20;
 const WM_FIELD_ENTER: u32 = WM_APP + 21;
@@ -135,6 +142,9 @@ struct Win {
     ai_seen: u64,
     /// Seconds on Settings: the AI apps are asked for again every `AI_EVERY` of them.
     ai_ticks: u32,
+    /// The Timeline: the day, its search, what's open; and seconds since it was last read (while recording).
+    timeline: TimelineView,
+    timeline_ticks: u32,
 }
 
 /// While Settings is open, the AI apps are asked for again this often (seconds), as on the Mac.
@@ -215,6 +225,8 @@ pub fn show(section: Option<Section>, ctx: Ctx, status: &Status) {
         keys_note: None,
         ai_seen: 0,
         ai_ticks: 0,
+        timeline: TimelineView::new(context_capsule_core::capsules::today()),
+        timeline_ticks: 0,
         ctx,
     };
     state.apply_theme();
@@ -260,6 +272,14 @@ pub fn set_data(data: Data) {
         if w.focused_field() != Some(Field::Name) && name_was != w.data.config.author {
             w.fill_name();
         }
+        w.rebuild();
+    });
+}
+
+/// A day for the Timeline was read.
+pub fn set_timeline(data: TimelineData) {
+    with_win(|w| {
+        w.timeline.set(data);
         w.rebuild();
     });
 }
@@ -489,6 +509,28 @@ impl Win {
                 ai::refresh(&self.ctx.ui, &self.ctx.log);
             }
         }
+        if s == Section::Timeline {
+            self.request_timeline();
+        }
+    }
+
+    /// Read the Timeline's day on another thread; the answer comes back as `UiCmd::Timeline`.
+    fn request_timeline(&mut self) {
+        self.timeline_ticks = 0;
+        let (paths, ui, date) = (self.ctx.paths.clone(), self.ctx.ui.clone(), self.timeline.date);
+        std::thread::spawn(move || {
+            let day = tl::load_day(&paths, date);
+            let recorded = tl::days_with_recordings(&paths.sessions());
+            ui.post(UiCmd::Timeline(Box::new(TimelineData { date, day, recorded })));
+        });
+    }
+
+    /// Show another day on the Timeline.
+    fn timeline_day(&mut self, date: chrono::NaiveDate) {
+        self.timeline.go_to(date);
+        self.scroll = 0.0;
+        self.request_timeline();
+        self.rebuild();
     }
 
     /// Read the files on another thread; the answer comes back as `UiCmd::WindowData`.
@@ -549,6 +591,7 @@ impl Win {
             recording_keys: self.recording_keys,
             keys_note: self.keys_note.as_ref().map(|(which, text)| (*which, text.as_str())),
             ai: &ai,
+            timeline: &self.timeline,
         };
         // SAFETY: the screen DC, only for measuring text; released below.
         let dc = unsafe { GetDC(Some(self.hwnd)) };
@@ -667,8 +710,12 @@ impl Win {
             )
             .unwrap_or_default();
             SendMessageW(h, EM_LIMITTEXT, Some(WPARAM(200)), None);
-            if f == Field::Search {
-                let hint = HSTRING::from(w::SEARCH_CAPSULES);
+            let hint = match f {
+                Field::Search => Some(w::SEARCH_CAPSULES),
+                Field::TimelineSearch => Some(tl::SEARCH_DAY),
+                _ => None,
+            };
+            if let Some(hint) = hint.map(HSTRING::from) {
                 SendMessageW(h, EM_SETCUEBANNER, Some(WPARAM(1)), Some(LPARAM(hint.as_ptr() as isize)));
             }
             let _ = SetWindowSubclass(h, Some(field_proc), 1, 0);
@@ -1175,6 +1222,68 @@ fn perform(action: Action, at: POINT) {
                 w.rebuild();
             });
         }
+        Action::SeeTimeline => {
+            with_win(|w| {
+                w.timeline.go_to(context_capsule_core::capsules::today());
+                w.go(Section::Timeline);
+                w.rebuild();
+            });
+        }
+        Action::Day => {
+            let Some((current, recorded)) = with_win(|w| (w.timeline.date, w.timeline.recorded.clone())) else { return };
+            let today = context_capsule_core::capsules::today();
+            let days = tl::picker_days(&recorded, today, DAYS_IN_MENU);
+            let labels: Vec<String> = days.iter().map(|d| tl::day_label(*d, today)).collect();
+            let checked = days.iter().position(|d| *d == current);
+            if let Some(i) = menu(hwnd, &labels, checked, at) {
+                with_win(|w| w.timeline_day(days[i]));
+            }
+        }
+        Action::ShowAll(key) => {
+            with_win(|w| {
+                if !w.timeline.expanded.remove(&key) {
+                    w.timeline.expanded.insert(key);
+                }
+                w.rebuild();
+            });
+        }
+        Action::MoreMoments => {
+            with_win(|w| {
+                w.timeline.limit += tl::PAGE;
+                w.rebuild();
+            });
+        }
+        Action::MakeFrom(session) => ai::make_from_session(&ctx.ui, &ctx.log, &session),
+        Action::DeleteMoment(key) => {
+            let Some(m) = with_win(|w| w.timeline.day().and_then(|d| d.find(&key)).cloned()).flatten() else { return };
+            if menu(hwnd, &[tl::DELETE_MOMENT_MENU.to_string()], None, at) != Some(0) {
+                return;
+            }
+            if status.recording && status.session_id.as_deref() == Some(m.session.as_str()) {
+                let (title, body) = tl::Refused::Recording.message();
+                win::alert(Some(hwnd), &title, &body);
+                return;
+            }
+            if input::ask_choice(tl::DELETE_MOMENT, &tl::delete_moment_detail(THIS_PC), tl::DELETE, tl::CANCEL) {
+                let done = tl::delete_moment(&ctx.paths, &m.session, m.index, &m.t_raw, &m.line);
+                timeline_deleted(hwnd, &ctx, done, "moment");
+            }
+        }
+        Action::DeleteBlock(session) => {
+            let Some(block) = with_win(|w| w.timeline.day().and_then(|d| d.block(&session)).cloned()).flatten() else { return };
+            if menu(hwnd, &[tl::DELETE_BLOCK_MENU.to_string()], None, at) != Some(0) {
+                return;
+            }
+            if status.recording && status.session_id.as_deref() == Some(session.as_str()) {
+                let (title, body) = tl::Refused::Recording.message();
+                win::alert(Some(hwnd), &title, &body);
+                return;
+            }
+            if input::ask_choice(tl::DELETE_BLOCK, &tl::delete_block_detail(&block, THIS_PC), tl::DELETE, tl::CANCEL) {
+                let done = tl::delete_session(&ctx.paths, &session);
+                timeline_deleted(hwnd, &ctx, done, "recording");
+            }
+        }
         Action::AddApp => {
             let apps = open_apps(&config.exclude_apps);
             let mut labels: Vec<String> = apps.iter().map(|(_, n)| n.clone()).collect();
@@ -1194,6 +1303,22 @@ fn perform(action: Action, at: POINT) {
             }
         }
     }
+}
+
+/// After a delete on the Timeline: say why it didn't happen, or read the day (and Home's numbers) again.
+fn timeline_deleted(hwnd: HWND, ctx: &Ctx, done: Result<(), tl::Refused>, what: &str) {
+    match done {
+        Ok(()) => ctx.log.write(&format!("timeline: a {what} deleted")),
+        Err(why) => {
+            ctx.log.write(&format!("timeline: {what} not deleted: {why:?}"));
+            let (title, body) = why.message();
+            win::alert(Some(hwnd), &title, &body);
+        }
+    }
+    with_win(|w| {
+        w.request_timeline();
+        w.request_load();
+    });
 }
 
 /// "Choose…" → an app that isn't open right now.
@@ -1527,7 +1652,7 @@ extern "system" fn proc(hwnd: HWND, msg: u32, wp: WPARAM, lp: LPARAM) -> LRESULT
         }
         WM_FIELD_ESCAPE => {
             let from = HWND(lp.0 as *mut _);
-            if with_win(|w| field_of_hwnd(w, from)) == Some(Some(Field::Search)) {
+            if matches!(with_win(|w| field_of_hwnd(w, from)), Some(Some(Field::Search | Field::TimelineSearch))) {
                 // Esc in the search box clears it. Outside the borrow: EN_CHANGE comes back at once and shows
                 // every capsule again.
                 // SAFETY: our own child control.
@@ -1549,6 +1674,11 @@ extern "system" fn proc(hwnd: HWND, msg: u32, wp: WPARAM, lp: LPARAM) -> LRESULT
                     EN_KILLFOCUS => w.invalidate(),
                     EN_CHANGE if f == Field::Search => {
                         w.search = w.field_text(Field::Search);
+                        w.rebuild();
+                    }
+                    EN_CHANGE if f == Field::TimelineSearch => {
+                        let text = w.field_text(Field::TimelineSearch);
+                        w.timeline.set_search(&text);
                         w.rebuild();
                     }
                     EN_CHANGE if f == Field::Name && !w.setting_text => {
@@ -1589,6 +1719,13 @@ extern "system" fn proc(hwnd: HWND, msg: u32, wp: WPARAM, lp: LPARAM) -> LRESULT
                     }
                 }
                 again |= ai::with(|s| s.version) != w.ai_seen;
+                // Today's Timeline follows the recording.
+                if w.section == Section::Timeline && w.status.recording && w.timeline.date == context_capsule_core::capsules::today() {
+                    w.timeline_ticks += 1;
+                    if w.timeline_ticks >= TIMELINE_EVERY {
+                        w.request_timeline();
+                    }
+                }
                 if w.notice.as_ref().is_some_and(|(_, at)| at.elapsed() > NOTICE_FOR) {
                     w.notice = None;
                     w.invalidate();
@@ -1611,6 +1748,9 @@ extern "system" fn proc(hwnd: HWND, msg: u32, wp: WPARAM, lp: LPARAM) -> LRESULT
             with_win(|w| {
                 if w.loaded {
                     w.request_load();
+                }
+                if w.section == Section::Timeline {
+                    w.request_timeline();
                 }
             });
         }

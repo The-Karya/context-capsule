@@ -1302,3 +1302,67 @@ fn pick_is_the_default_and_a_single_pick_counts_one() {
     g.engine.on_pick(PickOutcome::Removed(1));
     assert!(g.engine.status().every_screen_shared);
 }
+
+// MARK: gaps (the Timeline)
+
+#[test]
+fn gaps_jsonl_for_stretches_not_read() {
+    let mut r = Rig::new("gaps");
+    r.scene();
+    r.p().ui_text = Some("Real words here. ".repeat(10));
+    let id = r.record();
+    let gaps = |r: &Rig| std::fs::read_to_string(r.session_dir(&id).join("gaps.jsonl")).unwrap_or_default();
+    let step = |r: &mut Rig| {
+        r.advance(Duration::from_secs(3));
+        r.engine.tick();
+    };
+    step(&mut r); // 10:01:06, read
+    // A private app in front: 09, 12 (under 5 s: nothing yet), 15 (written), 18 (extended in place).
+    r.p().front.as_mut().unwrap().app_name = "1Password".into();
+    step(&mut r);
+    step(&mut r);
+    assert_eq!(gaps(&r), "", "under 5 s isn't written");
+    step(&mut r);
+    assert_eq!(gaps(&r), "{\"t\":\"2026-10-19T10:01:09Z\",\"end\":\"2026-10-19T10:01:15Z\",\"why\":\"private_app\"}\n");
+    step(&mut r);
+    // The window overview ("system"), then no window ("no_text", a new line).
+    r.p().front.as_mut().unwrap().overlay = true;
+    step(&mut r);
+    step(&mut r);
+    step(&mut r);
+    r.scene();
+    r.p().front.as_mut().unwrap().window = None;
+    step(&mut r);
+    step(&mut r);
+    step(&mut r);
+    r.scene();
+    step(&mut r); // 39, read
+    // One sample not shared: too short.
+    r.p().picked = None;
+    step(&mut r);
+    r.scene();
+    step(&mut r); // 45, read
+    // The lock screen (a private app): "locked".
+    r.p().front.as_mut().unwrap().app_name = "LockApp".into();
+    r.p().front.as_mut().unwrap().app_id = Some("LockApp.exe".into());
+    step(&mut r);
+    step(&mut r);
+    step(&mut r);
+    r.scene();
+    step(&mut r); // 57, read
+    assert_eq!(
+        gaps(&r),
+        concat!(
+            "{\"t\":\"2026-10-19T10:01:09Z\",\"end\":\"2026-10-19T10:01:18Z\",\"why\":\"private_app\"}\n",
+            "{\"t\":\"2026-10-19T10:01:21Z\",\"end\":\"2026-10-19T10:01:27Z\",\"why\":\"system\"}\n",
+            "{\"t\":\"2026-10-19T10:01:30Z\",\"end\":\"2026-10-19T10:01:36Z\",\"why\":\"no_text\"}\n",
+            "{\"t\":\"2026-10-19T10:01:48Z\",\"end\":\"2026-10-19T10:01:54Z\",\"why\":\"locked\"}\n",
+        )
+    );
+    assert!(!r.events(&id).is_empty(), "events are written as before");
+    // A stopped recording's stretch ends with it.
+    r.p().front.as_mut().unwrap().app_name = "1Password".into();
+    step(&mut r);
+    r.engine.toggle_record();
+    assert_eq!(gaps(&r).lines().count(), 4);
+}

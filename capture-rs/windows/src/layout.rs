@@ -1,8 +1,8 @@
-// context-capsule — windows: the Context Capsule window's layout — what goes where for Home, Capsules, Projects,
+// context-capsule — windows: the Context Capsule window's layout — what goes where for Home, Timeline, Capsules, Projects,
 // Settings (with Connect your AI and Your AI) and Help, as a flat list of shapes, words and controls in device-independent pixels. Pure (no Windows
 // calls): text is measured through `Measure`, so it runs and is tested on any OS. `main_window` draws it.
-//! The words and numbers come from core's `window` module, the same as the Mac's window. Raw recordings are
-//! never shown (only time per project, counts and capsules).
+//! The words and numbers come from core's `window` and `timeline` modules, the same as the Mac's window. Raw
+//! recordings show only on the Timeline (everywhere else: time per project, counts and capsules).
 
 use crate::ai::{self, AiState};
 use crate::setup::{Done, Step};
@@ -11,8 +11,10 @@ use context_capsule_core::capsules::{self, CapsuleSummary};
 use context_capsule_core::share_check::{self, Kind};
 use context_capsule_core::settings::{self, Appearance};
 use context_capsule_core::shortcuts::{self as keys, Which};
+use context_capsule_core::timeline::{self as tl, Day, Item, MomentKey, Row};
 use context_capsule_core::window::{self as w, HomeNumbers, Keys, Section};
 use context_capsule_core::{Config, Project, Status};
+use std::collections::HashSet;
 use std::path::PathBuf;
 use std::time::SystemTime;
 
@@ -126,10 +128,12 @@ pub enum Field {
     ProjectClues,
     /// Capsules: filters by title and "In short" as you type.
     Search,
+    /// Timeline: filters the day's moments as you type.
+    TimelineSearch,
 }
 
 impl Field {
-    pub const ALL: [Field; 4] = [Field::Name, Field::ProjectName, Field::ProjectClues, Field::Search];
+    pub const ALL: [Field; 5] = [Field::Name, Field::ProjectName, Field::ProjectClues, Field::Search, Field::TimelineSearch];
 }
 
 /// What happens once "Check before sharing" says Share.
@@ -221,6 +225,16 @@ pub enum Action {
     /// Settings → Shortcuts: record new keys for one, or put back the defaults.
     Shortcut(Which),
     ResetShortcuts,
+    /// Timeline: the day (a list of days), Show all / Show less, delete a moment or a whole recording (after a
+    /// confirm), make a capsule from a recording with Your AI, and more moments.
+    Day,
+    ShowAll(MomentKey),
+    DeleteMoment(MomentKey),
+    DeleteBlock(String),
+    MakeFrom(String),
+    MoreMoments,
+    /// Home → "See today's timeline".
+    SeeTimeline,
 }
 
 #[derive(Clone, Debug, PartialEq)]
@@ -242,6 +256,10 @@ pub enum Node {
     /// The small status pill (top right).
     Pill { r: Rect, text: String, live: bool },
     Field { r: Rect, field: Field },
+    /// A round app badge with its first letter (Timeline).
+    Badge { r: Rect, text: String },
+    /// A speech bubble (a voice or typed note on the Timeline).
+    Bubble(Rect),
 }
 
 impl Node {
@@ -251,7 +269,7 @@ impl Node {
     }
     pub fn rect(&self) -> Rect {
         match self {
-            Node::Card(r) | Node::Divider(r) => *r,
+            Node::Card(r) | Node::Divider(r) | Node::Bubble(r) => *r,
             Node::Text { r, .. }
             | Node::Button { r, .. }
             | Node::Toggle { r, .. }
@@ -259,6 +277,7 @@ impl Node {
             | Node::Dot { r, .. }
             | Node::Key { r, .. }
             | Node::Pill { r, .. }
+            | Node::Badge { r, .. }
             | Node::Field { r, .. } => *r,
         }
     }
@@ -291,11 +310,15 @@ pub mod glyph {
     pub const MIC: &str = "\u{E720}";
     pub const LINK: &str = "\u{E71B}";
     pub const POWER: &str = "\u{E7E8}";
+    pub const HISTORY: &str = "\u{E81C}";
+    pub const HIDE: &str = "\u{ED1A}";
+    pub const KEYBOARD: &str = "\u{E765}";
 }
 
 pub fn section_icon(s: Section) -> &'static str {
     match s {
         Section::Home => glyph::HOME,
+        Section::Timeline => glyph::HISTORY,
         Section::Capsules => glyph::CAPSULE,
         Section::Projects => glyph::FOLDER,
         Section::Settings => glyph::SETTINGS,
@@ -349,6 +372,81 @@ pub struct View<'a> {
     pub keys_note: Option<(Which, &'a str)>,
     /// The AI apps and Your AI (Settings, Home's Make today's capsules, Capsules, Help).
     pub ai: &'a AiState,
+    /// The Timeline's day and what's open on it.
+    pub timeline: &'a TimelineView,
+}
+
+/// One day read for the Timeline (off the UI thread): the day asked for, what's in it, and the days with recordings.
+#[derive(Clone, Debug)]
+pub struct TimelineData {
+    pub date: chrono::NaiveDate,
+    pub day: Day,
+    pub recorded: Vec<chrono::NaiveDate>,
+}
+
+/// The Timeline page's state: the day shown (None while it's read), its search, the moments opened with Show all,
+/// and how many moments show before "Show more".
+#[derive(Clone, Debug)]
+pub struct TimelineView {
+    pub date: chrono::NaiveDate,
+    day: Option<Day>,
+    /// The day filtered by `search`, while searching (kept, so a big day isn't searched again on every repaint).
+    shown: Option<Day>,
+    pub search: String,
+    pub expanded: HashSet<MomentKey>,
+    pub limit: usize,
+    pub recorded: Vec<chrono::NaiveDate>,
+}
+
+impl TimelineView {
+    pub fn new(date: chrono::NaiveDate) -> TimelineView {
+        TimelineView { date, day: None, shown: None, search: String::new(), expanded: HashSet::new(), limit: tl::PAGE, recorded: vec![] }
+    }
+
+    /// Another day: nothing shown until it's read.
+    pub fn go_to(&mut self, date: chrono::NaiveDate) {
+        if date != self.date {
+            self.date = date;
+            self.day = None;
+            self.shown = None;
+            self.expanded.clear();
+            self.limit = tl::PAGE;
+        }
+    }
+
+    /// The day was read (ignored if another day was picked meanwhile).
+    pub fn set(&mut self, data: TimelineData) {
+        self.recorded = data.recorded;
+        if data.date == self.date {
+            self.shown = self.searching().then(|| data.day.search(&self.search));
+            self.day = Some(data.day);
+        }
+    }
+
+    pub fn set_search(&mut self, search: &str) {
+        if search != self.search {
+            self.search = search.to_string();
+            self.shown = if self.searching() { self.day.as_ref().map(|d| d.search(search)) } else { None };
+            self.limit = tl::PAGE;
+        }
+    }
+
+    fn searching(&self) -> bool {
+        self.search.split_whitespace().next().is_some()
+    }
+
+    /// What the page shows (the search applied); None while reading.
+    pub fn shown(&self) -> Option<&Day> {
+        if self.searching() {
+            self.shown.as_ref()
+        } else {
+            self.day.as_ref()
+        }
+    }
+
+    pub fn day(&self) -> Option<&Day> {
+        self.day.as_ref()
+    }
 }
 
 pub struct Layout {
@@ -552,6 +650,7 @@ pub fn layout(v: &View, width: f64, height: f64, m: &dyn Measure) -> Layout {
     match (v.share, v.section) {
         (Some(share), _) => share_page(&mut col, share),
         (None, Section::Home) => home(&mut col, v, wide),
+        (None, Section::Timeline) => timeline_page(&mut col, v),
         (None, Section::Capsules) => capsules_page(&mut col, v),
         (None, Section::Projects) => projects_page(&mut col, v),
         (None, Section::Settings) => settings_page(&mut col, v),
@@ -628,7 +727,7 @@ fn home(col: &mut Col, v: &View, wide: bool) {
     col.w = main_w;
     status_card(col, v);
     col.gap(GAP);
-    col.caption(w::TODAY);
+    col.caption_with(w::TODAY, Some((tl::SEE_TODAYS_TIMELINE, Action::SeeTimeline)));
     today_card(col, v);
     col.gap(GAP);
     recent(col, v);
@@ -1023,6 +1122,214 @@ fn share_page(col: &mut Col, share: &ShareView) {
     col.button(right - sw - 8.0 - cw, w::CANCEL, Action::ShareCancel, Style::Standard);
     col.button(right - sw, w::SHARE, Action::ShareGo, Style::Accent);
     col.gap(BUTTON_H);
+}
+
+// MARK: Timeline
+
+/// The Timeline: the day (a list of days) and a search box, then each recording — its line, Make a capsule from
+/// this and ⋯ (Delete this recording…) — with its moments, notes and gaps in one card; "Off" between recordings;
+/// at most `limit` moments, then "Show more". The Mac's words and order (TimelineView.swift).
+fn timeline_page(col: &mut Col, v: &View) {
+    let tv = v.timeline;
+    let label = tl::day_label(tv.date, v.today);
+    let dw = button_width(col.m, &label, Style::Dropdown).max(150.0);
+    col.nodes.push(Node::Button { r: Rect::new(col.x, col.y, dw, BUTTON_H), action: Action::Day, label, icon: None, style: Style::Dropdown, enabled: true, check: false });
+    col.nodes.push(Node::Field { r: Rect::new(col.x + dw + 8.0, col.y, (col.w - dw - 8.0).max(80.0), BUTTON_H), field: Field::TimelineSearch });
+    col.gap(BUTTON_H + 12.0);
+    col.para(&tl::intro(v.keys.this_computer), Font::Small, Ink::Secondary);
+    col.gap(GAP);
+
+    let Some(day) = tv.shown() else {
+        col.para(tl::LOADING, Font::Body, Ink::Secondary);
+        return;
+    };
+    if day.is_empty() {
+        let searching = tv.day().is_some_and(|d| !d.is_empty());
+        col.para(&tl::empty_line(searching, tv.date == v.today, &v.keys.record), Font::Body, Ink::Secondary);
+        return;
+    }
+    let (rows, more) = day.rows(tv.limit);
+    // Group the rows: an "Off" line, a recording's header, then its items in one card.
+    let mut i = 0;
+    while i < rows.len() {
+        match &rows[i] {
+            Row::Off(text) => {
+                let h = col.text_h(text, Font::Small, col.w, 1);
+                col.nodes.push(Node::Text { r: Rect::new(col.x, col.y, col.w, h), text: text.clone(), font: Font::Small, ink: Ink::Secondary, align: Align::Center, lines: 1 });
+                col.gap(h + GAP);
+                i += 1;
+            }
+            Row::Block(b) => {
+                block_header(col, b, &v.data.projects);
+                let mut items: Vec<&Item> = vec![];
+                i += 1;
+                while let Some(Row::Item(_, item)) = rows.get(i) {
+                    items.push(item);
+                    i += 1;
+                }
+                if items.is_empty() {
+                    col.para(tl::NOTHING_IN_IT, Font::Small, Ink::Secondary);
+                } else {
+                    col.card(|out, x, w, top, m| timeline_items(out, m, x, w, top, &items, tv, &v.data.projects));
+                }
+                col.gap(GAP);
+            }
+            Row::Item(..) => i += 1,
+        }
+    }
+    if more {
+        col.button(col.x, tl::SHOW_MORE, Action::MoreMoments, Style::Standard);
+        col.gap(BUTTON_H);
+    }
+}
+
+/// "10:02 – 11:30 · 12 moments · Website" (a red dot and "Recording now" while it records), then Make a capsule
+/// from this and ⋯ on the right.
+fn block_header(col: &mut Col, b: &tl::Block, projects: &[Project]) {
+    let line = b.line(projects);
+    let mw = button_width(col.m, tl::MAKE_FROM_THIS, Style::Standard);
+    let dw = 36.0;
+    let right = col.x + col.w;
+    let room = (col.w - mw - dw - 16.0).max(60.0);
+    let mut x = col.x + 4.0;
+    if b.live {
+        col.nodes.push(Node::Dot { r: Rect::new(x, col.y + (BUTTON_H - 8.0) / 2.0, 8.0, 8.0), on: true });
+        x += 16.0;
+    }
+    let live_w = if b.live { col.text_w(tl::RECORDING_NOW, Font::Small) + 12.0 } else { 0.0 };
+    let lw = col.text_w(&line, Font::Strong).min((col.x + room - x - live_w).max(40.0));
+    let th = col.text_h(&line, Font::Strong, lw, 1);
+    col.nodes.push(Node::Text { r: Rect::new(x, col.y + (BUTTON_H - th) / 2.0, lw, th), text: line, font: Font::Strong, ink: Ink::Primary, align: Align::Left, lines: 1 });
+    if b.live {
+        let sh = col.text_h(tl::RECORDING_NOW, Font::Small, live_w, 1);
+        col.nodes.push(Node::Text {
+            r: Rect::new(x + lw + 12.0, col.y + (BUTTON_H - sh) / 2.0, live_w - 12.0, sh),
+            text: tl::RECORDING_NOW.into(),
+            font: Font::Small,
+            ink: Ink::Secondary,
+            align: Align::Left,
+            lines: 1,
+        });
+    }
+    col.nodes.push(Node::Button {
+        r: Rect::new(right - dw - 4.0 - mw, col.y, mw, BUTTON_H),
+        action: Action::MakeFrom(b.session.clone()),
+        label: tl::MAKE_FROM_THIS.into(),
+        icon: None,
+        style: Style::Standard,
+        enabled: true,
+        check: false,
+    });
+    col.nodes.push(Node::Button {
+        r: Rect::new(right - dw, col.y, dw, BUTTON_H),
+        action: Action::DeleteBlock(b.session.clone()),
+        label: String::new(),
+        icon: Some(glyph::MORE),
+        style: Style::Subtle,
+        enabled: true,
+        check: false,
+    });
+    col.gap(BUTTON_H + CAPTION_GAP);
+}
+
+/// The first letter of an app, for its badge.
+pub fn initial(app: &str) -> String {
+    app_label(app).chars().find(|c| c.is_alphanumeric()).map(|c| c.to_uppercase().collect()).unwrap_or_else(|| "·".into())
+}
+
+/// A recording's moments, notes and gaps, one under the other; returns the bottom.
+#[allow(clippy::too_many_arguments)]
+fn timeline_items(out: &mut Vec<Node>, m: &dyn Measure, x: f64, w: f64, top: f64, items: &[&Item], tv: &TimelineView, projects: &[Project]) -> f64 {
+    let mut y = top;
+    let more_w = 32.0;
+    let left = x + CARD_PAD + 36.0;
+    for (n, item) in items.iter().enumerate() {
+        if n > 0 {
+            divider(out, x, w, y);
+        }
+        match item {
+            // "Not read 10:40 – 10:55: a private app was in front"
+            Item::Gap(g) => {
+                let line = g.line();
+                let inner = x + w - CARD_PAD - left;
+                let h = m.text(&line, Font::Small, inner, 2).1;
+                out.push(Node::Text { r: Rect::new(x + CARD_PAD, y + 8.0, 24.0, h.max(16.0)), text: glyph::HIDE.into(), font: Font::IconSmall, ink: Ink::Secondary, align: Align::Center, lines: 1 });
+                out.push(Node::Text { r: Rect::new(left, y + 8.0, inner, h), text: line, font: Font::Small, ink: Ink::Secondary, align: Align::Left, lines: 2 });
+                y += h + 16.0;
+            }
+            // A voice or typed note: all its words in a speech bubble, then "You said · 10:14 · in Figma".
+            Item::Moment(mo) if mo.is_note() => {
+                let bw = (x + w - CARD_PAD - more_w - 8.0 - left).max(80.0);
+                let inner = bw - 24.0;
+                let words = mo.shown_text(true);
+                let words = if words.is_empty() { "…".to_string() } else { words };
+                let wh = m.text(&words, Font::Body, inner, 0).1;
+                let bh = 8.0 + wh + 8.0;
+                let icon = if mo.kind == "voice" { glyph::MIC } else { glyph::KEYBOARD };
+                out.push(Node::Text { r: Rect::new(x + CARD_PAD, y + 14.0, 24.0, 24.0), text: icon.into(), font: Font::Icon, ink: Ink::Secondary, align: Align::Center, lines: 1 });
+                out.push(Node::Bubble(Rect::new(left, y + 10.0, bw, bh)));
+                out.push(Node::Text { r: Rect::new(left + 12.0, y + 18.0, inner, wh), text: words, font: Font::Body, ink: Ink::Primary, align: Align::Left, lines: 0 });
+                let caption = mo.note_caption();
+                let ch = m.text(&caption, Font::Small, bw - 4.0, 1).1;
+                out.push(Node::Text { r: Rect::new(left + 4.0, y + 10.0 + bh + 4.0, bw - 4.0, ch), text: caption, font: Font::Small, ink: Ink::Secondary, align: Align::Left, lines: 1 });
+                out.push(moment_menu(x, w, y + 10.0, mo.key()));
+                y += 10.0 + bh + 4.0 + ch + 10.0;
+            }
+            // Badge, the title (and "Looked at"), the time; app · where · project; the first lines; Show all.
+            Item::Moment(mo) => {
+                let inner = (x + w - CARD_PAD - more_w - 8.0 - left).max(60.0);
+                let ty0 = y + 10.0;
+                out.push(Node::Badge { r: Rect::new(x + CARD_PAD, ty0, 24.0, 24.0), text: initial(&mo.app) });
+                let time = mo.time();
+                let tw = m.text(&time, Font::Small, inner, 1).0;
+                let heading = mo.heading();
+                let hh = m.text(&heading, Font::Strong, inner, 1).1;
+                let pill = if mo.looked_at() { m.text(tl::LOOKED_AT, Font::Small, inner, 1).0 + 16.0 } else { 0.0 };
+                let room = (inner - tw - 12.0 - if pill > 0.0 { pill + 8.0 } else { 0.0 }).max(40.0);
+                let hw = m.text(&heading, Font::Strong, room, 1).0.min(room);
+                out.push(Node::Text { r: Rect::new(left, ty0 + 2.0, hw, hh), text: heading, font: Font::Strong, ink: Ink::Primary, align: Align::Left, lines: 1 });
+                if pill > 0.0 {
+                    out.push(Node::Pill { r: Rect::new(left + hw + 8.0, ty0 + 2.0 + (hh - 20.0) / 2.0, pill, 20.0), text: tl::LOOKED_AT.into(), live: false });
+                }
+                let th = m.text(&time, Font::Small, tw, 1).1;
+                out.push(Node::Text { r: Rect::new(left + inner - tw, ty0 + 2.0 + (hh - th) / 2.0, tw, th), text: time, font: Font::Small, ink: Ink::Secondary, align: Align::Right, lines: 1 });
+                let mut ty = ty0 + 2.0 + hh;
+                let details = mo.details(projects);
+                if !details.is_empty() {
+                    let dh = m.text(&details, Font::Small, inner, 1).1;
+                    out.push(Node::Text { r: Rect::new(left, ty + 2.0, inner, dh), text: details, font: Font::Small, ink: Ink::Secondary, align: Align::Left, lines: 1 });
+                    ty += dh + 2.0;
+                }
+                let open = tv.expanded.contains(&mo.key());
+                let text = mo.shown_text(open);
+                if text.trim().is_empty() {
+                    let nh = m.text(tl::NOTHING_NEW, Font::Small, inner, 1).1;
+                    out.push(Node::Text { r: Rect::new(left, ty + 4.0, inner, nh), text: tl::NOTHING_NEW.into(), font: Font::Small, ink: Ink::Secondary, align: Align::Left, lines: 1 });
+                    ty += nh + 4.0;
+                } else {
+                    let lines = if open { 0 } else { tl::FOLD_LINES as u8 * 2 };
+                    let bh = m.text(&text, Font::Small, inner, lines).1;
+                    out.push(Node::Text { r: Rect::new(left, ty + 4.0, inner, bh), text, font: Font::Small, ink: Ink::Primary, align: Align::Left, lines });
+                    ty += bh + 4.0;
+                }
+                if open || mo.folds() {
+                    let label = if open { tl::SHOW_LESS } else { tl::SHOW_ALL };
+                    let lw = button_width(m, label, Style::Subtle);
+                    let lh = m.text(label, Font::Small, inner, 1).1 + 8.0;
+                    out.push(Node::Button { r: Rect::new(left - 4.0, ty + 2.0, lw, lh), action: Action::ShowAll(mo.key()), label: label.into(), icon: None, style: Style::Subtle, enabled: true, check: false });
+                    ty += lh + 2.0;
+                }
+                out.push(moment_menu(x, w, y + 6.0, mo.key()));
+                y = ty.max(y + 44.0) + 10.0;
+            }
+        }
+    }
+    y
+}
+
+/// ⋯ on a moment's right (Delete this moment…).
+fn moment_menu(x: f64, w: f64, y: f64, key: MomentKey) -> Node {
+    Node::Button { r: Rect::new(x + w - CARD_PAD - 32.0, y, 32.0, 32.0), action: Action::DeleteMoment(key), label: String::new(), icon: Some(glyph::MORE), style: Style::Subtle, enabled: true, check: false }
 }
 
 // MARK: Projects
@@ -1518,7 +1825,96 @@ mod tests {
             recording_keys: None,
             keys_note: None,
             ai: Box::leak(Box::new(AiState::default())),
+            timeline: Box::leak(Box::new(timeline_view(sample_day()))),
         }
+    }
+
+    fn timeline_view(day: Day) -> TimelineView {
+        let mut tv = TimelineView::new(day.date);
+        tv.set(TimelineData { date: day.date, day, recorded: vec![] });
+        tv
+    }
+
+    /// A day on the Timeline: a recording on two screens (a page, a window looked at, a gap, a voice note), then
+    /// one still going.
+    fn sample_day() -> Day {
+        use chrono::TimeZone;
+        let tz = chrono::FixedOffset::east_opt(0).unwrap();
+        let t = |h: u32, m: u32| tz.with_ymd_and_hms(2026, 10, 20, h, m, 0).unwrap();
+        let moment = |session: &str, i: usize, h: u32, mi: u32, kind: &str, focus: &str, text: &str| tl::Moment {
+            session: session.into(),
+            index: i,
+            line: format!("line {i}"),
+            t_raw: String::new(),
+            t: t(h, mi),
+            end: t(h, mi + 2),
+            app: "Google Chrome".into(),
+            bundle: "chrome.exe".into(),
+            title: "Pricing — Linear".into(),
+            location: "linear.app/pricing".into(),
+            project: "web".into(),
+            kind: kind.into(),
+            src: "ax".into(),
+            focus: focus.into(),
+            text: text.into(),
+        };
+        let (a, b) = ("20261020-093000", "20261020-140000");
+        let items = vec![
+            Item::Moment(moment(a, 0, 9, 30, "", "", "Pricing\nFree\nTeams $12\nEnterprise")),
+            Item::Moment(moment(a, 1, 9, 40, "", "pointer", "Annual −20%")),
+            Item::Gap(tl::Gap { session: a.into(), t: t(9, 45), end: t(9, 55), why: "private_app".into() }),
+            Item::Moment(moment(a, 2, 10, 0, "voice", "", "We keep annual at twenty percent off.")),
+        ];
+        let first = tl::Block { session: a.into(), start: t(9, 30), end: t(10, 2), live: false, project: Some("web".into()), moments: 2, notes: 1, items };
+        let live = tl::Block { session: b.into(), start: t(14, 0), end: t(14, 2), live: true, project: None, moments: 1, notes: 0, items: vec![Item::Moment(moment(b, 0, 14, 0, "", "", ""))] };
+        Day { date: chrono::NaiveDate::from_ymd_opt(2026, 10, 20).unwrap(), blocks: vec![first, live] }
+    }
+
+    #[test]
+    fn timeline_page() {
+        let (status, data) = (Status::default(), data());
+        let mut v = view(Section::Timeline, &status, &data);
+        let l = layout(&v, 1100.0, 800.0, &Fake);
+        let t = texts(&l);
+        for word in ["Timeline", "Today", "09:30 – 10:02 · 2 moments · Website", "Off  10:02 – 14:00", "14:00 – 14:02 · 1 moment", "Recording now",
+            "Show all", "Looked at", "09:40 – 09:42", "Not read 09:45 – 09:55: a private app was in front", "You said · 10:00 · in Google Chrome",
+            "We keep annual at twenty percent off.", "Google Chrome · linear.app/pricing · Website", "Pricing\nFree\nTeams $12", "Nothing new on screen",
+            "Everything recorded on this day, as it was read. It stays on this PC."] {
+            assert!(t.iter().any(|x| x == word), "{word}: {t:?}");
+        }
+        assert_eq!(t.iter().filter(|x| *x == "Make a capsule from this").count(), 2);
+        assert!(l.content.iter().any(|n| matches!(n, Node::Field { field: Field::TimelineSearch, .. })));
+        assert!(l.content.iter().any(|n| matches!(n, Node::Bubble(_))));
+        let deletes = l.content.iter().filter(|n| matches!(n.action(), Some(Action::DeleteMoment(_)) | Some(Action::DeleteBlock(_)))).count();
+        assert_eq!(deletes, 4 + 2, "each moment and each recording");
+        assert!(find(&l, "Show more").is_none());
+
+        // Show all, search, paging, reading, an empty day.
+        let mut tv = timeline_view(sample_day());
+        tv.expanded.insert(("20261020-093000".into(), 0));
+        v.timeline = Box::leak(Box::new(tv.clone()));
+        let t = texts(&layout(&v, 1100.0, 800.0, &Fake));
+        assert!(t.iter().any(|x| x == "Show less") && t.iter().any(|x| x == "Pricing\nFree\nTeams $12\nEnterprise"));
+        tv.set_search("ANNUAL");
+        v.timeline = Box::leak(Box::new(tv.clone()));
+        let t = texts(&layout(&v, 1100.0, 800.0, &Fake));
+        assert!(t.iter().any(|x| x == "We keep annual at twenty percent off.") && !t.iter().any(|x| x.starts_with("Not read")) && !t.iter().any(|x| x == "Recording now"));
+        tv.set_search("nothing like it");
+        v.timeline = Box::leak(Box::new(tv.clone()));
+        assert!(texts(&layout(&v, 1100.0, 800.0, &Fake)).iter().any(|x| x == "Nothing on this day matches."));
+        tv.set_search("");
+        tv.limit = 2;
+        v.timeline = Box::leak(Box::new(tv.clone()));
+        let l = layout(&v, 1100.0, 800.0, &Fake);
+        assert!(find(&l, "Show more").is_some() && find(&l, "Recording now").is_none());
+        v.timeline = Box::leak(Box::new(TimelineView::new(sample_day().date)));
+        assert!(texts(&layout(&v, 1100.0, 800.0, &Fake)).iter().any(|x| x == "Reading…"));
+        let empty = Day { date: sample_day().date, blocks: vec![] };
+        v.timeline = Box::leak(Box::new(timeline_view(empty)));
+        assert!(texts(&layout(&v, 1100.0, 800.0, &Fake)).iter().any(|x| x == "Nothing recorded today yet. Start contextualizing (Alt+C) when you begin work."));
+        // Another day picked: nothing until it's read.
+        tv.go_to(chrono::NaiveDate::from_ymd_opt(2026, 10, 19).unwrap());
+        assert!(tv.shown().is_none() && tv.expanded.is_empty());
     }
 
     /// Claude (connected), Cursor (not), Zed (not installed); Your AI = `choice`.
@@ -1595,7 +1991,7 @@ mod tests {
         let t = texts(&l);
         for word in ["Your work", "Context Capsule", "Home", "Good evening, Saachi.", "Tuesday, 20 October", "Today 40 m", "Not contextualizing",
             "Start contextualizing", "Website", "Not sorted yet", "Recent capsules", "See all", "Shortcuts", "Working on", "Find by itself",
-            "New project", "Make today's capsules", "Copy my day", "Save from clipboard", "Your AI: any AI", "Change", "Streak", "3 days", "in a row", "2 capsules", "contextualized"] {
+            "New project", "Make today's capsules", "Copy my day", "Save from clipboard", "Your AI: any AI", "Change", "Streak", "3 days", "in a row", "2 capsules", "contextualized", "See today's timeline"] {
             assert!(t.iter().any(|x| x == word), "{word} on Home: {t:?}");
         }
         assert_eq!(t.iter().filter(|x| *x == "Open").count(), 3, "three recent capsules");
@@ -1863,6 +2259,8 @@ mod tests {
                     Node::Key { text: t, .. } => out += &format!("<rect x='{}' y='{}' width='{}' height='{}' rx='4' fill='{bg}' stroke='{border}'/><text x='{}' y='{}' font-size='12' font-weight='600' fill='{text}' text-anchor='middle'>{}</text>", r.x, r.y, r.w, r.h, r.x + r.w / 2.0, r.y + 16.0, esc(t)),
                     Node::Pill { text: t, .. } => out += &format!("<rect x='{}' y='{}' width='{}' height='{}' rx='13' fill='{card}' stroke='{border}'/><text x='{}' y='{}' font-size='12' fill='{text2}' text-anchor='middle'>{}</text>", r.x, r.y, r.w, r.h, r.x + r.w / 2.0, r.y + 17.0, esc(t)),
                     Node::Field { .. } => out += &format!("<rect x='{}' y='{}' width='{}' height='{}' rx='4' fill='{}' stroke='{border}'/><text x='{}' y='{}' font-size='14' fill='{text}'>Saachi Badal</text>", r.x, r.y, r.w, r.h, field, r.x + 10.0, r.y + 21.0),
+                    Node::Badge { text: t, .. } => out += &format!("<circle cx='{}' cy='{}' r='12' fill='{track}'/><text x='{}' y='{}' font-size='12' font-weight='600' fill='{text2}' text-anchor='middle'>{}</text>", r.x + 12.0, r.y + 12.0, r.x + 12.0, r.y + 16.0, esc(t)),
+                    Node::Bubble(_) => out += &format!("<rect x='{}' y='{}' width='{}' height='{}' rx='12' fill='{selected}'/>", r.x, r.y, r.w, r.h),
                 }
             }
             out + "</svg>"
@@ -1877,6 +2275,7 @@ mod tests {
             ("home-narrow", Section::Home, 700.0, 1500.0, false),
             ("settings", Section::Settings, 1000.0, 1200.0, false),
             ("capsules", Section::Capsules, 1000.0, 700.0, true),
+            ("timeline", Section::Timeline, 1000.0, 900.0, false),
         ] {
             // Your AI: Cursor (Claude connected, Zed under More); narrow Home: a website, after Copy my day.
             let mut ai = ai_state(if name == "home-narrow" { "chatgpt-web" } else { "cursor" });
@@ -1903,5 +2302,7 @@ mod tests {
         assert_eq!(without_year("yyyy年M月d日"), "M月d日");
         assert_eq!(without_year("dddd d. MMMM yyyy"), "dddd d. MMMM");
         assert_eq!(section_icon(Section::Help), glyph::HELP);
+        assert_eq!(section_icon(Section::Timeline), glyph::HISTORY);
+        assert_eq!((initial("chrome.exe").as_str(), initial(" ").as_str(), initial("éclair").as_str()), ("C", "·", "É"));
     }
 }

@@ -181,7 +181,8 @@ pub fn choice_menu(state: &AiState) -> Vec<(String, Option<String>)> {
 
 #[cfg(windows)]
 pub use win::{
-    ask, connect, copy_my_day, disconnect, handle, init, make, open_received, refresh, save_from_clipboard, set_choice, snapshot, with,
+    ask, connect, copy_my_day, disconnect, handle, init, make, make_from_session, open_received, refresh, save_from_clipboard, set_choice,
+    snapshot, with,
 };
 
 #[cfg(windows)]
@@ -325,6 +326,12 @@ mod win {
     /// Capsules → Ask (search inside every capsule).
     pub fn ask(ui: &Ui, log: &AppLog, question: &str) {
         open(ui, log, &search_prompt(question), "to search your capsules", "click Ask again", "ask your AI");
+    }
+
+    /// Timeline → "Make a capsule from this": your AI reads that recording (get_session_activity).
+    pub fn make_from_session(ui: &Ui, log: &AppLog, session: &str) {
+        let prompt = context_capsule_core::timeline::session_prompt(session);
+        open(ui, log, &prompt, "to read the recording", "click Make a capsule from this again", "make a capsule from a recording");
     }
 
     /// A capsule someone sent (Open with, or "Open a capsule…"): your AI carries on from it. Not a capsule: say so.

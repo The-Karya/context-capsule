@@ -22,6 +22,9 @@ progressbar.project-bar.muted > trough > progress { background-color: alpha(curr
 .tag { font-size: smaller; padding: 1px 6px; border-radius: 4px; background-color: alpha(currentColor, 0.1); }
 .cc-sidebar { background-color: alpha(currentColor, 0.03); }
 .command { font-family: monospace; padding: 8px 10px; border-radius: 6px; background-color: alpha(currentColor, 0.06); }
+.bubble { padding: 8px 12px; border-radius: 12px; background-color: alpha(@accent_bg_color, 0.14); }
+.app-badge { min-width: 24px; min-height: 24px; border-radius: 12px; font-size: smaller; font-weight: bold; background-color: alpha(currentColor, 0.1); }
+.timeline-text { font-size: smaller; }
 ";
 
 pub fn load_css() {
@@ -124,6 +127,7 @@ pub fn message(win: &adw::ApplicationWindow, heading: &str, body: &str) {
 pub fn sidebar_row(s: Section) -> gtk::ListBoxRow {
     let icon = match s {
         Section::Home => "user-home-symbolic",
+        Section::Timeline => "document-open-recent-symbolic",
         Section::Capsules => "folder-documents-symbolic",
         Section::Projects => "folder-symbolic",
         Section::Settings => "emblem-system-symbolic",

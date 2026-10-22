@@ -1,7 +1,7 @@
 // context-capsule — core: the words and numbers of the Context Capsule window (Home, Capsules, Projects, Settings,
 // Help), the same on Windows and Linux as on the Mac (capture/Sources/MainWindow.swift). The platforms only draw.
-//! Plain, short words. Raw recordings are never shown anywhere in the window (a product rule): only time per
-//! project, counts and capsules.
+//! Plain, short words. Raw recordings show only on the Timeline (`timeline`), on this computer; everywhere else
+//! the window shows time per project, counts and capsules.
 
 use crate::anyai::YourAi;
 use crate::capsules::{project_name, CapsuleSummary};
@@ -20,6 +20,7 @@ pub const OPEN_WINDOW: &str = "Open Context Capsule";
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub enum Section {
     Home,
+    Timeline,
     Capsules,
     Projects,
     Settings,
@@ -27,11 +28,12 @@ pub enum Section {
 }
 
 impl Section {
-    pub const ALL: [Section; 5] = [Section::Home, Section::Capsules, Section::Projects, Section::Settings, Section::Help];
+    pub const ALL: [Section; 6] = [Section::Home, Section::Timeline, Section::Capsules, Section::Projects, Section::Settings, Section::Help];
 
     pub fn title(self) -> &'static str {
         match self {
             Section::Home => "Home",
+            Section::Timeline => crate::timeline::TIMELINE,
             Section::Capsules => "Capsules",
             Section::Projects => "Projects",
             Section::Settings => "Settings",
@@ -42,7 +44,7 @@ impl Section {
     /// The sidebar group it sits in.
     pub fn group(self) -> &'static str {
         match self {
-            Section::Home | Section::Capsules | Section::Projects => GROUP_WORK,
+            Section::Home | Section::Timeline | Section::Capsules | Section::Projects => GROUP_WORK,
             Section::Settings | Section::Help => GROUP_APP,
         }
     }
@@ -51,6 +53,7 @@ impl Section {
     pub fn id(self) -> &'static str {
         match self {
             Section::Home => "home",
+            Section::Timeline => "timeline",
             Section::Capsules => "capsules",
             Section::Projects => "projects",
             Section::Settings => "settings",
@@ -534,8 +537,8 @@ mod tests {
         assert_eq!(content_width(600.0), (600.0, false));
         assert_eq!(content_width(800.0), (760.0, false));
         assert_eq!(content_width(1400.0), (980.0, true));
-        assert_eq!(Section::ALL.map(|s| s.title()), ["Home", "Capsules", "Projects", "Settings", "Help"]);
-        assert_eq!(Section::ALL.map(|s| s.group()), ["Your work", "Your work", "Your work", "Context Capsule", "Context Capsule"]);
+        assert_eq!(Section::ALL.map(|s| s.title()), ["Home", "Timeline", "Capsules", "Projects", "Settings", "Help"]);
+        assert_eq!(Section::ALL.map(|s| s.group()), ["Your work", "Your work", "Your work", "Your work", "Context Capsule", "Context Capsule"]);
         let p = Project { id: "web".into(), name: "Website".into(), clues: vec!["acme.com".into(), "figma".into()] };
         assert_eq!(found_by(&p), "Found by: acme.com, figma");
         assert_eq!(delete_question(&p), "Delete “Website”?");

@@ -1,5 +1,5 @@
 // context-capsule — linux: Home — hello and the date, today / this week / streak, the status card (start, stop,
-// speak a note, add a screen), today's time per project, the newest capsules; on the side (below, when narrow)
+// speak a note, add a screen), today's time per project (and "See today's timeline"), the newest capsules; on the side (below, when narrow)
 // the shortcuts, what you're working on, and "Make today's capsules" (it follows Your AI: one button, or Copy my
 // day and Save from clipboard; then "Your AI: …" with Change).
 
@@ -113,7 +113,19 @@ impl Home {
         main.append(&card(&status_box, 18));
 
         let today_box = vbox(8);
-        today_box.append(&heading(words::TODAY));
+        let today_head = hbox(8);
+        let today_title = heading(words::TODAY);
+        today_title.set_hexpand(true);
+        let see_timeline = flat_button(context_capsule_core::timeline::SEE_TODAYS_TIMELINE);
+        see_timeline.add_css_class("caption");
+        let c = ctx.clone();
+        see_timeline.connect_clicked(move |_| {
+            c.timeline_today.set(true);
+            c.go(Section::Timeline);
+        });
+        today_head.append(&today_title);
+        today_head.append(&see_timeline);
+        today_box.append(&today_head);
         let bars = vbox(10);
         today_box.append(&card(&bars, 16));
         main.append(&today_box);

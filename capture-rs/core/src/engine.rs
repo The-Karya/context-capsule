@@ -14,6 +14,7 @@ use crate::applog::AppLog;
 use crate::clock;
 use crate::events::{Event, EventLog};
 use crate::exclusion::{Config, Exclusion};
+use crate::gaps::{is_lock_screen, GapLog, Why};
 use crate::image::crop_masked;
 use crate::json::write_atomically;
 use crate::membership::{Freshness, Membership, OcrDecision, PickStyle, Skip};
@@ -101,6 +102,8 @@ struct Session {
     started_at: SystemTime,
     dir: PathBuf,
     log: EventLog,
+    /// gaps.jsonl: the stretches that weren't read.
+    gaps: GapLog,
     next_tick: Instant,
 }
 
@@ -540,7 +543,8 @@ impl<P: Platform> Engine<P> {
             _ => "unknown".into(),
         };
         self.log.write(&format!("recording started: {id}, picked {picked}"));
-        self.session = Some(Session { id, started_at: now, dir, log, next_tick: Instant::now() + INTERVAL });
+        let gaps = GapLog::new(&dir.join("gaps.jsonl"));
+        self.session = Some(Session { id, started_at: now, dir, log, gaps, next_tick: Instant::now() + INTERVAL });
     }
 
     fn end_session(&mut self) {
@@ -879,14 +883,16 @@ impl<P: Platform> Engine<P> {
         let is_excluded = move |id: Option<&str>, name: &str| {
             (id.is_some() && id == own.as_deref()) || Exclusion::is_excluded(id, Some(name), &user)
         };
-        let Some(front) = self.platform.front(&is_excluded) else { return self.skip(Skip::NoWindow) };
+        let Some(front) = self.platform.front(&is_excluded) else { return self.skip(Skip::NoWindow, now, false) };
+        // The lock screen in front: its gap says "locked".
+        let locked = is_lock_screen(front.app_id.as_deref(), &front.app_name);
         if front.overlay {
             self.changed_at = Some(now); // the frame after it closes is the first good one
-            return self.skip(Skip::Overlay);
+            return self.skip(Skip::Overlay, now, locked);
         }
         let picks = self.platform.picked();
         if picks.is_empty() {
-            return self.skip(Skip::NotPicked);
+            return self.skip(Skip::NotPicked, now, locked);
         }
 
         // The window in use. Several screens can be shared: the one holding it is read.
@@ -912,7 +918,7 @@ impl<P: Platform> Engine<P> {
             targets.push(target);
         }
         if targets.is_empty() {
-            return self.skip(front_skip.unwrap_or(Skip::NotPicked));
+            return self.skip(front_skip.unwrap_or(Skip::NotPicked), now, locked);
         }
 
         self.reload_projects(false);
@@ -928,7 +934,7 @@ impl<P: Platform> Engine<P> {
             }
         }
         let count = self.session.as_ref().map_or(self.event_count, |s| s.log.appended());
-        self.sampled(outcome, count);
+        self.sampled(outcome, count, now, locked);
         if let Some((found, window)) = noticed {
             self.sampled_project(found, window);
         }
@@ -1039,17 +1045,24 @@ impl<P: Platform> Engine<P> {
         why
     }
 
-    fn skip(&mut self, why: Skip) {
+    fn skip(&mut self, why: Skip, now: SystemTime, locked: bool) {
         if let Some(s) = &mut self.session {
             s.log.break_run();
         }
-        self.sampled(Some(why), self.event_count);
+        self.sampled(Some(why), self.event_count, now, locked);
     }
 
-    /// Note how the sample went; state.json only changes when something did.
-    fn sampled(&mut self, why: Option<Skip>, count: usize) {
-        if !self.is_recording() {
-            return;
+    /// Note how the sample went (a skip extends or starts a gap in gaps.jsonl); state.json only changes when
+    /// something did.
+    fn sampled(&mut self, why: Option<Skip>, count: usize, now: SystemTime, locked: bool) {
+        let Some(s) = &mut self.session else { return };
+        match why {
+            Some(w) => {
+                if let Err(e) = s.gaps.skipped(Why::of(w, locked), now) {
+                    self.log.write(&format!("cannot write gaps: {e}"));
+                }
+            }
+            None => s.gaps.read(),
         }
         if let Some(w) = why {
             self.skip_counts[w.index()] += 1;

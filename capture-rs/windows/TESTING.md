@@ -1,6 +1,6 @@
 # Context Capsule for Windows: test checklist
 
-Thank you for testing! This takes about 60–75 minutes. You need Windows 10 (1903 or
+Thank you for testing! This takes about 70–85 minutes. You need Windows 10 (1903 or
 later) or Windows 11, a microphone for part 8, the **Claude app** for Windows (signed
 in) for parts 1, 9 and 10, any other AI apps you use (Cursor, VS Code, Windsurf, Codex,
 LM Studio, Gemini CLI) for part 1, a ChatGPT account (the website, chatgpt.com) for part 11,
@@ -20,7 +20,7 @@ your PC, in `C:\Users\<you>\.context-capsule\`.
    .\Context-Capsule-0.1.0-windows.exe
    ```
    Leave this window open: it shows a log, which helps us. It never shows what you type.
-   It asks *Install Context Capsule?* Click **Just run it** for now (part 13 tries Install).
+   It asks *Install Context Capsule?* Click **Just run it** for now (part 14 tries Install).
 3. If Windows says *"Windows protected your PC"*: click **More info → Run anyway**. (The
    test build is not signed yet.)
 4. ✅ A small **circle icon** appears in the system tray, bottom right. It may be hidden
@@ -49,7 +49,7 @@ In the window's **Settings**, the **Set up** card has three parts: Voice notes, 
        folder and the steps above; **No** opens the download page.
      ✅ Once installed in Claude, Claude's row and the **Connect your AI** row show a ✓. With
      Claude installed it must **not** say Claude is missing. Either way, please send us the line
-     starting with *claude app:* from `app.log` (part 12): it says how Context Capsule found Claude.
+     starting with *claude app:* from `app.log` (part 13): it says how Context Capsule found Claude.
    - **Each other app you have** — Cursor, VS Code, Windsurf, Codex / ChatGPT (the desktop app),
      LM Studio, Gemini CLI: click **Connect**. ✅ It says *Connecting…*, then shows a ✓ and the note
      *Connected to Cursor. Restart Cursor to use it.* (or the app's own words). ✅ The app's
@@ -78,7 +78,7 @@ In the window's **Settings**, the **Set up** card has three parts: Voice notes, 
    turns the window dark at once; set it back to **System**.
 6. **Light and dark**: set **Appearance → Light**. ✅ The whole window is light: a light grey
    background (behind the sidebar and the page too, never black), white cards, dark text that
-   is easy to read in the sidebar (Home, Capsules, Projects, Settings, Help) and in the page
+   is easy to read in the sidebar (Home, Timeline, Capsules, Projects, Settings, Help) and in the page
    title. Set **Appearance → System**, then switch Windows itself between light and dark
    (Settings → Personalization → Colors → *Choose your mode*) with the window open
    ✅ the window follows at once, everywhere (sidebar, page, text boxes, title bar).
@@ -153,7 +153,7 @@ In the window's **Settings**, the **Set up** card has three parts: Voice notes, 
    ✅ The tray menu shows no *Skipping* line: the screen with the window you type in is the
    one that's read, wherever the mouse is.
 4. Keep typing in a window on one screen, and **scroll a long page on the other screen with
-   the mouse** (without clicking it) for 20 seconds. ✅ That page is read too (part 12: its
+   the mouse** (without clicking it) for 20 seconds. ✅ That page is read too (part 13: its
    lines are in `events.jsonl` with `"focus":"pointer"`). Leave the mouse still for a minute:
    ✅ it is not read any more.
 5. **Add a screen** again and pick a screen that is **already shared**. ✅ A message says
@@ -177,7 +177,7 @@ In the window's **Settings**, the **Set up** card has three parts: Voice notes, 
     screen** is greyed out (in the tray menu too: *Add a screen (2 shared)*).
 11. Work in a window on one screen for 20 seconds, then on the other for 20 seconds.
     ✅ The tray menu shows no *Skipping* line.
-12. Stop the recording (**Alt + C**). ✅ The borders go away. In `app.log` (part 12) there's a
+12. Stop the recording (**Alt + C**). ✅ The borders go away. In `app.log` (part 13) there's a
     line *all screens: 2 shared*. (If it says *… the picker instead*, the picker opened instead
     of sharing every screen: please send us that line.)
 13. Set **When you start** back to **Pick a screen or window**. ✅ Home says *Pick the screen or
@@ -318,7 +318,44 @@ its reply.
 11. Set **Your AI** back to **Claude** ✅ Home's button says **Make capsules**, and the tray menu has
     no **Save from clipboard**.
 
-## 12. Send us the results
+## 12. The Timeline
+
+Everything recorded, raw, one day at a time. It stays on your PC.
+
+1. Start contextualizing (**Alt + C**), pick a screen, and work for 2–3 minutes: a long web page,
+   another app, then a password manager or WhatsApp for 20 seconds, then back. Speak a note
+   (**Alt + V**, say a sentence, **Alt + V**). Keep recording.
+2. Open the window → **Home** → under *Today*, click **See today's timeline**. ✅ The **Timeline**
+   page (also in the sidebar, under *Your work*, between Home and Capsules), on **Today**.
+3. ✅ A block like *10:02 – 10:05 · 14 moments · Website* with a red dot and *Recording now*,
+   **Make a capsule from this** and **⋯**. In it, in time order: each window you used (a round badge
+   with the app's first letter, the window's title, the time; the app, the web address or file, the
+   project) with its first 3 lines of text; your voice note as a speech bubble with all its words
+   and *You said · 10:04 · in …* under it; and a grey line *Not read 10:03 – 10:04: a private app was
+   in front* for the password manager. Keep the page open ✅ new moments appear within a few seconds
+   while you keep working.
+4. On a long moment click **Show all** ✅ all its text; **Show less** folds it again.
+5. Type a word from one page into *Search this day* ✅ only moments with that word stay (in the
+   title, address, app or text); the grey lines go. Esc clears it.
+6. With a second screen (part 5): ✅ moments read under the mouse say *Looked at*.
+7. On a moment of the recording that's still going: **⋯** → *Delete this moment…* ✅ *Stop first*.
+   Stop (**Alt + C**). ✅ *Recording now* goes away. Delete one moment ✅ it asks *Delete this moment?
+   It can't be undone.*; **Delete** ✅ it's gone (also after reopening the window). **Cancel** ✅
+   nothing changes.
+8. Record a second short session a few minutes later. ✅ Two blocks, with *Off  10:30 – 10:34*
+   between them. On the second block, **⋯** → *Delete this recording…* ✅ *Delete this recording? It
+   can't be undone.*; **Delete** ✅ the block is gone, and its folder in
+   `C:\Users\<you>\.context-capsule\sessions\` too.
+9. Click **Make a capsule from this** on the first block ✅ your AI opens with *Use Context Capsule
+   to make a capsule from my session 2026…* (Claude typed in; another app: on the clipboard).
+10. The day menu (**Today** ▾) ✅ lists Today, Yesterday and other days you recorded; pick
+    *Yesterday* ✅ that day (or *Nothing recorded this day.*).
+11. On a big day (an hour or more): ✅ scrolling stays smooth; at the end **Show more** shows more.
+12. In the session folder, `gaps.jsonl` ✅ one line per stretch that wasn't read (5 s or longer),
+    like `{"t":"…","end":"…","why":"private_app"}`; locking the PC (**Win + L**) for a while during
+    a recording gives `"why":"locked"`.
+
+## 13. Send us the results
 
 1. Open `C:\Users\<you>\.context-capsule\sessions\`.
 2. **Look inside first**: each session folder has an `events.jsonl` file with the text
@@ -336,7 +373,7 @@ its reply.
      (Settings → System → Display → Scale, e.g. 125%).
 5. Quit: tray icon → **Quit Context Capsule**.
 
-## 13. Install, update, uninstall
+## 14. Install, update, uninstall
 
 1. Quit Context Capsule. Double-click `Context-Capsule-0.1.0-windows.exe` in its folder.
    ✅ A box asks *Install Context Capsule?* Click **Install**.
@@ -374,6 +411,6 @@ its reply.
   model download in part 8, from huggingface.co, after you say yes, and to check for a new
   version on github.com (nothing about you is sent). Your AI only sees your
   recordings when you ask it to (part 10), or when you paste your day into it yourself (part 11).
-- To remove everything: uninstall it (part 13) and say **Yes** to deleting your recordings,
+- To remove everything: uninstall it (part 14) and say **Yes** to deleting your recordings,
   remove *Context Capsule* in Claude (Settings → Extensions), **Disconnect** the other AI apps first
   (Settings → Connect your AI), and delete the downloaded file.

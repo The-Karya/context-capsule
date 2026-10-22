@@ -107,15 +107,15 @@ the path to it (`WM_COPYDATA` to the tray window) and quits; else it starts as u
 ## The Context Capsule window
 
 Everything in one place, like the Mac's window: tray menu → **Open Context Capsule**. The first
-launch opens it by itself on **Settings**. A sidebar in two groups, *Your work* (Home, Capsules,
-Projects) and *Context Capsule* (Settings, Help); the page title and a small status pill
+launch opens it by itself on **Settings**. A sidebar in two groups, *Your work* (Home, Timeline,
+Capsules, Projects) and *Context Capsule* (Settings, Help); the page title and a small status pill
 ("● 0:12" while contextualizing, else "Today 2 m") at the top.
 
 - **Home**: "Good evening, Saachi." and the date; one panel with Today (time contextualized),
   This week (time, capsules made) and Streak (days in a row); the status card (Start
   contextualizing / Stop, Speak a note, Add a screen; when idle it says *Pick the screen or window
   you work on. Only that is read.* or, with All my screens, *Shares all your screens. Private apps
-  are never read.*); Today's time per project as bars;
+  are never read.*); Today's time per project as bars (and **See today's timeline**);
   Recent capsules (the 3 newest, See all). Beside it when wide (below when narrow): Shortcuts
   (the current ones, Alt+C and Alt+V unless changed), Working on (Find by itself, your projects, New project), and Make today's
   capsules, which follows Your AI: Claude or another app → a line (*Claude opens with the request
@@ -124,6 +124,22 @@ Projects) and *Context Capsule* (Settings, Help); the page title and a small sta
   Copy my day: *Paste it into your AI. When it answers, copy its whole reply, then click Save from
   clipboard.*), **Copy my day** and **Save from clipboard** (both off while one runs). Under it
   *Your AI: Cursor* and a **Change** link (to Settings).
+- **Timeline**: one day as it was recorded, raw (it never leaves this PC), with the Mac's words. A day
+  menu (*Today*, *Yesterday*, then the other days with a recording) and a search box (*Search this
+  day*: every word in a moment's title, address or file, app or text, any case or accent; Esc clears
+  it). One block per recording on that day, *10:02 – 11:30 · 12 moments · Website* (a red dot and
+  *Recording now* while it records), with **Make a capsule from this** (Your AI gets *Use Context
+  Capsule to make a capsule from my session 20261020-100200.*, the same way as Ask) and ⋯ → *Delete
+  this recording…*. In it, in time order: moments (the app's first letter as its badge, the title,
+  *Looked at* for a window read under the mouse on another screen, the time; the app, the address or
+  file and the project; the first 3 lines of text with **Show all** / **Show less**, or *Nothing new on
+  screen*; ⋯ → *Delete this moment…*), voice and typed notes as speech bubbles with all their words
+  (*You said · 10:14 · in Figma*), and the stretches that weren't read (*Not read 10:40 – 10:55: a
+  private app was in front*, from `gaps.jsonl`). *Off  11:30 – 13:05* between recordings a minute or
+  more apart. A recording across midnight shows its part on each day. Deleting asks first (*Delete
+  this moment? It can't be undone.*), is permanent, and refuses the recording still going (*Stop
+  first*). Today is read again every 5 s while recording. A big day shows 150 moments, then **Show
+  more**. Home's *Today* has a **See today's timeline** link.
 - **Capsules**: by project, the growing *Whole project* capsule first, then days, newest first.
   Open, and ⋯ → Copy file (paste it into a chat, an email or a folder), Copy text, Save a copy…,
   Show in folder. A search box filters by title and *In short* as you type; **Ask Claude** (when
@@ -157,7 +173,9 @@ Projects) and *Context Capsule* (Settings, Help); the page title and a small sta
 - **Help**: shortcuts (the last one follows Your AI: *in your AI*, or *Copy my day*), how it works,
   privacy.
 
-Raw recordings are never shown in the window: only time per project, counts and capsules.
+Raw recordings show only on the Timeline; everywhere else the window shows time per project, counts
+and capsules. The Timeline is read by core (`timeline`: blocks, moments, gaps, search, delete), the
+same rules as the Mac's.
 Time per project follows the same rules as the Mac and Claude (core `WorkStats`). Connected
 means the extension is in Claude's `Claude Extensions` folder or `claude_desktop_config.json`
 has a `context-capsule` server.
@@ -307,7 +325,7 @@ if set, else `%USERPROFILE%\.context-capsule` (the same rule as the MCP server).
 
 The pure rules (which window or screen was picked, UI Automation roles, window classes for
 toasts and overviews, 16 kHz resampling, model checks, menu text, toast placement, the window's
-layout at any size, the light and dark palettes, finding Claude, the any-AI state, writing out the
+layout at any size (the Timeline too), the light and dark palettes, finding Claude, the any-AI state, writing out the
 any-AI program, shortcut keys, Check before sharing and the Open with
 registry values) run on any OS. What
 "Check before sharing" finds, and the Claude links, are tested in core (`cargo test -p
@@ -326,7 +344,7 @@ cd capture-rs && cargo test -p context-capsule-windows
 | `src/update.rs` | update checks, "ready, restart to update", restart into the new exe |
 | `src/net.rs` | https downloads through WinINet (the speech model, updates) |
 | `src/app.rs` | the UI thread: hidden owner window, tray menu, cues, alerts; starts the engine thread |
-| `src/main_window.rs` | the Context Capsule window: messages, scrolling, keyboard, actions, text boxes |
+| `src/main_window.rs` | the Context Capsule window: messages, scrolling, keyboard, actions (the Timeline's too), text boxes |
 | `src/layout.rs` | what goes where in the window (pure, tested on any OS) |
 | `src/palette.rs` | the window's light and dark colors and shape outlines (pure, tested on any OS) |
 | `src/paint.rs` | drawing: fonts, GDI text and fills, GDI+ shapes |

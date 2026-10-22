@@ -60,7 +60,7 @@ system accent color.
 - **Home** — hello and the date; Today / This week / Streak; the status card (Start
   contextualizing / Stop / Cancel, and while recording Speak a note and Add a screen, with the running
   time; when idle, *Pick the screen or window you work on. Only that is read.* or, with All my screens,
-  *Shares all your screens. Private apps are never read.*); today's time per project; the three newest capsules. On the side (under it when the window is
+  *Shares all your screens. Private apps are never read.*); today's time per project (and **See today's timeline**); the three newest capsules. On the side (under it when the window is
   narrow): the shortcuts (the current ones), **Working on** (Find by itself, each project, New project), and
   **Make today's capsules**, which follows Your AI: Claude (**Make capsules** opens Claude with the request
   typed in), another app (**Make capsules** puts the request on the clipboard: *Copied. Open Cursor and paste
@@ -91,7 +91,17 @@ system accent color.
   Dark); Updates (Update automatically, the version, Check for updates). Every change is saved at once.
 - **Help** — shortcuts (the current ones), how it works, privacy.
 
-Raw recordings are never shown: only time per project, counts and capsules.
+Raw recordings show only on the **Timeline** (a day as it was recorded, on this computer, with the
+Mac's words): a day menu (Today, Yesterday, other days with a recording), *Search this day*, a block
+per recording (*10:02 – 11:30 · 12 moments · Website*, *Recording now* while it records, **Make a
+capsule from this**, ⋯ → *Delete this recording…*), its moments (the app's first letter, title,
+*Looked at* for a window read under the mouse, time; app · address or file · project; the first 3
+lines with **Show all**; ⋯ → *Delete this moment…*), voice and typed notes as speech bubbles (*You
+said · 10:14 · in Figma*), the stretches not read (*Not read 10:40 – 10:55: a private app was in
+front*, from `gaps.jsonl`) and *Off  11:30 – 13:05* between recordings. Deleting asks first, is
+permanent, and refuses the recording still going (*Stop first*). Today is read again every 5 s while
+recording; a big day shows 150 moments, then **Show more**. Home's *Today* has **See today's
+timeline**. Everywhere else: time per project, counts and capsules.
 
 **Connect your AI** (SPEC "Any AI"): the AI apps come from `context-capsule-mcp clients` (read on a thread at
 start, when Settings shows and every 10 s while it does). The row has a ✓ when at least one is connected; under
@@ -253,7 +263,7 @@ repo's `mcp/dist-bin` when you run from `../target/release`).
 | `tray.rs`, `link.rs` | the tray menu; the line from the tray and engine to the window |
 | `reminder.rs` | the evening reminder; the clipboard tools; Claude with a request; sounds |
 | `notify.rs` | notifications, dialogs (zenity / kdialog) |
-| `window/` | the window: `home.rs`, `capsules.rs`, `projects.rs`, `settings.rs`, `shortcuts.rs`, `help.rs`, `share.rs`, `yourai.rs` (Your AI in the window), `widgets.rs` |
+| `window/` | the window: `home.rs`, `timeline.rs` (the Timeline), `capsules.rs`, `projects.rs`, `settings.rs`, `shortcuts.rs`, `help.rs`, `share.rs`, `yourai.rs` (Your AI in the window), `widgets.rs` |
 | `platform.rs`, `portal.rs`, `pipewire.rs`, `atspi_*.rs`, `ocr.rs`, `x11.rs`, `desktop.rs` | recording: screen sharing, frames, window text |
 | `hotkeys.rs`, `voice.rs`, `model.rs`, `update.rs`, `appimage.rs`, `autostart.rs` | shortcuts, voice notes, updates, the AppImage's app entry, open at login |
 

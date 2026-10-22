@@ -1,7 +1,7 @@
 // context-capsule — linux: the Context Capsule window (GTK 4 + libadwaita) — a sidebar (Your work: Home,
-// Capsules, Projects; Context Capsule: Settings, Help), a header with the section's name and a small status
-// pill, and the page, centered and scrolling, at any window size. Raw recordings are never shown: only time per
-// project, counts and capsules.
+// Timeline, Capsules, Projects; Context Capsule: Settings, Help), a header with the section's name and a small
+// status pill, and the page, centered and scrolling, at any window size. Raw recordings show only on the Timeline;
+// elsewhere, time per project, counts and capsules.
 //! Threads: GTK runs on the main thread (`Gtk::run`); the tray and the engine reach it through a
 //! [`WindowLink`], which queues each message on GTK's main context. The window is built the first time it
 //! opens; closing it only hides it (the app lives in the tray).
@@ -13,6 +13,7 @@ mod projects;
 mod settings;
 mod share;
 mod shortcuts;
+mod timeline;
 mod widgets;
 mod yourai;
 
@@ -35,6 +36,8 @@ use std::time::{Duration, SystemTime};
 const NUMBERS_EVERY: Duration = Duration::from_secs(60);
 /// While Settings shows, the AI apps are read again every this many seconds (as on the Mac).
 const AI_EVERY: u32 = 10;
+/// While today's Timeline shows and recording goes on, it's read again every this many seconds.
+const TIMELINE_EVERY: u32 = 5;
 
 /// GTK, started on the main thread.
 pub struct Gtk {
@@ -268,6 +271,8 @@ pub struct Ctx {
     pub win: adw::ApplicationWindow,
     toasts: adw::ToastOverlay,
     nav: RefCell<Option<Nav>>,
+    /// Home's "See today's timeline": the Timeline shows today when it opens next.
+    pub timeline_today: Cell<bool>,
 }
 
 impl Ctx {
@@ -358,6 +363,7 @@ pub struct Window {
     title: adw::WindowTitle,
     pill: gtk::Label,
     home: Rc<home::Home>,
+    timeline: Rc<timeline::Timeline>,
     capsules: Rc<capsules::Capsules>,
     projects: Rc<projects::ProjectsPage>,
     settings: Rc<settings::Settings>,
@@ -402,6 +408,7 @@ impl Window {
             win: win.clone(),
             toasts: toasts.clone(),
             nav: RefCell::new(None),
+            timeline_today: Cell::new(false),
         });
 
         // The sidebar, in two groups.
@@ -440,6 +447,7 @@ impl Window {
         header.pack_end(&pill);
 
         let home = home::Home::new(&ctx);
+        let timeline = timeline::Timeline::new(&ctx);
         let capsules = capsules::Capsules::new(&ctx);
         let projects = projects::ProjectsPage::new(&ctx);
         let settings = settings::Settings::new(&ctx);
@@ -449,6 +457,7 @@ impl Window {
         let mut clamps = vec![];
         for (section, content) in [
             (Section::Home, home.root.clone().upcast::<gtk::Widget>()),
+            (Section::Timeline, timeline.root.clone().upcast()),
             (Section::Capsules, capsules.root.clone().upcast()),
             (Section::Projects, projects.root.clone().upcast()),
             (Section::Settings, settings.root.clone().upcast()),
@@ -477,6 +486,7 @@ impl Window {
             title,
             pill,
             home,
+            timeline,
             capsules,
             projects,
             settings,
@@ -529,6 +539,7 @@ impl Window {
         }
         match section {
             Section::Home => self.home.refresh(),
+            Section::Timeline => self.timeline.refresh(),
             Section::Capsules => self.capsules.refresh(),
             Section::Projects => self.projects.refresh(),
             Section::Settings => {
@@ -576,6 +587,9 @@ impl Window {
         }
         if was_recording && !self.ctx.status.borrow().recording {
             self.reload_numbers();
+            if self.section.get() == Section::Timeline {
+                self.timeline.load();
+            }
         }
     }
 
@@ -618,6 +632,7 @@ impl Window {
     fn start_timers(self: &Rc<Self>) {
         let weak = Rc::downgrade(self);
         let ticks = Cell::new(0u32);
+        let timeline_ticks = Cell::new(0u32);
         glib::timeout_add_seconds_local(1, move || {
             let Some(w) = weak.upgrade() else { return glib::ControlFlow::Break };
             if !w.ctx.win.is_visible() {
@@ -626,6 +641,14 @@ impl Window {
             if w.ctx.status.borrow().recording {
                 w.home.tick();
                 w.update_pill();
+                // Today's Timeline follows the recording.
+                if w.section.get() == Section::Timeline && w.timeline.is_today() {
+                    timeline_ticks.set(timeline_ticks.get() + 1);
+                    if timeline_ticks.get() >= TIMELINE_EVERY {
+                        timeline_ticks.set(0);
+                        w.timeline.load();
+                    }
+                }
             }
             if w.section.get() == Section::Settings {
                 w.settings.refresh_setup();

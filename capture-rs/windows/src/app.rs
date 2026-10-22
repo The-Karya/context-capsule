@@ -80,6 +80,8 @@ pub enum UiCmd {
     Remind,
     /// Fresh numbers and lists for the Context Capsule window, read off the UI thread.
     WindowData(Box<crate::layout::Data>),
+    /// One day of the Timeline, read off the UI thread.
+    Timeline(Box<crate::layout::TimelineData>),
     /// A capsule someone sent was opened (Open with → Context Capsule, maybe forwarded by a second copy).
     OpenCapsule(PathBuf),
     /// Make today's capsules with Your AI (the window, or the evening reminder's Make).
@@ -467,6 +469,7 @@ fn handle(hwnd: HWND, cmd: UiCmd) {
             }
         }
         UiCmd::WindowData(data) => main_window::set_data(*data),
+        UiCmd::Timeline(data) => main_window::set_timeline(*data),
         UiCmd::OpenCapsule(path) => {
             if let Some(log) = with_app(|a| a.log.clone()) {
                 ai::open_received(&Ui::of(hwnd), &log, &path);

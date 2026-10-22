@@ -416,6 +416,18 @@ pub fn node(dc: HDC, fonts: &mut Fonts, t: &Theme, n: &Node, dy: f64, feel: Feel
             let color = if feel.focused { t.accent } else { t.text3 };
             g.fill([p[0] + 2.0 * k, p[1] + p[3] - line, p[2] - 4.0 * k, line], 0.0, color);
         }
+        Node::Badge { r, text: s2 } => {
+            let p = px(*r);
+            {
+                let g = Shapes::on(dc);
+                g.fill(p, p[2] / 2.0, t.track);
+            }
+            text(dc, fonts, p, s2, Font::SmallStrong, t.text2, Align::Center, 1);
+        }
+        Node::Bubble(r) => {
+            let g = Shapes::on(dc);
+            g.fill(px(*r), 12.0 * k, mix(t.accent, t.card, if t.dark { 0.22 } else { 0.12 }));
+        }
         Node::Button { r, label, icon, style, enabled, check, .. } => button(dc, fonts, t, px(*r), label, *icon, *style, *enabled, *check, feel, k),
     }
 }
