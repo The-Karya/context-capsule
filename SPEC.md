@@ -390,3 +390,24 @@ the new keys (Esc cancels), and it's saved and used at once. Refused, with a sho
 keys as the other shortcut ("Already used for Speak a note"), keys without Ctrl/Alt/Cmd ("Add Ctrl, Alt or ⌘"),
 or keys another app already has ("Another app uses these keys") — then the old shortcut stays. "Reset" puts back
 the defaults. Every place that names a shortcut (Home, Help, the menu / tray, messages) shows the current one.
+
+## Any AI (all recorders)
+
+Context Capsule works with any AI, in two ways. The logic lives once, in one program built from `mcp/`:
+**`context-capsule-mcp`**, a single self-contained binary (no Node needed), shipped inside each app:
+Mac `Context Capsule.app/Contents/Resources/context-capsule-mcp`, Windows `context-capsule-mcp.exe` next to the
+exe, Linux `usr/bin/context-capsule-mcp` in the AppImage. Commands (JSON on stdout, except `serve`):
+
+| Command | What |
+|---|---|
+| `serve` (or no command) | the MCP server on stdio, as today |
+| `clients` | `[{"id","name","installed","connected","how"}]`: every AI app it knows on this computer; `how` is `"extension"` (Claude: the .mcpb) or `"config"` |
+| `connect <id>` / `disconnect <id>` | adds / removes Context Capsule in that app's MCP settings (merges, never overwrites others; keeps a `.bak`); `{"ok","message"}`. For `claude` it answers `{"ok":false,"how":"extension"}` and the app installs the .mcpb as before |
+| `day [--date YYYY-MM-DD]` | `{"text","chars"}`: one paste-ready message for any AI chat: the capsule guide, the day's work (wrapped as untrusted, budgeted like `get_day_activity`) and how to answer |
+| `save` | reads a pasted AI reply on stdin; finds capsules between `=== CAPSULE ===` and `=== END ===` lines (or one bare capsule); checks each with the same rules as `save_capsule`; `{"saved":[{"title","path"}],"refused":[{"title","why"}]}` |
+
+The apps (Settings → **Connect your AI**) list `clients`, with Connect / a ✓ per app. **Your AI** (a choice in
+Settings) is what **Make today's capsules** opens: an MCP app with the request typed in where it can be, or —
+for any other AI — **Copy my day** (runs `day`, copies `text`, opens the AI's website if chosen) and then
+**Save from clipboard** (runs `save` on the clipboard). Words say "your AI", not "Claude", wherever any AI works.
+Nothing goes to the internet except what the person pastes into their AI themselves.
