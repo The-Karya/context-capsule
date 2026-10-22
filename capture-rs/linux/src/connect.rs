@@ -1,6 +1,7 @@
-// context-capsule — linux: "Connect Claude" — is Context Capsule connected to Claude (Claude Code, or a Claude
-// app for Linux), and how to connect it: open context-capsule.mcpb (shipped next to the program) with whatever
-// takes it, else the one line to run in Claude Code.
+// context-capsule — linux: Claude's row in "Connect your AI" — is Context Capsule connected to Claude (Claude
+// Code, or a Claude app for Linux), is Claude here at all, and how to connect it: open context-capsule.mcpb
+// (shipped next to the program) with whatever takes it, else the one line to run in Claude Code (with the
+// context-capsule-mcp program when there is one, else node and the MCP server's script).
 //! Connected = `~/.claude.json` or `~/.config/Claude/claude_desktop_config.json` has an "mcpServers" object with
 //! a "context-capsule" entry (at any depth: Claude Code keeps per-folder servers under "projects"), or
 //! `~/.config/Claude/Claude Extensions` has a context-capsule entry.
@@ -17,6 +18,10 @@ pub const ENTRY_PLACEHOLDER: &str = "/path/to/context-capsule/mcp/dist/index.js"
 pub const CONNECT_TITLE: &str = "Connect Claude";
 pub const CONNECT_BODY: &str = "Claude has no app for Linux yet. In Claude Code, run this once in a terminal:";
 pub const CONNECT_AFTER: &str = "Then start a new Claude Code chat. Needs Node 18 or newer.";
+/// After the command that runs the program (no Node needed).
+pub const CONNECT_AFTER_PROGRAM: &str = "Then start a new Claude Code chat.";
+/// Disconnect, for Claude Code (Linux's Claude).
+pub const REMOVE_IN_CLAUDE_CODE: &str = "Using Claude Code? Run this in a terminal: claude mcp remove --scope user context-capsule";
 pub const COPY: &str = "Copy";
 pub const CLOSE: &str = "Close";
 pub const COPIED: &str = "Copied.";
@@ -68,6 +73,21 @@ pub fn is_connected(env: &dyn Fn(&str) -> Option<String>) -> bool {
     is_connected_in(&files, extensions.as_deref())
 }
 
+/// Is Claude on this computer: a Claude app's folder (`~/.config/Claude`), Claude Code's settings
+/// (`~/.claude.json`, `~/.claude`), or `claude` on the PATH?
+pub fn claude_present(env: &dyn Fn(&str) -> Option<String>) -> bool {
+    let (files, extensions) = claude_places(env);
+    let mut places: Vec<PathBuf> = files;
+    if let Some(app) = extensions.as_deref().and_then(Path::parent) {
+        places.push(app.to_path_buf());
+    }
+    if let Some(h) = env("HOME").filter(|h| h.starts_with('/')) {
+        places.push(PathBuf::from(h).join(".claude"));
+    }
+    let on_path = env("PATH").is_some_and(|p| std::env::split_paths(&p).any(|d| d.join("claude").is_file()));
+    on_path || places.iter().any(|p| p.exists())
+}
+
 /// The MCP server (`mcp/dist/index.js`): next to the program, in `../share/context-capsule`, or in a folder
 /// above it (a build from the source tree: `capture-rs/target/release/` → the repo's `mcp/`).
 pub fn mcp_entry(exe: &Path, exists: &dyn Fn(&Path) -> bool) -> Option<PathBuf> {
@@ -87,6 +107,18 @@ pub fn is_claude_app(id_and_program: &str) -> bool {
 pub fn claude_code_command(entry: Option<&Path>) -> String {
     let path = entry.map_or_else(|| ENTRY_PLACEHOLDER.to_string(), |p| p.to_string_lossy().into_owned());
     format!("claude mcp add --scope user {SERVER_NAME} -- node {}", shell_quote(&path))
+}
+
+/// The command for Claude Code: the context-capsule-mcp program when it was found
+/// (`claude mcp add --scope user context-capsule -- '/home/s/.local/share/context-capsule/bin/context-capsule-mcp' serve`),
+/// else node with the server's script (`entry`). Also: whether it needs Node.
+pub fn claude_code_command_for(launch: Option<&context_capsule_core::anyai::Launch>, entry: Option<&Path>) -> (String, bool) {
+    use context_capsule_core::anyai::Launch;
+    match launch {
+        Some(Launch::Binary(p)) => (format!("claude mcp add --scope user {SERVER_NAME} -- {} serve", shell_quote(&p.to_string_lossy())), false),
+        Some(Launch::Node { script, .. }) => (claude_code_command(Some(script)), true),
+        None => (claude_code_command(entry), true),
+    }
 }
 
 /// Quote for sh only when needed.
@@ -139,6 +171,14 @@ mod tests {
         assert!(!is_connected_in(std::slice::from_ref(&f), None));
         std::fs::create_dir_all(tmp.join("ext/local.mcpb.context-capsule")).unwrap();
         assert!(is_connected_in(&[f], Some(&tmp.join("ext"))));
+
+        let home = tmp.join("home");
+        std::fs::create_dir_all(&home).unwrap();
+        let h = home.to_string_lossy().into_owned();
+        let at_home = |k: &str| (k == "HOME").then(|| h.clone());
+        assert!(!claude_present(&at_home), "no Claude yet");
+        std::fs::create_dir_all(home.join(".config/Claude")).unwrap();
+        assert!(claude_present(&at_home), "the Claude app's folder");
         std::fs::remove_dir_all(&tmp).unwrap();
     }
 
@@ -167,6 +207,17 @@ mod tests {
             "claude mcp add --scope user context-capsule -- node '/home/s/My Apps/mcp/dist/index.js'"
         );
         assert!(claude_code_command(None).ends_with(ENTRY_PLACEHOLDER));
+        use context_capsule_core::anyai::Launch;
+        let bin = Launch::Binary(PathBuf::from("/home/s/.local/share/context-capsule/bin/context-capsule-mcp"));
+        assert_eq!(
+            claude_code_command_for(Some(&bin), None),
+            ("claude mcp add --scope user context-capsule -- /home/s/.local/share/context-capsule/bin/context-capsule-mcp serve".into(), false)
+        );
+        let spaced = Launch::Binary(PathBuf::from("/home/s/My Apps/context-capsule-mcp"));
+        assert!(claude_code_command_for(Some(&spaced), None).0.ends_with("-- '/home/s/My Apps/context-capsule-mcp' serve"));
+        let node = Launch::Node { node: "/usr/bin/node".into(), script: "/r/mcp/dist/index.js".into() };
+        assert_eq!(claude_code_command_for(Some(&node), None), ("claude mcp add --scope user context-capsule -- node /r/mcp/dist/index.js".into(), true));
+        assert_eq!(claude_code_command_for(None, None).0, claude_code_command(None));
         assert_eq!(shell_quote("it's"), r"'it'\''s'");
         assert!(is_claude_app("com.anthropic.Claude.desktop /usr/bin/claude-desktop"));
         assert!(!is_claude_app("org.gnome.FileRoller.desktop file-roller"));

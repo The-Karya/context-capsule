@@ -1,11 +1,13 @@
 # Context Capsule for Windows: test checklist
 
-Thank you for testing! This takes about 50–60 minutes. You need Windows 10 (1903 or
+Thank you for testing! This takes about 60–75 minutes. You need Windows 10 (1903 or
 later) or Windows 11, a microphone for part 8, the **Claude app** for Windows (signed
-in) for parts 1, 9 and 10, and a second monitor for part 5 if you have one.
+in) for parts 1, 9 and 10, any other AI apps you use (Cursor, VS Code, Windsurf, Codex,
+LM Studio, Gemini CLI) for part 1, a ChatGPT account (the website, chatgpt.com) for part 11,
+and a second monitor for part 5 if you have one.
 
 Context Capsule records the **text** of the window or screen you choose (no screenshots,
-no audio), so Claude can later write a short summary of your work. Recordings stay on
+no audio), so your AI can later write a short summary of your work. Recordings stay on
 your PC, in `C:\Users\<you>\.context-capsule\`.
 
 ## 0. Start it
@@ -18,7 +20,7 @@ your PC, in `C:\Users\<you>\.context-capsule\`.
    .\Context-Capsule-0.1.0-windows.exe
    ```
    Leave this window open: it shows a log, which helps us. It never shows what you type.
-   It asks *Install Context Capsule?* Click **Just run it** for now (part 12 tries Install).
+   It asks *Install Context Capsule?* Click **Just run it** for now (part 13 tries Install).
 3. If Windows says *"Windows protected your PC"*: click **More info → Run anyway**. (The
    test build is not signed yet.)
 4. ✅ A small **circle icon** appears in the system tray, bottom right. It may be hidden
@@ -27,22 +29,45 @@ your PC, in `C:\Users\<you>\.context-capsule\`.
 
 ## 1. Set up
 
-In the window's **Settings**, the **Set up** card has three rows. Each row has one button,
-and shows a ✓ instead once that step is done.
+In the window's **Settings**, the **Set up** card has three parts: Voice notes, Connect your AI
+(with your AI apps under it) and Open at login. Each shows a ✓ once that step is done.
 
 1. **Voice notes**: if it shows **Allow**, click it. Windows Settings opens on the
    Microphone page. Turn on *Microphone access* and *Let desktop apps access your
    microphone*. ✅ Back in Context Capsule, the row shows a ✓ within a second or two.
-2. **Connect Claude**: click **Connect**. ✅ One of these happens:
-   - The Claude app opens and asks to install Context Capsule. Click **Install** in Claude.
-   - Or Claude opens, a folder opens with `context-capsule.mcpb` selected, and a box says
-     *In Claude: Settings → Extensions → Advanced settings → Install Extension…, then pick
-     context-capsule.mcpb*. Do that in Claude.
-   - Or a box asks *Is the Claude app installed?* (it couldn't find it). **Yes** shows the
-     folder and the steps above; **No** opens the download page.
-   ✅ Once installed in Claude, the row shows a ✓. With Claude installed it must **not** say
-   Claude is missing. Either way, please send us the line starting with *claude app:* from
-   `app.log` (part 11): it says how Context Capsule found Claude.
+2. **Connect your AI**: under it there is one row per AI app on this PC (Claude first), each
+   with **Connect** or a ✓. The ones not on this PC are under **More**: click it ✅ they show,
+   dimmed, with *Not installed*. Under the list: *Any other AI (ChatGPT website, Gemini,
+   Copilot…): use Copy my day.*
+   - **Claude**: click **Connect**. ✅ A note says *Click Install in Claude. The ✓ shows when it's
+     done.*, and one of these happens:
+     - The Claude app opens and asks to install Context Capsule. Click **Install** in Claude.
+     - Or Claude opens, a folder opens with `context-capsule.mcpb` selected, and a box says
+       *In Claude: Settings → Extensions → Advanced settings → Install Extension…, then pick
+       context-capsule.mcpb*. Do that in Claude.
+     - Or a box asks *Is the Claude app installed?* (it couldn't find it). **Yes** shows the
+       folder and the steps above; **No** opens the download page.
+     ✅ Once installed in Claude, Claude's row and the **Connect your AI** row show a ✓. With
+     Claude installed it must **not** say Claude is missing. Either way, please send us the line
+     starting with *claude app:* from `app.log` (part 12): it says how Context Capsule found Claude.
+   - **Each other app you have** — Cursor, VS Code, Windsurf, Codex / ChatGPT (the desktop app),
+     LM Studio, Gemini CLI: click **Connect**. ✅ It says *Connecting…*, then shows a ✓ and the note
+     *Connected to Cursor. Restart Cursor to use it.* (or the app's own words). ✅ The app's
+     settings file now has a `"context-capsule"` entry whose command is
+     `…\Context Capsule\context-capsule-mcp.exe` (or, with **Just run it**, `context-capsule-mcp.exe`
+     in the folder you ran it from) with args `["serve"]`; your other entries are still there:
+     - Cursor: `C:\Users\<you>\.cursor\mcp.json`
+     - VS Code: `%APPDATA%\Code\User\mcp.json` (under `servers`, with `"type": "stdio"`)
+     - Windsurf: `C:\Users\<you>\.codeium\windsurf\mcp_config.json`
+     - Codex / ChatGPT: `C:\Users\<you>\.codex\config.toml` (`[mcp_servers.context-capsule]`)
+     - LM Studio: `C:\Users\<you>\.lmstudio\mcp.json`
+     - Gemini CLI: `C:\Users\<you>\.gemini\settings.json`
+     Restart the app and ask it: *Use Context Capsule to tell me if I recorded anything today.*
+     ✅ It uses Context Capsule (it may ask you to allow its tools).
+   - The first app you connect becomes **Your AI** (Settings → **Your AI**), unless you chose one.
+   - On a connected app (not Claude) click **⋯** → **Disconnect**. ✅ The ✓ goes, the note says
+     *Disconnected from Cursor.*, and the entry is gone from its settings file. Connect it again.
+     On Claude, **⋯** → **Disconnect** ✅ *Remove it in Claude* (Claude removes its own extensions).
 3. **Open at login**: click **Turn On**. ✅ The row shows a ✓. (To undo later:
    Settings → Apps → Startup.)
 4. **Your name**: type your first name. ✅ Go to **Home**: it says *Good morning,
@@ -74,7 +99,8 @@ and shows a ✓ instead once that step is done.
    ✅ nothing overlaps or gets cut off; when wide, **Shortcuts**, **Working on** and
    **Make today's capsules** sit on the right.
 9. Press **Tab** a few times ✅ a ring moves from button to button; **Enter** presses it.
-10. **Help** shows the shortcuts (Alt+C, Alt+V), how it works and privacy.
+10. **Help** shows the shortcuts (Alt+C, Alt+V, and *Make my capsules for today*: *in your AI*,
+    or *Copy my day* when Your AI is a website or any other AI), how it works and privacy.
 
 ## 2. Start and cancel
 
@@ -127,7 +153,7 @@ and shows a ✓ instead once that step is done.
    ✅ The tray menu shows no *Skipping* line: the screen with the window you type in is the
    one that's read, wherever the mouse is.
 4. Keep typing in a window on one screen, and **scroll a long page on the other screen with
-   the mouse** (without clicking it) for 20 seconds. ✅ That page is read too (part 11: its
+   the mouse** (without clicking it) for 20 seconds. ✅ That page is read too (part 12: its
    lines are in `events.jsonl` with `"focus":"pointer"`). Leave the mouse still for a minute:
    ✅ it is not read any more.
 5. **Add a screen** again and pick a screen that is **already shared**. ✅ A message says
@@ -151,7 +177,7 @@ and shows a ✓ instead once that step is done.
     screen** is greyed out (in the tray menu too: *Add a screen (2 shared)*).
 11. Work in a window on one screen for 20 seconds, then on the other for 20 seconds.
     ✅ The tray menu shows no *Skipping* line.
-12. Stop the recording (**Alt + C**). ✅ The borders go away. In `app.log` (part 11) there's a
+12. Stop the recording (**Alt + C**). ✅ The borders go away. In `app.log` (part 12) there's a
     line *all screens: 2 shared*. (If it says *… the picker instead*, the picker opened instead
     of sharing every screen: please send us that line.)
 13. Set **When you start** back to **Pick a screen or window**. ✅ Home says *Pick the screen or
@@ -221,9 +247,11 @@ asks once: *Make today's capsules?* To try it now instead of waiting:
    today yet (that comes in part 10).
 3. Start `.\context-capsule.exe` again. ✅ Within a minute a small box asks *Make today's
    capsules?* with **Make** and **Not now**.
-4. Click **Make**. ✅ The Claude app opens on a new chat with *Use Context Capsule to make
-   my capsules for today.* already typed in (Claude may show a small caution note; that's
-   expected). Don't send it yet: part 10 does.
+4. Check that **Your AI** (Settings → Your AI) is **Claude**. Click **Make**. ✅ The Claude app
+   opens on a new chat with *Use Context Capsule to make my capsules for today.* already typed in
+   (Claude may show a small caution note; that's expected). Don't send it yet: part 10 does.
+   (With another app as Your AI, Make copies the request for it instead; with a website, it is
+   Copy my day: part 11.)
 5. Quit and start the app again. ✅ It does **not** ask again today.
 6. Put `config.json` back as it was (remove the `remind_at` line).
 
@@ -249,12 +277,48 @@ after 7 days instead of 30; capsules are never deleted).
    way, and **Cancel** (or Esc) once ✅ nothing is copied. A capsule with nothing private
    ✅ copies at once. **Show in folder** works too.
 7. **Search**: on **Capsules**, type a word from one capsule's title or *In short* in the search
-   box ✅ only matching capsules stay; Esc clears it. **Ask Claude** is grey while the box is
-   empty. Type a question (e.g. *what did I decide about pricing?*) and click **Ask Claude** (or
+   box ✅ only matching capsules stay; Esc clears it. **Ask Claude** (it says **Ask your AI** when
+   Your AI isn't Claude) is grey while the box is empty. Type a question (e.g. *what did I decide about pricing?*) and click **Ask Claude** (or
    press Enter) ✅ Claude opens on a new chat with *Use Context Capsule to search my capsules: …*
    typed in.
 
-## 11. Send us the results
+## 11. Any other AI: Copy my day (ChatGPT website)
+
+For any AI without Context Capsule built in (a website, Copilot…): copy your day into it, then save
+its reply.
+
+1. Make sure you recorded something today (part 3). Open the window → **Settings** → **Your AI** →
+   *Make today's capsules with* → **ChatGPT (website)**. ✅ Under it: *Make today's capsules copies
+   your day to paste into ChatGPT, then you save its reply.*
+2. **Home** → *Make today's capsules* ✅ says *Copy your day, paste it into ChatGPT, then save its
+   reply here.*, with **Copy my day** and **Save from clipboard**, and under them *Your AI: ChatGPT*
+   and **Change** (✅ it goes to Settings). Right-click the tray icon ✅ **Save from clipboard** is
+   right under *Make today's capsules*.
+3. Click **Copy my day**. ✅ chatgpt.com opens in your browser, a message near the tray says *Paste
+   it into your AI. When it answers, copy its whole reply, then click Save from clipboard.*, and Home
+   shows that line too (so does **Capsules**).
+4. In ChatGPT, start a new chat, paste (Ctrl+V) and send. ✅ It answers with your capsules (each
+   starts with a line `=== CAPSULE ===`).
+5. Copy its **whole** reply (the copy button under the answer), then click **Save from clipboard**.
+   ✅ A box says *Saved 2 capsules* (your number) with a ✓ line for each; any it couldn't save are
+   listed under *Not saved:* with the reason. ✅ They are on **Capsules** and in Home's *Recent
+   capsules*, and the paste line is gone.
+6. Copy a few plain words (not a capsule) and click **Save from clipboard** ✅ *No capsules found*.
+   Take a screenshot with **Win + Shift + S** (now the clipboard has no text) and click it again
+   ✅ *The clipboard is empty* — *Copy your AI's whole reply first, then click Save from clipboard.*
+7. Copy the reply again and use the tray's **Save from clipboard** ✅ the same box.
+8. **Capsules** page ✅ *Using an AI on the web, or any other AI?* with **Copy my day** and **Save
+   from clipboard**; the Ask button says **Ask your AI**.
+9. **Your AI** → **Any other AI** ✅ Home says *Your AI: any AI*; **Copy my day** copies but opens no
+   website. Paste it anywhere (Notepad) to see it: ✅ one long message, with your day in it.
+10. Optional, with an app from part 1: pick one that is **not connected** (*VS Code (not
+    connected)*), click **Make capsules** on Home ✅ *Connect VS Code first* with **Connect** and
+    **Cancel**; **Connect** connects it. With a connected one (e.g. Cursor) ✅ *Copied. Open Cursor
+    and paste it in a new chat.*: paste it in a new chat in that app.
+11. Set **Your AI** back to **Claude** ✅ Home's button says **Make capsules**, and the tray menu has
+    no **Save from clipboard**.
+
+## 12. Send us the results
 
 1. Open `C:\Users\<you>\.context-capsule\sessions\`.
 2. **Look inside first**: each session folder has an `events.jsonl` file with the text
@@ -264,20 +328,24 @@ after 7 days instead of 30; capsules are never deleted).
    line once (later moments of the same window only add the lines that were new).
 4. Zip the `sessions` folder and send it, together with:
    - `app.log`, one folder up in `C:\Users\<you>\.context-capsule\` (it only has times,
-     counts, reasons and error codes, never what was on screen or what you said),
+     counts, reasons and error codes, never what was on screen or what you said; from part 11,
+     lines like *copy my day: 12345 characters copied* and *save from clipboard: 2 saved, 0 refused*),
    - the text from the PowerShell window (select all, copy, paste into a file),
    - screenshots of anything that looked wrong (Win + Shift + S),
    - your Windows version (Settings → System → About), and your screen scaling
      (Settings → System → Display → Scale, e.g. 125%).
 5. Quit: tray icon → **Quit Context Capsule**.
 
-## 12. Install, update, uninstall
+## 13. Install, update, uninstall
 
 1. Quit Context Capsule. Double-click `Context-Capsule-0.1.0-windows.exe` in its folder.
    ✅ A box asks *Install Context Capsule?* Click **Install**.
 2. ✅ The tray icon comes back. In the Start menu, ✅ *Context Capsule* is there. In
-   `%LOCALAPPDATA%\Programs\Context Capsule\` ✅ you see `context-capsule.exe` and
-   `context-capsule.mcpb`. No admin question came up.
+   `%LOCALAPPDATA%\Programs\Context Capsule\` ✅ you see `context-capsule.exe`,
+   `context-capsule.mcpb` and `context-capsule-mcp.exe` (written a few seconds after it starts). No
+   admin question came up. Apps you connected in part 1 still point at the copy you ran first:
+   in Settings → Connect your AI, **⋯** → **Disconnect** and **Connect** them again so they use
+   the installed one (its path stays the same across updates).
 3. Settings → Apps → Installed apps: ✅ *Context Capsule*, publisher *Karya*, version 0.1.0.
 4. If open at login was on (part 1): Settings → Apps → Startup ✅ still lists Context Capsule
    (it now starts the installed copy).
@@ -304,7 +372,8 @@ after 7 days instead of 30; capsules are never deleted).
 
 - Nothing is uploaded by Context Capsule. The internet is used for the one-time speech
   model download in part 8, from huggingface.co, after you say yes, and to check for a new
-  version on github.com (nothing about you is sent). Claude only sees your
-  recordings when you ask it to (part 10).
-- To remove everything: uninstall it (part 12) and say **Yes** to deleting your recordings,
-  remove *Context Capsule* in Claude (Settings → Extensions), and delete the downloaded file.
+  version on github.com (nothing about you is sent). Your AI only sees your
+  recordings when you ask it to (part 10), or when you paste your day into it yourself (part 11).
+- To remove everything: uninstall it (part 13) and say **Yes** to deleting your recordings,
+  remove *Context Capsule* in Claude (Settings → Extensions), **Disconnect** the other AI apps first
+  (Settings → Connect your AI), and delete the downloaded file.

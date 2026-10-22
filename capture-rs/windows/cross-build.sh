@@ -1,8 +1,9 @@
 #!/bin/sh
 # context-capsule — windows: build context-capsule.exe on a Mac (cargo-xwin + LLVM), with voice notes,
-# the C/C++ runtime built in (runs on any Windows 10/11 PC, no extra installs) and the Claude extension
-# (context-capsule.mcpb) inside it, then copy it as the release file Context-Capsule-<version>-windows.exe:
-# one download that installs itself (no admin) and updates itself.
+# the C/C++ runtime built in (runs on any Windows 10/11 PC, no extra installs), the Claude extension
+# (context-capsule.mcpb) and the any-AI program (context-capsule-mcp.exe, zstd-compressed) inside it, then copy
+# it as the release file Context-Capsule-<version>-windows.exe: one download that installs itself (no admin)
+# and updates itself.
 # Needs: brew install llvm lld ninja cmake; cargo install cargo-xwin; rustup target add x86_64-pc-windows-msvc.
 # Running it accepts Microsoft's licence for the Windows SDK/CRT files cargo-xwin downloads (XWIN_ACCEPT_LICENSE).
 set -eu
@@ -31,6 +32,11 @@ MCPB=../mcp/dist-ext/context-capsule.mcpb
 if [ ! -f "$MCPB" ]; then
   echo "warning: $MCPB is missing: run mcp/extension/build.sh first, or Connect Claude won't work" >&2
 fi
+# The any-AI program goes inside too (build.rs compresses it); build it with mcp/build-binary.sh windows-x64.
+MCP=../mcp/dist-bin/context-capsule-mcp-windows-x64.exe
+if [ ! -f "$MCP" ]; then
+  echo "warning: $MCP is missing: run mcp/build-binary.sh windows-x64 first, or Connect your AI and Copy my day won't work" >&2
+fi
 
 nice -n 19 cargo xwin build --release --target $TARGET -p context-capsule-windows --target-dir target-xwin "$@"
 EXE=target-xwin/$TARGET/release/context-capsule.exe
@@ -40,6 +46,9 @@ fi
 # Also next to the exe, for a plain zip kit (the exe writes it there itself when missing).
 if [ -f "$MCPB" ]; then
   cp "$MCPB" "$(dirname "$EXE")/"
+fi
+if [ -f "$MCP" ]; then
+  cp "$MCP" "$(dirname "$EXE")/context-capsule-mcp.exe"
 fi
 VERSION=$(sed -n 's/^version = "\(.*\)"/\1/p' Cargo.toml | head -n 1)
 RELEASE=target-xwin/Context-Capsule-$VERSION-windows.exe

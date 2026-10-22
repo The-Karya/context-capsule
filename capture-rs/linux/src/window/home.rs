@@ -1,11 +1,13 @@
 // context-capsule — linux: Home — hello and the date, today / this week / streak, the status card (start, stop,
 // speak a note, add a screen), today's time per project, the newest capsules; on the side (below, when narrow)
-// the shortcuts, what you're working on, and "Make today's capsules".
+// the shortcuts, what you're working on, and "Make today's capsules" (it follows Your AI: one button, or Copy my
+// day and Save from clipboard; then "Your AI: …" with Change).
 
 use super::widgets::{self, boxed_list, card, flat_button, hbox, heading, keycap, label, line, row, vbox};
 use super::Ctx;
-use crate::ui;
+use crate::{ai, ui};
 use adw::prelude::*;
+use context_capsule_core::anyai;
 use context_capsule_core::capsules::today;
 use context_capsule_core::stats::WorkStats;
 use context_capsule_core::window::{self as words, Chip, Section};
@@ -38,6 +40,11 @@ pub struct Home {
     /// The shortcuts card (the current ones: Settings → Shortcuts can change them).
     keys_list: gtk::ListBox,
     make_hint: gtk::Label,
+    make: gtk::Button,
+    copy_day: gtk::Button,
+    save: gtk::Button,
+    /// "Your AI: Cursor", then Change.
+    your_ai: gtk::Label,
 }
 
 impl Home {
@@ -138,16 +145,30 @@ impl Home {
         working.append(&chips);
         side.append(&working);
 
+        // Make today's capsules: it follows Your AI (Claude or another app: one button; any other AI: Copy my day,
+        // then Save from clipboard).
         let make_box = vbox(8);
         make_box.append(&heading(words::MAKE_TITLE));
-        let make_inner = hbox(12);
+        let make_inner = vbox(8);
         let make_hint = label("", &["dim-label", "caption"]);
-        make_hint.set_hexpand(true);
-        let make = gtk::Button::with_label(words::MAKE_BUTTON);
+        let make = gtk::Button::with_label(anyai::MAKE_CAPSULES);
         make.add_css_class("suggested-action");
-        make.set_valign(gtk::Align::Center);
+        let copy_day = gtk::Button::with_label(anyai::COPY_MY_DAY);
+        copy_day.add_css_class("suggested-action");
+        copy_day.set_tooltip_text(Some(anyai::COPY_MY_DAY_HELP));
+        let save = gtk::Button::with_label(anyai::SAVE_FROM_CLIPBOARD);
+        save.set_tooltip_text(Some(anyai::SAVE_HELP));
+        let your_ai = line("", &["dim-label", "caption"]);
+        let change = flat_button(anyai::CHANGE);
+        change.add_css_class("caption");
+        let your_ai_row = hbox(4);
+        your_ai_row.append(&your_ai);
+        your_ai_row.append(&change);
         make_inner.append(&make_hint);
         make_inner.append(&make);
+        make_inner.append(&copy_day);
+        make_inner.append(&save);
+        make_inner.append(&your_ai_row);
         make_box.append(&card(&make_inner, 14));
         side.append(&make_box);
 
@@ -179,8 +200,13 @@ impl Home {
             chips_shown: RefCell::new(None),
             keys_list,
             make_hint,
+            make: make.clone(),
+            copy_day: copy_day.clone(),
+            save: save.clone(),
+            your_ai,
         });
         home.set_keys();
+        home.set_ai();
 
         let c = ctx.clone();
         home.toggle.connect_clicked(move |_| c.send(Msg::ToggleRecord));
@@ -192,6 +218,12 @@ impl Home {
         home.see_all.connect_clicked(move |_| c.go(Section::Capsules));
         let c = ctx.clone();
         make.connect_clicked(move |_| c.make_capsules());
+        let c = ctx.clone();
+        copy_day.connect_clicked(move |_| c.make_capsules());
+        let c = ctx.clone();
+        save.connect_clicked(move |_| c.save_from_clipboard());
+        let c = ctx.clone();
+        change.connect_clicked(move |_| c.go(Section::Settings));
         home.set_numbers();
         home.set_status();
         home
@@ -210,8 +242,23 @@ impl Home {
 
     pub fn refresh(&self) {
         self.set_keys();
+        self.set_ai();
         self.set_numbers();
         self.set_status();
+    }
+
+    /// "Make today's capsules", the way Your AI works.
+    pub fn set_ai(&self) {
+        let s = ai::state();
+        let kind = s.kind();
+        let copy = kind.uses_copy();
+        self.make_hint.set_text(&words::make_hint(&kind, &s.name(), s.day_line.as_deref()));
+        self.make.set_visible(!copy);
+        self.copy_day.set_visible(copy);
+        self.save.set_visible(copy);
+        self.copy_day.set_sensitive(!s.working);
+        self.save.set_sensitive(!s.working);
+        self.your_ai.set_text(&kind.home_line(&s.clients));
     }
 
     /// The shortcuts card, with the current shortcuts.
@@ -223,7 +270,6 @@ impl Home {
             r.add_suffix(&keycap(&k));
             self.keys_list.append(&r);
         }
-        self.make_hint.set_text(&words::make_hint(&keys));
     }
 
     /// Hello, the three numbers, today's bars and the newest capsules.

@@ -1,12 +1,11 @@
-// context-capsule — windows: the evening "Make today's capsules?" box (Make / Not now) and what Make does:
-// the request goes on the clipboard and the Claude app opens on a new chat (its claude: link when registered,
-// else the app, its alias or its packaged app: see connect::find); then "In Claude, press Ctrl+V, then Enter."
-// Not found: it asks whether Claude is installed. The same for any request: a received capsule ("continue
-// from…") and Ask Claude ("search my capsules…").
+// context-capsule — windows: the evening "Make today's capsules?" box (Make / Not now; Make follows Your AI: see
+// `ai::make`), and Claude's flow for a request: it goes on the clipboard and the Claude app opens on a new chat
+// (its claude: link when registered, else the app, its alias or its packaged app: see connect::find); then
+// "In Claude, press Ctrl+V, then Enter." Not found: it asks whether Claude is installed. Used when Your AI is
+// Claude (and, as on the Mac, for requests when it is a website or any other AI): make today's capsules, a
+// received capsule ("continue from…") and Ask ("search my capsules…").
 
 use crate::connect::{ClaudeOpener, Found};
-#[cfg(windows)]
-use std::path::Path;
 
 /// When Claude couldn't be found, but the user says it's installed: the request is on the clipboard.
 pub fn paste_by_hand(prompt: &str) -> String {
@@ -24,7 +23,7 @@ pub fn opener(found: &Found) -> ClaudeOpener {
 }
 
 #[cfg(windows)]
-pub use win::{ask_and_make, ask_claude, make, open_received};
+pub use win::{ask_and_make, ask_claude, make};
 
 #[cfg(windows)]
 mod win {
@@ -32,11 +31,12 @@ mod win {
     use crate::app::{Ui, UiCmd};
     use crate::{connect, input, win};
     use connect::{open_claude, IS_IT_INSTALLED};
-    use context_capsule_core::claude::{self, new_chat_url, Opened};
+    use context_capsule_core::claude::new_chat_url;
     use context_capsule_core::reminder::{CLAUDE_NEW_CHAT, DAY_PROMPT, LATER_BUTTON, MAKE_BUTTON, PASTE_HINT, REMIND_QUESTION};
     use context_capsule_core::AppLog;
 
-    /// Ask (on a thread of its own: the box has its own modal loop); Make: clipboard, Claude, a hint.
+    /// Ask (on a thread of its own: the box has its own modal loop); Make: the UI thread makes today's capsules
+    /// with Your AI.
     pub fn ask_and_make(ui: Ui, log: AppLog) {
         std::thread::spawn(move || {
             if !input::ask_choice("Context Capsule", REMIND_QUESTION, MAKE_BUTTON, LATER_BUTTON) {
@@ -44,11 +44,11 @@ mod win {
                 return;
             }
             log.write("evening reminder: make");
-            make(&ui, &log);
+            ui.post(UiCmd::Make);
         });
     }
 
-    /// "Make today's capsules": Claude with the request typed in.
+    /// "Make today's capsules" when Your AI is Claude: Claude with the request typed in.
     pub fn make(ui: &Ui, log: &AppLog) {
         debug_assert_eq!(new_chat_url(DAY_PROMPT), CLAUDE_NEW_CHAT);
         ask_claude(ui, log, DAY_PROMPT, "make capsules");
@@ -85,22 +85,6 @@ mod win {
             ui.post(UiCmd::Toast(PASTE_HINT.into()));
         } else {
             win::alert(None, "Claude", &format!("In Claude, type:\n\n{prompt}"));
-        }
-    }
-
-    /// A capsule someone sent (Open with, or "Open a capsule…"): Claude carries on from it. Not a capsule: say so.
-    /// Blocking: call on a thread of its own.
-    pub fn open_received(ui: &Ui, log: &AppLog, path: &Path) {
-        match claude::open_file(path) {
-            Opened::Capsule { prompt } => ask_claude(ui, log, &prompt, "open a received capsule"),
-            Opened::NotACapsule => {
-                log.write("open a received capsule: not a capsule");
-                win::alert(None, claude::NOT_A_CAPSULE, claude::NOT_A_CAPSULE_BODY);
-            }
-            Opened::Unreadable => {
-                log.write("open a received capsule: cannot read it");
-                win::alert(None, claude::NOT_A_CAPSULE, claude::CANT_READ);
-            }
         }
     }
 }

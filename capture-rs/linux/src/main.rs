@@ -2,12 +2,12 @@
 // shared core engine on its own thread, fed through one message channel; the window (GTK) on the main
 // thread. Writes the same files as macOS.
 
+mod ai;
 mod apps;
 mod appimage;
 mod autostart;
 mod atspi_front;
 mod atspi_text;
-#[cfg(any(feature = "window", test))]
 mod connect;
 mod desktop;
 mod hotkeys;
@@ -21,6 +21,7 @@ mod pipewire;
 mod platform;
 mod portal;
 mod probe;
+mod program;
 mod reminder;
 mod tray;
 mod update;
@@ -64,6 +65,12 @@ fn main() {
     // Your own shortcuts (config.json "hotkeys"): every place that names them reads these.
     let keys = Hotkeys::load(&paths.config());
     hotkeys::set_current(keys);
+    // Your AI (config.json "ai"); the AI apps are read on a thread, which also finds the context-capsule-mcp
+    // program (from an AppImage: copied to its stable place now, so connected apps keep working).
+    ai::init(paths.config());
+    std::thread::spawn(|| {
+        ai::refresh();
+    });
     #[cfg(feature = "window")]
     if let Some(section) = ui::window_only_arg(&args) {
         std::process::exit(window::run_alone(paths, section, locale));
@@ -248,15 +255,16 @@ fn main() {
     update::relaunch_if_pending();
 }
 
-/// A capsule someone sent, with no window (no display, or built without it): Claude through xdg-open; else
-/// a notification says what's wrong.
+/// A capsule someone sent, with no window (no display, or built without it): your AI carries on from it (on a
+/// thread: it may ask); else a notification says what's wrong.
 fn open_without_window(path: &std::path::Path, notifier: &notify::Notifier) {
     match claude::open_file(path) {
         claude::Opened::Capsule { prompt } => {
-            let opened = std::process::Command::new("xdg-open").arg(claude::new_chat_url(&prompt)).status().is_ok_and(|s| s.success());
-            if !opened {
-                notifier.toast(&format!("Couldn't open Claude. In Claude, type: {prompt}"));
-            }
+            let n = notifier.clone();
+            std::thread::spawn(move || {
+                ai::ensure_loaded();
+                ai::open_alone(&n, &prompt, ai::WHY_CAPSULE, ai::AGAIN_CAPSULE);
+            });
         }
         claude::Opened::NotACapsule => notifier.toast(claude::NOT_A_CAPSULE_BODY),
         claude::Opened::Unreadable => notifier.toast(claude::CANT_READ),

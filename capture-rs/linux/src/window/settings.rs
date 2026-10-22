@@ -1,16 +1,18 @@
-// context-capsule — linux: Settings — your name; set up (voice notes, Connect Claude, open at login), each a
-// check mark when done; every day (reminder, its time, deleting old recordings, sounds); your own shortcuts;
-// the voice notes' language; apps never recorded; light or dark. Every change is saved at once (config.json, one key at a time).
+// context-capsule — linux: Settings — your name; set up (voice notes, Connect your AI with its list of AI apps,
+// open at login), each a check mark when done; Your AI (what Make today's capsules uses); every day (reminder,
+// its time, deleting old recordings, sounds); your own shortcuts; the voice notes' language; apps never recorded;
+// light or dark. Every change is saved at once (config.json, one key at a time).
 
 use super::widgets::{self, label, row, vbox};
 use super::Ctx;
-use crate::{autostart, connect, ui};
+use crate::{ai, autostart, ui};
 use adw::prelude::*;
+use context_capsule_core::anyai::{self, AiClient, Choice};
 use context_capsule_core::settings::{self as cfg, Appearance, ShareScreens};
-use context_capsule_core::window::{self as words, SetupRow, ROW_CLAUDE, ROW_LOGIN};
+use context_capsule_core::window::{self as words, SetupRow, ROW_AI, ROW_LOGIN};
 use context_capsule_core::Config;
-use gtk::gio;
-use std::cell::RefCell;
+use gtk::{gio, glib};
+use std::cell::{Cell, RefCell};
 use std::rc::{Rc, Weak};
 
 fn env(k: &str) -> Option<String> {
@@ -38,8 +40,31 @@ pub struct Settings {
     me: RefCell<Weak<Settings>>,
     /// Shortcuts (kept across refreshes: it may be listening for keys).
     keys: Rc<super::shortcuts::Shortcuts>,
+    /// Connect your AI (made again with the page).
+    connect: RefCell<Option<ConnectRows>>,
+    /// The not-installed apps show (under "More").
+    more: Cell<bool>,
+    /// Your AI's choice (made again with the page).
+    choice: RefCell<Option<ChoiceRow>>,
     #[cfg(feature = "voice")]
     download: voice::Download,
+}
+
+/// "Connect your AI": a ✓ when one is connected (a spinner until the list is read); one row per app under it.
+struct ConnectRows {
+    expander: adw::ExpanderRow,
+    check: gtk::Image,
+    spinner: gtk::Spinner,
+    rows: Vec<gtk::Widget>,
+}
+
+/// "Make today's capsules with" and the line under it.
+struct ChoiceRow {
+    combo: adw::ComboRow,
+    line: gtk::Label,
+    shown: Rc<RefCell<Vec<Choice>>>,
+    /// Set while the list is changed here (not a pick).
+    quiet: Rc<Cell<bool>>,
 }
 
 impl Settings {
@@ -56,6 +81,9 @@ impl Settings {
             never: RefCell::new(vbox(0)),
             me: RefCell::new(Weak::new()),
             keys: super::shortcuts::Shortcuts::new(ctx),
+            connect: RefCell::new(None),
+            more: Cell::new(false),
+            choice: RefCell::new(None),
             #[cfg(feature = "voice")]
             download: voice::Download::default(),
         });
@@ -70,6 +98,7 @@ impl Settings {
         let config = Config::load(&self.ctx.paths.config());
         self.body.append(&self.you(&config));
         self.body.append(&self.set_up());
+        self.body.append(&self.your_ai());
         self.body.append(&self.every_day(&config));
         self.keys.refresh();
         self.body.append(&self.keys.root);
@@ -86,6 +115,7 @@ impl Settings {
         self.body.append(&self.appearance());
         self.body.append(&self.updates());
         self.refresh_setup();
+        self.set_ai();
     }
 
     /// Another section shows: stop listening for new shortcut keys.
@@ -148,9 +178,7 @@ impl Settings {
                 }
             });
         }
-        let claude = self.setup_row(&group, ROW_CLAUDE, Box::new(|| connect::is_connected(&env)), Box::new(|| None));
-        let ctx = self.ctx.clone();
-        claude.connect_clicked(move |_| connect_claude(&ctx));
+        self.connect_rows(&group);
         let login = self.setup_row(&group, ROW_LOGIN, Box::new(|| autostart::is_enabled(&env)), Box::new(|| None));
         let me = self.me.borrow().clone();
         login.connect_clicked(move |_| {
@@ -161,6 +189,164 @@ impl Settings {
             s.refresh_setup();
         });
         group
+    }
+
+    /// "Connect your AI", in Set up (its rows come with `set_ai`).
+    fn connect_rows(&self, group: &adw::PreferencesGroup) {
+        let expander = adw::ExpanderRow::new();
+        expander.set_use_markup(false);
+        expander.set_title(ROW_AI.title);
+        expander.set_subtitle(ROW_AI.help);
+        expander.set_expanded(true);
+        let check = gtk::Image::from_icon_name("object-select-symbolic");
+        check.add_css_class("success");
+        check.set_tooltip_text(Some("Done"));
+        check.set_valign(gtk::Align::Center);
+        let spinner = gtk::Spinner::new();
+        spinner.set_valign(gtk::Align::Center);
+        expander.add_action(&check);
+        expander.add_action(&spinner);
+        group.add(&expander);
+        *self.connect.borrow_mut() = Some(ConnectRows { expander, check, spinner, rows: vec![] });
+    }
+
+    /// Settings → Your AI: what Make today's capsules uses.
+    fn your_ai(&self) -> gtk::Box {
+        let group = adw::PreferencesGroup::new();
+        group.set_title(anyai::YOUR_AI);
+        let combo = adw::ComboRow::new();
+        combo.set_use_markup(false);
+        combo.set_title(anyai::MAKE_WITH);
+        let shown: Rc<RefCell<Vec<Choice>>> = Rc::default();
+        let quiet: Rc<Cell<bool>> = Rc::default();
+        let (list, still, ctx) = (shown.clone(), quiet.clone(), self.ctx.clone());
+        combo.connect_selected_notify(move |r| {
+            if still.get() {
+                return;
+            }
+            let picked = list.borrow().get(r.selected() as usize).map(|c| c.id.clone());
+            if let Some(id) = picked.filter(|id| *id != ai::state().choice) {
+                if !ai::set_choice(&id) {
+                    ctx.toast(ui::CANT_SAVE);
+                }
+            }
+        });
+        group.add(&combo);
+        let line = label("", &["dim-label", "caption"]);
+        line.set_margin_start(2);
+        let b = vbox(8);
+        b.append(&group);
+        b.append(&line);
+        *self.choice.borrow_mut() = Some(ChoiceRow { combo, line, shown, quiet });
+        b
+    }
+
+    /// Your AI changed: Connect your AI's rows, and the choice.
+    pub fn set_ai(&self) {
+        let s = ai::state();
+        if let Some(c) = self.connect.borrow_mut().as_mut() {
+            c.check.set_visible(s.any_connected());
+            c.spinner.set_visible(!s.loaded);
+            c.spinner.set_spinning(!s.loaded);
+            for w in c.rows.drain(..) {
+                c.expander.remove(&w);
+            }
+            let mut rows: Vec<gtk::Widget> = s.clients.iter().filter(|a| a.installed).map(|a| self.client_row(a, &s)).collect();
+            let missing: Vec<&AiClient> = s.clients.iter().filter(|a| !a.installed).collect();
+            if !missing.is_empty() {
+                rows.push(self.more_row());
+                if self.more.get() {
+                    for a in missing {
+                        let r = row(&a.name, "");
+                        r.add_css_class("dim-label");
+                        r.add_suffix(&widgets::line(anyai::NOT_INSTALLED, &["caption"]));
+                        rows.push(r.upcast());
+                    }
+                }
+            }
+            if let Some(note) = &s.note {
+                rows.push(note_row(note));
+            }
+            rows.push(note_row(anyai::ANY_OTHER_LINE));
+            for w in &rows {
+                c.expander.add_row(w);
+            }
+            c.rows = rows;
+        }
+        if let Some(c) = self.choice.borrow().as_ref() {
+            let list = anyai::choices(&s.clients, &s.choice);
+            c.quiet.set(true);
+            if *c.shown.borrow() != list {
+                let labels: Vec<&str> = list.iter().map(|c| c.label.as_str()).collect();
+                c.combo.set_model(Some(&gtk::StringList::new(&labels)));
+                *c.shown.borrow_mut() = list;
+            }
+            if let Some(i) = c.shown.borrow().iter().position(|x| x.id == s.choice) {
+                if c.combo.selected() != i as u32 {
+                    c.combo.set_selected(i as u32);
+                }
+            }
+            c.quiet.set(false);
+            c.line.set_text(&anyai::settings_line(&s.kind(), &s.name()));
+        }
+    }
+
+    /// One AI app: Connect, or a ✓ and a small menu with Disconnect; a spinner while it's busy.
+    fn client_row(&self, c: &AiClient, s: &ai::AiState) -> gtk::Widget {
+        let r = row(&c.name, "");
+        if s.busy.as_deref() == Some(c.id.as_str()) {
+            let spinner = gtk::Spinner::new();
+            spinner.set_spinning(true);
+            spinner.set_valign(gtk::Align::Center);
+            r.add_suffix(&spinner);
+        } else if c.connected {
+            let check = gtk::Image::from_icon_name("object-select-symbolic");
+            check.add_css_class("success");
+            check.set_tooltip_text(Some("Connected"));
+            r.add_suffix(&check);
+            let actions = gio::SimpleActionGroup::new();
+            let a = gio::SimpleAction::new("disconnect", None);
+            let (ctx, client) = (self.ctx.clone(), c.clone());
+            a.connect_activate(move |_, _| ctx.disconnect_ai(&client));
+            actions.add_action(&a);
+            r.insert_action_group("ai", Some(&actions));
+            let menu = gio::Menu::new();
+            menu.append(Some(anyai::DISCONNECT), Some("ai.disconnect"));
+            let more = gtk::MenuButton::new();
+            more.set_icon_name("view-more-symbolic");
+            more.add_css_class("flat");
+            more.set_valign(gtk::Align::Center);
+            more.set_menu_model(Some(&menu));
+            more.set_tooltip_text(Some(anyai::MORE));
+            r.add_suffix(&more);
+        } else {
+            let button = gtk::Button::with_label(anyai::CONNECT);
+            button.set_valign(gtk::Align::Center);
+            button.set_sensitive(s.busy.is_none());
+            let (ctx, client) = (self.ctx.clone(), c.clone());
+            button.connect_clicked(move |_| ctx.connect_ai(&client));
+            r.add_suffix(&button);
+        }
+        r.upcast()
+    }
+
+    /// "More": shows or hides the apps that aren't installed.
+    fn more_row(&self) -> gtk::Widget {
+        let r = row(anyai::MORE, "");
+        r.add_prefix(&gtk::Image::from_icon_name(if self.more.get() { "pan-down-symbolic" } else { "pan-end-symbolic" }));
+        r.set_activatable(true);
+        let me = self.me.borrow().clone();
+        r.connect_activated(move |_| {
+            let me = me.clone();
+            // Not while the row is handling its own click: it is made again.
+            glib::idle_add_local_once(move || {
+                if let Some(s) = me.upgrade() {
+                    s.more.set(!s.more.get());
+                    s.set_ai();
+                }
+            });
+        });
+        r.upcast()
     }
 
     fn setup_row(
@@ -434,41 +620,18 @@ fn installed_apps_with_icons() -> Vec<(String, String, Option<gio::Icon>)> {
     apps
 }
 
-/// "Connect": hand context-capsule.mcpb to a Claude app if one takes it; else show the Claude Code command.
-fn connect_claude(ctx: &Rc<Ctx>) {
-    let exe = std::env::current_exe().ok();
-    if let Some(ext) = exe.as_deref().map(connect::extension_next_to).filter(|p| p.is_file()) {
-        let (kind, _) = gio::content_type_guess(Some(&ext), None);
-        let claude = gio::AppInfo::default_for_type(&kind, false)
-            .filter(|a| connect::is_claude_app(&format!("{} {}", a.id().unwrap_or_default(), a.executable().to_string_lossy())));
-        if let Some(app) = claude {
-            if app.launch(&[gio::File::for_path(&ext)], Some(&ctx.launch_context())).is_ok() {
-                return;
-            }
-        }
-    }
-    let entry = exe.as_deref().and_then(|e| connect::mcp_entry(e, &|p| p.is_file()));
-    let command = connect::claude_code_command(entry.as_deref());
-    let d = adw::MessageDialog::new(Some(&ctx.win), Some(connect::CONNECT_TITLE), Some(connect::CONNECT_BODY));
-    let extra = vbox(10);
-    let cmd = label(&command, &["command"]);
-    cmd.set_selectable(true);
-    extra.append(&cmd);
-    extra.append(&label(connect::CONNECT_AFTER, &["dim-label", "caption"]));
-    d.set_extra_child(Some(&extra));
-    d.add_response("close", connect::CLOSE);
-    d.add_response("copy", connect::COPY);
-    d.set_response_appearance("copy", adw::ResponseAppearance::Suggested);
-    d.set_default_response(Some("copy"));
-    d.set_close_response("close");
-    let cx = ctx.clone();
-    d.connect_response(None, move |_, response| {
-        if response == "copy" {
-            cx.copy_text(&command);
-            cx.toast(connect::COPIED);
-        }
-    });
-    d.present();
+/// A line of small text in a list (a note, "Any other AI…").
+fn note_row(text: &str) -> gtk::Widget {
+    let l = label(text, &["dim-label", "caption"]);
+    l.set_margin_start(12);
+    l.set_margin_end(12);
+    l.set_margin_top(8);
+    l.set_margin_bottom(8);
+    let r = gtk::ListBoxRow::new();
+    r.set_activatable(false);
+    r.set_selectable(false);
+    r.set_child(Some(&l));
+    r.upcast()
 }
 
 /// Voice notes: the speech model, downloaded once after the user agrees.

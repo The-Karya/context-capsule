@@ -42,14 +42,17 @@ written, a message says why. Menu: Start / Stop recording, Add / Finish voice no
 screen… (while recording: the picker again, up to 4 screens or windows; each sample uses the
 one holding the window you type in; picking one that's already shared says "That screen is
 already shared. Pick a different one."), Project (Auto-detect, your projects, New project from this
-window… — works without a recording too), Open Context Capsule, Make today's capsules, Check for updates, Quit.
+window… — works without a recording too), Open Context Capsule, Make today's capsules (with Your AI; stops
+contextualizing first unless a voice note is listening), Save from clipboard (only when Your AI is a website or any
+other AI: the result shows in a small box), Check for updates, Quit.
 
 Each sample saves only the lines not already saved for that window in this recording, so long
 documents are kept whole as you scroll (no size limit; a 100,000-character safety net).
 
 Evening reminder: at 18:00 (`"remind_at": "19:30"`, or `false` to turn it off), if something was
 recorded today and no capsule exists for today, a box asks "Make today's capsules?" once a day.
-**Make** opens the Claude app on a new chat with the request typed in; press Enter. Raw recordings older than 30 days are deleted (`"keep_recordings_days"`, 0 = keep);
+**Make** makes today's capsules with Your AI (see *Any AI*): Claude opens on a new chat with the request typed
+in (press Enter), another app gets the request on the clipboard, a website or any other AI gets Copy my day. Raw recordings older than 30 days are deleted (`"keep_recordings_days"`, 0 = keep);
 capsules are never deleted.
 
 ## Install, uninstall, updates
@@ -63,7 +66,13 @@ The download is one file, `Context-Capsule-<version>-windows.exe`. No admin, no 
   then starts it. A copy that is already running is asked to quit first. **Just run it** runs it
   where it is (it asks again the next time you open that file, never at login).
 - The Claude extension (`context-capsule.mcpb`) is inside the exe and written next to it when
-  missing or changed, so Connect Claude works from a single download.
+  missing or changed, so Connect for Claude works from a single download.
+- The any-AI program (`context-capsule-mcp.exe`, about 87 MB; see *Any AI*) is inside the exe too,
+  zstd-compressed (about 33 MB of the download). At every start a thread writes it next to the exe
+  when it's missing or different (checked by size and SHA-256; a running copy, which a connected AI
+  app may have open, is moved aside to `.old` first, as updates do with the main exe). The AI apps'
+  settings point at that path (`%LOCALAPPDATA%\Programs\Context Capsule\context-capsule-mcp.exe` when
+  installed), so it stays the same across updates.
 - **Uninstall** (Settings → Apps → Context Capsule → Uninstall): the running copy quits; the
   shortcut, the Settings → Apps entry, open at login, our registry key and the program folder go.
   Your recordings and capsules stay unless you answer **Yes** to *Also delete your recordings and
@@ -88,9 +97,11 @@ The download is one file, `Context-Capsule-<version>-windows.exe`. No admin, no 
 
 Right-click a capsule file → **Open with** → **Context Capsule** (or **Open a capsule…** on the
 Capsules page). It checks the file looks like a capsule (front matter with `capsule:` and
-`title:`), then opens Claude on a new chat with *Use Context Capsule to continue from the capsule
-at <full path>.* typed in (no Claude link registered: on the clipboard, and the app opens). Not a
-capsule: *Not a capsule*, nothing opened. When Context Capsule already runs, the new copy hands
+`title:`), then your AI carries on from it: with Claude (also when Your AI is a website or any other
+AI, as on the Mac), Claude opens on a new chat with *Use Context Capsule to continue from the capsule
+at <full path>.* typed in (no Claude link registered: on the clipboard, and the app opens); with
+another connected app, that sentence goes on the clipboard (*Copied. Open Cursor and paste it in a new
+chat.*); an app not connected yet asks to connect it first. Not a capsule: *Not a capsule*, nothing opened. When Context Capsule already runs, the new copy hands
 the path to it (`WM_COPYDATA` to the tray window) and quits; else it starts as usual and opens it.
 
 ## The Context Capsule window
@@ -107,12 +118,20 @@ Projects) and *Context Capsule* (Settings, Help); the page title and a small sta
   are never read.*); Today's time per project as bars;
   Recent capsules (the 3 newest, See all). Beside it when wide (below when narrow): Shortcuts
   (the current ones, Alt+C and Alt+V unless changed), Working on (Find by itself, your projects, New project), and Make today's
-  capsules.
+  capsules, which follows Your AI: Claude or another app → a line (*Claude opens with the request
+  typed in. Press Enter.* / *Cursor opens. Paste the request in a new chat.*) and **Make capsules**;
+  a website or any other AI → *Copy your day, paste it into ChatGPT, then save its reply here.* (after
+  Copy my day: *Paste it into your AI. When it answers, copy its whole reply, then click Save from
+  clipboard.*), **Copy my day** and **Save from clipboard** (both off while one runs). Under it
+  *Your AI: Cursor* and a **Change** link (to Settings).
 - **Capsules**: by project, the growing *Whole project* capsule first, then days, newest first.
   Open, and ⋯ → Copy file (paste it into a chat, an email or a folder), Copy text, Save a copy…,
-  Show in folder. A search box filters by title and *In short* as you type; **Ask Claude** (or
-  Enter in the box; off while it's empty) opens Claude with *Use Context Capsule to search my
-  capsules: …* typed in. **Open a capsule…** picks a `.md` file someone sent (see below).
+  Show in folder. A search box filters by title and *In short* as you type; **Ask Claude** (when
+  Your AI is Claude; else **Ask your AI**; or Enter in the box; off while it's empty) sends *Use
+  Context Capsule to search my capsules: …* the same way as a received capsule (Claude with it typed
+  in, or another app with it on the clipboard). **Open a capsule…** picks a `.md` file someone sent
+  (see below). Under the search, for an AI on the web or any other AI: *Using an AI on the web, or any
+  other AI?* (after Copy my day, what to do next), **Copy my day** and **Save from clipboard**.
 - **Check before sharing**: Copy file, Copy text and Save a copy… first show what in the capsule
   might be private, by group (People, Emails, Phone numbers, Links, Money, Files), each with a
   check box, all checked, in the window instead of the page. **Share** uses a copy with the checked
@@ -121,14 +140,22 @@ Projects) and *Context Capsule* (Settings, Help); the page title and a small sta
   Plain rules, no AI, the same as the Mac's (core `share_check`, cases in `spec/share-check.json`).
 - **Projects**: rename, change the words they're found by, delete (asks first).
 - **Settings**: your name (config.json `author`; it goes on your capsules), Set up (Voice notes:
-  microphone allowed? **Allow** opens the Windows microphone settings; Connect Claude: see
-  *Finding Claude* below; Open at login: a `Run` entry under HKCU — each row shows a
-  check mark when done), Every day (When you start: *Pick a screen or window* or *All my screens*,
+  microphone allowed? **Allow** opens the Windows microphone settings; **Connect your AI** (a check
+  mark when any AI is connected), with one row per AI app installed on this PC — **Connect**, or a
+  check mark and ⋯ → **Disconnect**; *Connecting…* while it works — the ones not installed under
+  **More** (*Not installed*), a short note after connecting (*Connected to Cursor. Restart Cursor to
+  use it.*; for Claude: *Click Install in Claude. The ✓ shows when it's done.*), and *Any other AI
+  (ChatGPT website, Gemini, Copilot…): use Copy my day.* — see *Any AI* and *Finding Claude* below;
+  Open at login: a `Run` entry under HKCU — each row shows a check mark when done), **Your AI**
+  (*Make today's capsules with*: a choice of the installed apps — *Cursor (not connected)* when not —,
+  ChatGPT (website), Gemini (website) and Any other AI; config.json `ai`; under it what Make today's
+  capsules will do), Every day (When you start: *Pick a screen or window* or *All my screens*,
   `share_screens`; evening reminder and its time, when to delete old recordings, sounds), Shortcuts
   (see *Shortcuts* below), Voice notes language, Appearance (System / Light / Dark, `appearance`),
   Never record (pick an open app, or find its .exe), Updates (Update automatically, the version,
   Check for updates). Every change is saved at once.
-- **Help**: shortcuts, how it works, privacy.
+- **Help**: shortcuts (the last one follows Your AI: *in your AI*, or *Copy my day*), how it works,
+  privacy.
 
 Raw recordings are never shown in the window: only time per project, counts and capsules.
 Time per project follows the same rules as the Mac and Claude (core `WorkStats`). Connected
@@ -143,6 +170,35 @@ the page color first, with plain GDI (an earlier build drew it as a GDI+ path wi
 arcs, which GDI+ refuses: the page stayed black, and only dark mode looked right). Switching Windows
 between light and dark, the accent, or the Appearance setting repaints everything at once. Text boxes are real edit controls; choices are standard
 popup menus. Keyboard: Tab / Shift+Tab, Enter or Space, arrows and Page Up / Down scroll.
+
+## Any AI
+
+Context Capsule works with any AI (SPEC *Any AI*), through `context-capsule-mcp.exe` (inside the
+exe, written next to it; see *Install*), run by `src/ai.rs` off the UI thread with a time limit and
+no console window (core `anyai`):
+
+- **The list** (`clients`): asked for at start, when Settings opens and every 10 seconds while it's
+  open (never two at once). Claude stays as it was: its row uses the app's own detection (the ✓
+  shows as soon as the extension is installed) and **Connect** opens the `.mcpb` (see *Finding
+  Claude*). Other apps (Cursor, VS Code, Windsurf, Codex / ChatGPT, LM Studio, Gemini CLI…):
+  **Connect** runs `connect <id>`, which adds a `context-capsule` entry (`command` = the path of
+  `context-capsule-mcp.exe`, `args` = `["serve"]`) to that app's MCP settings; restart the app to use
+  it. The first app connected becomes Your AI when none was chosen. **Disconnect** runs `disconnect
+  <id>` (Claude: *Remove it in Claude*, Settings → Extensions). Without the program the list is just
+  Claude, as before, and the rest says *Part of Context Capsule is missing. Please download Context
+  Capsule again.*
+- **Your AI** (config.json `ai`): what Make today's capsules uses — Claude (the request typed in),
+  another app (*Connect Cursor first* when it isn't; else the request on the clipboard: *Copied. Open
+  Cursor and paste it in a new chat.*), or a website / any other AI: **Copy my day**.
+- **Copy my day** runs `day`, copies one paste-ready message (≤ 60,000 characters), opens the website
+  when Your AI is ChatGPT (website) or Gemini (website), and says *Paste it into your AI. When it
+  answers, copy its whole reply, then click Save from clipboard.* (Home and Capsules keep that line
+  until a save works or Your AI changes). Nothing recorded today: *Nothing recorded today yet.*
+- **Save from clipboard** reads the clipboard's text (empty: *The clipboard is empty*) and runs
+  `save`: a box says *Saved 2 capsules* with a ✓ line each, and *Not saved:* with the reason for any
+  refused; the Capsules page and Home's numbers update.
+- `app.log` says `connect: <id>`, `copy my day: N characters copied`, `save from clipboard: N saved,
+  M refused`, `your AI: <id>`, never the day's text or the reply.
 
 ## Hotkeys
 
@@ -168,8 +224,8 @@ messages) shows the current one.
 ## Finding Claude
 
 Claude may be a classic install, a packaged (MSIX / Store) app, or only reachable through its
-`claude:` link or app alias, so Connect Claude, Make today's capsules, Ask Claude and opening a
-received capsule look for every sign of it (`connect::find`), and write what they found to
+`claude:` link or app alias, so Connect for Claude, and Make today's capsules, Ask Claude and opening a
+received capsule when they go to Claude, look for every sign of it (`connect::find`), and write what they found to
 `app.log` (a line starting with `claude app:`):
 
 - `.mcpb` files open with Claude (the file association: exe, app name, ProgID or packaged app id);
@@ -236,7 +292,11 @@ cd capture-rs\windows
 
 The exe carries `mcp/dist-ext/context-capsule.mcpb` inside it (build it first with
 `mcp/extension/build.sh`; `build.rs` embeds it), and both build scripts also copy it next to the
-exe. On a Mac, `./cross-build.sh` also makes the release file
+exe. It also carries `mcp/dist-bin/context-capsule-mcp-windows-x64.exe` (run
+`mcp/build-binary.sh windows-x64` first): `build.rs` compresses it with zstd (level 19 in release,
+about 30 s, only when it changed) and embeds it with its SHA-256 and size; without it the build
+warns and the exe expects `context-capsule-mcp.exe` next to it. Developing, the app also finds the
+repo's `mcp/dist-bin` binary, or `mcp/dist/index.js` with `node`. On a Mac, `./cross-build.sh` also makes the release file
 `target-xwin/Context-Capsule-<version>-windows.exe` and prints its size and SHA-256 (for
 `latest.json`). Started from a terminal, it prints its log lines there; the
 same lines go to `app.log` in the data folder (counts, reasons and error codes only, capped at
@@ -247,7 +307,8 @@ if set, else `%USERPROFILE%\.context-capsule` (the same rule as the MCP server).
 
 The pure rules (which window or screen was picked, UI Automation roles, window classes for
 toasts and overviews, 16 kHz resampling, model checks, menu text, toast placement, the window's
-layout at any size, the light and dark palettes, finding Claude, shortcut keys, Check before sharing and the Open with
+layout at any size, the light and dark palettes, finding Claude, the any-AI state, writing out the
+any-AI program, shortcut keys, Check before sharing and the Open with
 registry values) run on any OS. What
 "Check before sharing" finds, and the Claude links, are tested in core (`cargo test -p
 context-capsule-core`, including every case in `spec/share-check.json`):
@@ -269,8 +330,10 @@ cd capture-rs && cargo test -p context-capsule-windows
 | `src/layout.rs` | what goes where in the window (pure, tested on any OS) |
 | `src/palette.rs` | the window's light and dark colors and shape outlines (pure, tested on any OS) |
 | `src/paint.rs` | drawing: fonts, GDI text and fills, GDI+ shapes |
-| `src/setup.rs` | setting up: voice notes, Connect Claude, open at login (the Settings rows) |
-| `src/connect.rs` | finding the Claude app, Connect Claude: the extension next to the exe, connected or not |
+| `src/setup.rs` | setting up: voice notes, Connect your AI, open at login (the Settings rows) |
+| `src/connect.rs` | finding the Claude app, Connect for Claude: the extension next to the exe, connected or not |
+| `src/ai.rs` | any AI: the AI apps, Your AI, Connect / Disconnect, Make today's capsules, Copy my day, Save from clipboard |
+| `src/program.rs` | the any-AI program: inside the exe (zstd), written next to it, found (or the repo's, developing) |
 | `src/platform.rs` | the core's `Platform` for Windows |
 | `src/picker.rs` | `GraphicsCapturePicker`, which item was picked, every monitor at once (All my screens), the captures and their latest frames |
 | `src/windows_list.rs` | front app, on-screen windows (EnumWindows + DWM), monitors, toast / overview rules |
@@ -283,4 +346,4 @@ cd capture-rs && cargo test -p context-capsule-windows
 | `src/hotkeys.rs` | global shortcuts: registered, changed live, off while new keys are recorded |
 | `src/pointer.rs` | the mouse while recording: position and last move or scroll |
 | `src/changes.rs` | when the front app or virtual desktop last changed |
-| `src/win.rs` | small Win32 helpers |
+| `src/win.rs` | small Win32 helpers (registry, dialogs, opening things, the clipboard) |

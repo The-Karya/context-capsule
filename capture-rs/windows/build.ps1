@@ -31,4 +31,12 @@ if (Test-Path $mcpb) {
 } else {
     Write-Warning "$mcpb is missing: build it with mcp/extension/build.sh, or Connect Claude won't work"
 }
+# The any-AI program is inside the exe too (build.rs); built by mcp/build-binary.sh windows-x64.
+$mcp = Join-Path (Get-Location) "..\mcp\dist-bin\context-capsule-mcp-windows-x64.exe"
+if (Test-Path $mcp) {
+    Copy-Item $mcp (Join-Path (Split-Path $exe) "context-capsule-mcp.exe") -Force
+    Write-Host "Copied context-capsule-mcp.exe next to the exe"
+} else {
+    Write-Warning "$mcp is missing: build it with mcp/build-binary.sh windows-x64, or Connect your AI and Copy my day won't work"
+}
 Write-Host "Built $exe"

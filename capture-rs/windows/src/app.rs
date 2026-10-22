@@ -1,6 +1,6 @@
 // context-capsule — windows: the UI thread — a hidden owner window for the tray, hotkeys, menu, toasts,
-// alerts, the Context Capsule window, the capture picker and the evening reminder; it starts the core engine on its own
-// thread and relays messages. Start / stop cues (a short message and a soft sound) come from status changes;
+// alerts, the Context Capsule window, the capture picker, the evening reminder and the any-AI state (`ai`); it starts
+// the core engine on its own thread and relays messages. Start / stop cues (a short message and a soft sound) come from status changes;
 // while recording or listening a timer keeps the tray's time and voice bars moving.
 
 use crate::hotkeys;
@@ -9,7 +9,7 @@ use crate::platform::WinPlatform;
 use crate::toast::Toast;
 use crate::tray::{self, menu_text, Tray};
 use crate::uia::Uia;
-use crate::{changes, input, main_window, reminder, setup, voice, win, windows_list};
+use crate::{ai, changes, input, main_window, reminder, setup, voice, win, windows_list};
 use context_capsule_core::{
     hotkeys_taken_message, look, AppLog, Config, Cue, Engine, Exclusion, Front, Indicator, Location,
     Msg, Options, Paths, PlatformText, ProjectItem, Projects, Redactor, Status, Voice,
@@ -47,6 +47,7 @@ const ID_VOICE: u32 = 11;
 const ID_QUIT: u32 = 13;
 const ID_OPEN: u32 = 14;
 const ID_MAKE: u32 = 17;
+const ID_SAVE: u32 = 18;
 const ID_ADD_SCREEN: u32 = 15;
 const ID_UPDATES: u32 = 16;
 const ID_PROJECT_AUTO: u32 = 20;
@@ -81,6 +82,10 @@ pub enum UiCmd {
     WindowData(Box<crate::layout::Data>),
     /// A capsule someone sent was opened (Open with → Context Capsule, maybe forwarded by a second copy).
     OpenCapsule(PathBuf),
+    /// Make today's capsules with Your AI (the window, or the evening reminder's Make).
+    Make,
+    /// News from an any-AI worker thread (the AI apps, Copy my day, Save from clipboard…).
+    Ai(ai::AiEvent),
     EngineDone,
 }
 
@@ -217,6 +222,8 @@ pub fn run() {
     let _ = std::fs::create_dir_all(paths.sessions());
     let log = AppLog::new(paths.log());
     log.write(&format!("app started: version {}", env!("CARGO_PKG_VERSION")));
+    // Your AI as saved; the AI apps are asked for once the app runs (below).
+    ai::init(paths.config());
     let (tx, rx) = channel();
     let capture = Capture::new(tx.clone());
     let ui = Ui::of(hwnd);
@@ -231,6 +238,7 @@ pub fn run() {
     crate::update::start(hwnd, log.clone());
     main_window::apply_menu_mode(&paths);
 
+    ai::refresh(&Ui::of(hwnd), &log);
     APP.with(|a| {
         *a.borrow_mut() = Some(App {
             paths,
@@ -461,8 +469,14 @@ fn handle(hwnd: HWND, cmd: UiCmd) {
         UiCmd::WindowData(data) => main_window::set_data(*data),
         UiCmd::OpenCapsule(path) => {
             if let Some(log) = with_app(|a| a.log.clone()) {
-                let ui = Ui::of(hwnd);
-                std::thread::spawn(move || reminder::open_received(&ui, &log, &path));
+                ai::open_received(&Ui::of(hwnd), &log, &path);
+            }
+        }
+        UiCmd::Make => make_capsules(hwnd),
+        // Outside the app borrow: Connect for Claude may show a dialog.
+        UiCmd::Ai(ev) => {
+            if let Some(log) = with_app(|a| a.log.clone()) {
+                ai::handle(ev, &Ui::of(hwnd), &log);
             }
         }
         // Quitting: let an open alert (e.g. "Nothing was saved") be read first.
@@ -519,6 +533,8 @@ fn show_menu(hwnd: HWND) {
         return;
     };
     let projects = status.project_items();
+    // Save from clipboard: only when Your AI is a website or any other AI.
+    let save = ai::with(|s| s.kind().uses_copy());
     // SAFETY: a popup menu we build, show and destroy here. TrackPopupMenu runs a nested loop, so the
     // app is not borrowed meanwhile.
     let chosen = unsafe {
@@ -558,6 +574,9 @@ fn show_menu(hwnd: HWND) {
         }
         item(menu, ID_OPEN, context_capsule_core::window::OPEN_WINDOW, true);
         item(menu, ID_MAKE, context_capsule_core::window::MAKE_TODAYS, true);
+        if save {
+            item(menu, ID_SAVE, context_capsule_core::anyai::SAVE_FROM_CLIPBOARD, true);
+        }
         item(menu, ID_UPDATES, context_capsule_core::update::CHECK_LABEL, true);
         let _ = AppendMenuW(menu, MF_SEPARATOR, 0, None);
         item(menu, ID_QUIT, "Quit", true);
@@ -577,10 +596,10 @@ fn show_menu(hwnd: HWND) {
         ID_VOICE => send(Msg::ToggleVoice),
         ID_ADD_SCREEN => send(Msg::AddScreen),
         ID_OPEN => open_window(hwnd, None),
-        ID_MAKE => {
+        ID_MAKE => make_capsules(hwnd),
+        ID_SAVE => {
             if let Some(log) = with_app(|a| a.log.clone()) {
-                let ui = Ui::of(hwnd);
-                std::thread::spawn(move || reminder::make(&ui, &log));
+                ai::save_from_clipboard(&Ui::of(hwnd), &log);
             }
         }
         ID_UPDATES => crate::update::check_now(),
@@ -594,6 +613,21 @@ fn show_menu(hwnd: HWND) {
         }
         _ => {}
     }
+}
+
+/// Make today's capsules with Your AI (Claude with the request typed in, another app with it on the clipboard, or
+/// Copy my day); stop contextualizing first if it's on (unless a voice note is listening).
+fn make_capsules(hwnd: HWND) {
+    let Some(log) = with_app(|a| {
+        if a.status.recording && !a.status.listening {
+            a.log.write("stop: make today's capsules");
+            let _ = a.tx.send(Msg::ToggleRecord);
+        }
+        a.log.clone()
+    }) else {
+        return;
+    };
+    ai::make(&Ui::of(hwnd), &log);
 }
 
 /// The front app and window right now (the taskbar and other shell UI skipped), never-record apps marked.

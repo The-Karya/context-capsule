@@ -1,11 +1,13 @@
 // context-capsule — linux: the tray icon (StatusNotifierItem) and its menu, like the Mac menu bar —
 // hollow circle idle, filled red while recording (the running time in its title and tooltip), a red mic with
-// bars that move with the voice while listening; status, skip reason and actions. Nothing on screen.
+// bars that move with the voice while listening; status, skip reason and actions (Make today's capsules, and
+// Save from clipboard when Your AI works through Copy my day). Nothing on screen.
 
 use crate::link::WindowLink;
 use crate::notify::Notifier;
 use context_capsule_core::look::{self, LEVEL_FRAMES};
-use context_capsule_core::window::OPEN_WINDOW;
+use context_capsule_core::anyai::{self, YourAi};
+use context_capsule_core::window::{MAKE_TITLE, OPEN_WINDOW};
 use context_capsule_core::{Hotkeys, Indicator, Msg, ProjectItem, Shortcut, Status, Voice};
 use ksni::menu::{CheckmarkItem, StandardItem, SubMenu};
 use ksni::{MenuItem, TrayMethods};
@@ -83,6 +85,11 @@ pub fn menu_shortcut(s: &Shortcut) -> Vec<Vec<String>> {
     vec![keys]
 }
 
+/// "Save from clipboard" is in the menu only when Your AI works through Copy my day (a website, any other AI).
+pub fn save_item_shown(ai: &YourAi) -> bool {
+    ai.uses_copy()
+}
+
 /// Menu labels treat "_" as an access-key marker: double it so names show as typed.
 pub fn label(s: &str) -> String {
     s.replace('_', "__")
@@ -90,7 +97,7 @@ pub fn label(s: &str) -> String {
 
 /// Said when there is no zenity or kdialog to type a name in.
 pub const NO_DIALOG: &str =
-    "To name a new project, install zenity (or kdialog), or ask Claude to create it (create_project).";
+    "To name a new project, install zenity (or kdialog), or ask your AI to create it (create_project).";
 
 fn local_time(t: SystemTime) -> String {
     chrono::DateTime::<chrono::Local>::from(t).format("%H:%M").to_string()
@@ -169,6 +176,22 @@ impl ksni::Tray for CapsuleTray {
             self.project_menu(),
             MenuItem::Separator,
             StandardItem {
+                label: MAKE_TITLE.into(),
+                activate: Box::new(|t: &mut Self| {
+                    crate::ai::make_todays_capsules(&t.window, &t.notifier, Some(&t.tx), &t.status)
+                }),
+                ..Default::default()
+            }
+            .into(),
+            StandardItem {
+                label: anyai::SAVE_FROM_CLIPBOARD.into(),
+                visible: save_item_shown(&crate::ai::state().kind()),
+                activate: Box::new(|t: &mut Self| crate::ai::save_from_clipboard(&t.window, &t.notifier)),
+                ..Default::default()
+            }
+            .into(),
+            MenuItem::Separator,
+            StandardItem {
                 label: context_capsule_core::update::CHECK_LABEL.into(),
                 activate: Box::new(|_: &mut Self| crate::update::check_now()),
                 ..Default::default()
@@ -241,11 +264,14 @@ pub struct Tray {
     look: Arc<Mutex<Look>>,
     /// The window hears every status too (shown or not, tray or not).
     window: WindowLink,
+    /// For Make today's capsules from the evening reminder (None: `--probe`).
+    make: Option<(Sender<Msg>, Notifier)>,
 }
 
 impl Tray {
     /// Show the tray icon. On GNOME this needs the AppIndicator extension; without it we log and go on.
     pub fn spawn(rt: &Handle, tx: Sender<Msg>, notifier: Notifier, window: WindowLink) -> Tray {
+        let make = Some((tx.clone(), notifier.clone()));
         let tray = CapsuleTray {
             tx,
             notifier,
@@ -267,12 +293,27 @@ impl Tray {
         if let Some(h) = handle.clone() {
             rt.spawn(refresh(h, look.clone()));
         }
-        Tray { rt: rt.clone(), handle, look, window }
+        let tray = Tray { rt: rt.clone(), handle, look, window, make };
+        // Your AI changed: the menu shows Save from clipboard or not.
+        let poke = tray.poke();
+        crate::ai::on_change(move || poke());
+        tray
     }
 
     /// No tray (for `--probe`).
     pub fn none(rt: &Handle) -> Tray {
-        Tray { rt: rt.clone(), handle: None, look: Arc::default(), window: WindowLink::off() }
+        Tray { rt: rt.clone(), handle: None, look: Arc::default(), window: WindowLink::off(), make: None }
+    }
+
+    /// Make today's capsules, the way Your AI works (the evening reminder's Make).
+    pub fn maker(&self) -> Box<dyn FnOnce() + Send> {
+        let (window, make, look) = (self.window.clone(), self.make.clone(), self.look.clone());
+        Box::new(move || {
+            if let Some((tx, notifier)) = make {
+                let status = look.lock().unwrap().status.clone();
+                crate::ai::make_todays_capsules(&window, &notifier, Some(&tx), &status);
+            }
+        })
     }
 
     pub fn is_shown(&self) -> bool {
@@ -452,6 +493,8 @@ mod tests {
         let p = context_capsule_core::Project { id: "a-b".into(), name: "a_b".into(), clues: vec![] };
         let s = Status { projects: vec![p], pinned: Some("a-b".into()), project: Some("a-b".into()), ..Default::default() };
         assert_eq!(label(&s.project_title()), "Project: a__b");
-        assert!(NO_DIALOG.contains("create_project"));
+        assert!(NO_DIALOG.contains("create_project") && NO_DIALOG.contains("your AI"));
+        assert!(save_item_shown(&YourAi::Other) && save_item_shown(&YourAi::of("chatgpt-web")));
+        assert!(!save_item_shown(&YourAi::Claude) && !save_item_shown(&YourAi::of("cursor")));
     }
 }

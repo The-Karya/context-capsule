@@ -14,12 +14,13 @@ mod settings;
 mod share;
 mod shortcuts;
 mod widgets;
+mod yourai;
 
 use crate::link::{UiMsg, WindowLink};
 use crate::ui;
 use adw::prelude::*;
+use context_capsule_core::anyai::YourAi;
 use context_capsule_core::claude::{self, new_chat_url, Opened};
-use context_capsule_core::reminder::{CLAUDE_NEW_CHAT, DAY_PROMPT};
 use context_capsule_core::settings::{Appearance, ConfigFile};
 use context_capsule_core::stats::sunday_first;
 use context_capsule_core::window::{self as words, HomeNumbers, Keys, Section};
@@ -32,6 +33,8 @@ use std::time::{Duration, SystemTime};
 
 /// Home's numbers are read again this often while the window is open.
 const NUMBERS_EVERY: Duration = Duration::from_secs(60);
+/// While Settings shows, the AI apps are read again every this many seconds (as on the Mac).
+const AI_EVERY: u32 = 10;
 
 /// GTK, started on the main thread.
 pub struct Gtk {
@@ -176,6 +179,8 @@ impl Ui {
     fn new(app: &adw::Application, setup: Setup) -> Rc<Ui> {
         widgets::load_css();
         apply_appearance(Appearance::load(&setup.paths.config()));
+        // Your AI changed (on any thread): show it here, on GTK's.
+        crate::ai::on_change(|| glib::MainContext::default().invoke(|| handle(UiMsg::AiChanged)));
         Rc::new(Ui {
             app: app.clone(),
             paths: setup.paths,
@@ -197,6 +202,23 @@ impl Ui {
                 }
             }
             UiMsg::OpenCapsule(path) => self.window().ctx.open_received(&path),
+            // From the tray or the reminder: the window comes to the front (its clipboard and messages need it),
+            // except for Claude, which opens by itself.
+            UiMsg::MakeCapsules => {
+                if crate::ai::state().kind() != YourAi::Claude {
+                    self.open(None);
+                }
+                self.window().ctx.make_capsules();
+            }
+            UiMsg::SaveFromClipboard => {
+                self.open(None);
+                self.window().ctx.save_from_clipboard();
+            }
+            UiMsg::AiChanged => {
+                if let Some(w) = self.window.borrow().clone() {
+                    w.set_ai();
+                }
+            }
             UiMsg::Quit => self.app.quit(),
         }
     }
@@ -284,8 +306,14 @@ impl Ctx {
         }
     }
 
+    /// Put `text` on the clipboard. When the window isn't in front (from the tray), Wayland may not let it take
+    /// the clipboard: the clipboard tools (wl-copy, xclip) too, when installed.
     pub fn copy_text(&self, text: &str) {
         self.win.clipboard().set_text(text);
+        if !self.win.is_active() {
+            let text = text.to_string();
+            std::thread::spawn(move || crate::reminder::copy_text(&text));
+        }
     }
 
     pub fn launch_context(&self) -> gio::AppLaunchContext {
@@ -297,12 +325,6 @@ impl Ctx {
         gio::AppInfo::launch_default_for_uri(uri, Some(&self.launch_context())).is_ok()
     }
 
-    /// "Make today's capsules": Claude on a new chat with the request typed in (also on the clipboard).
-    pub fn make_capsules(&self) {
-        debug_assert_eq!(new_chat_url(DAY_PROMPT), CLAUDE_NEW_CHAT);
-        self.ask_claude(DAY_PROMPT);
-    }
-
     /// Claude on a new chat with `prompt` typed in (also on the clipboard). Can't: say how to do it by hand.
     pub fn ask_claude(&self, prompt: &str) {
         self.copy_text(prompt);
@@ -312,10 +334,10 @@ impl Ctx {
         }
     }
 
-    /// A capsule someone sent (Open with, or "Open a capsule…"): Claude carries on from it. Not a capsule: say so.
-    pub fn open_received(&self, path: &std::path::Path) {
+    /// A capsule someone sent (Open with, or "Open a capsule…"): your AI carries on from it. Not a capsule: say so.
+    pub fn open_received(self: &Rc<Self>, path: &std::path::Path) {
         match claude::open_file(path) {
-            Opened::Capsule { prompt } => self.ask_claude(&prompt),
+            Opened::Capsule { prompt } => self.open_prompt(&prompt, crate::ai::WHY_CAPSULE, crate::ai::AGAIN_CAPSULE),
             Opened::NotACapsule => {
                 self.win.present();
                 widgets::message(&self.win, claude::NOT_A_CAPSULE, claude::NOT_A_CAPSULE_BODY);
@@ -343,6 +365,8 @@ pub struct Window {
     clamps: Vec<adw::Clamp>,
     section: Cell<Section>,
     wide: Cell<Option<bool>>,
+    /// `ai::AiState::saves` as last seen: a save from the clipboard worked, read the lists again.
+    saves: Cell<u64>,
 }
 
 impl Window {
@@ -460,6 +484,7 @@ impl Window {
             clamps,
             section: Cell::new(Section::Home),
             wide: Cell::new(None),
+            saves: Cell::new(crate::ai::state().saves),
         });
         let weak = Rc::downgrade(&w);
         *ctx.nav.borrow_mut() = Some(Box::new(move |s| {
@@ -506,8 +531,26 @@ impl Window {
             Section::Home => self.home.refresh(),
             Section::Capsules => self.capsules.refresh(),
             Section::Projects => self.projects.refresh(),
-            Section::Settings => self.settings.refresh(),
+            Section::Settings => {
+                self.settings.refresh();
+                yourai::refresh();
+            }
             Section::Help => self.help.refresh(&self.ctx),
+        }
+    }
+
+    /// Your AI changed: every place that shows it; after a save, the lists and numbers again.
+    fn set_ai(self: &Rc<Self>) {
+        self.home.set_ai();
+        self.capsules.set_ai();
+        self.settings.set_ai();
+        if self.section.get() == Section::Help {
+            self.help.refresh(&self.ctx);
+        }
+        let saves = crate::ai::state().saves;
+        if self.saves.replace(saves) != saves {
+            self.capsules.refresh();
+            self.reload_numbers();
         }
     }
 
@@ -570,10 +613,11 @@ impl Window {
         });
     }
 
-    /// Every second: the running time while recording, Settings' setup rows while they show. Every minute:
-    /// Home's numbers while the window shows.
+    /// Every second: the running time while recording, Settings' setup rows while they show (and every
+    /// `AI_EVERY` seconds, the AI apps). Every minute: Home's numbers while the window shows.
     fn start_timers(self: &Rc<Self>) {
         let weak = Rc::downgrade(self);
+        let ticks = Cell::new(0u32);
         glib::timeout_add_seconds_local(1, move || {
             let Some(w) = weak.upgrade() else { return glib::ControlFlow::Break };
             if !w.ctx.win.is_visible() {
@@ -585,6 +629,10 @@ impl Window {
             }
             if w.section.get() == Section::Settings {
                 w.settings.refresh_setup();
+                ticks.set(ticks.get() + 1);
+                if ticks.get().is_multiple_of(AI_EVERY) {
+                    yourai::refresh();
+                }
             }
             glib::ControlFlow::Continue
         });

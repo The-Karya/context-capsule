@@ -1,5 +1,5 @@
 // context-capsule — windows: small Win32 helpers — registry values, message boxes, opening files and links,
-// COM setup, the clipboard and the soft start/stop sounds.
+// COM setup, the clipboard (text in and out) and the soft start/stop sounds.
 
 use windows::core::{w, HSTRING, PCWSTR};
 use windows::Win32::Foundation::HWND;
@@ -198,6 +198,46 @@ pub fn copy_text(text: &str) -> bool {
         .is_some();
         let _ = CloseClipboard();
         ok
+    }
+}
+
+/// The text on the clipboard (any thread). None: no text there, or Windows would not share it (another app holds
+/// the clipboard for a moment: tried a few times).
+pub fn clipboard_text() -> Option<String> {
+    use windows::Win32::Foundation::HGLOBAL;
+    use windows::Win32::System::DataExchange::{CloseClipboard, GetClipboardData, IsClipboardFormatAvailable, OpenClipboard};
+    use windows::Win32::System::Memory::{GlobalLock, GlobalSize, GlobalUnlock};
+    const CF_UNICODETEXT: u32 = 13;
+    // SAFETY: the clipboard is opened and closed here; the data is Windows' and only read while locked, up to its
+    // size (and its first NUL).
+    unsafe {
+        IsClipboardFormatAvailable(CF_UNICODETEXT).ok()?;
+        let mut open = false;
+        for _ in 0..10 {
+            if OpenClipboard(None).is_ok() {
+                open = true;
+                break;
+            }
+            std::thread::sleep(std::time::Duration::from_millis(30));
+        }
+        if !open {
+            return None;
+        }
+        let text = (|| -> Option<String> {
+            let handle = GetClipboardData(CF_UNICODETEXT).ok()?;
+            let mem = HGLOBAL(handle.0);
+            let ptr = GlobalLock(mem) as *const u16;
+            if ptr.is_null() {
+                return None;
+            }
+            let units = std::slice::from_raw_parts(ptr, GlobalSize(mem) / 2);
+            let end = units.iter().position(|c| *c == 0).unwrap_or(units.len());
+            let text = String::from_utf16_lossy(&units[..end]);
+            let _ = GlobalUnlock(mem);
+            Some(text)
+        })();
+        let _ = CloseClipboard();
+        text
     }
 }
 

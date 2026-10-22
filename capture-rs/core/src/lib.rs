@@ -5,6 +5,7 @@
 
 #![forbid(unsafe_code)]
 
+pub mod anyai;
 pub mod applog;
 pub mod capsules;
 pub mod claude;

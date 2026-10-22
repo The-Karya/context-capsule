@@ -1,5 +1,6 @@
 // context-capsule — linux: the line from the tray and the engine's thread to the window (which lives on the
-// GTK thread): open it, show the latest status, open a capsule someone sent, quit. Without the window (no display, or built without the
+// GTK thread): open it, show the latest status, open a capsule someone sent, make today's capsules, save from the
+// clipboard, quit. Without the window (no display, or built without the
 // "window" feature) the link is off and every call does nothing.
 #![cfg_attr(not(feature = "window"), allow(dead_code))]
 
@@ -15,8 +16,14 @@ pub enum UiMsg {
     Open(Option<Section>),
     /// The engine's status changed.
     Status(Box<Status>),
-    /// A capsule someone sent was opened with Context Capsule: Claude carries on from it.
+    /// A capsule someone sent was opened with Context Capsule: your AI carries on from it.
     OpenCapsule(PathBuf),
+    /// Make today's capsules, the way Your AI works (the tray, the evening reminder).
+    MakeCapsules,
+    /// Save from clipboard (the tray).
+    SaveFromClipboard,
+    /// Your AI's state changed (`ai::update`): show it.
+    AiChanged,
     /// The engine stopped: close everything.
     Quit,
 }
@@ -48,6 +55,14 @@ impl WindowLink {
 
     pub fn open_capsule(&self, path: PathBuf) {
         self.send(UiMsg::OpenCapsule(path));
+    }
+
+    pub fn make_capsules(&self) {
+        self.send(UiMsg::MakeCapsules);
+    }
+
+    pub fn save_from_clipboard(&self) {
+        self.send(UiMsg::SaveFromClipboard);
     }
 
     pub fn status(&self, status: &Status) {
@@ -83,10 +98,13 @@ mod tests {
         on.status(&Status { recording: true, ..Default::default() });
         on.open_capsule(PathBuf::from("/tmp/a.capsule.md"));
         on.quit();
+        on.make_capsules();
+        on.save_from_clipboard();
         let got = got.lock().unwrap();
         assert_eq!(got[0], UiMsg::Open(Some(Section::Settings)));
         assert!(matches!(&got[1], UiMsg::Status(s) if s.recording));
         assert_eq!(got[2], UiMsg::OpenCapsule(PathBuf::from("/tmp/a.capsule.md")));
         assert_eq!(got[3], UiMsg::Quit);
+        assert_eq!(got[4..], [UiMsg::MakeCapsules, UiMsg::SaveFromClipboard]);
     }
 }

@@ -2,7 +2,7 @@
 // Context Capsule?" and copies itself to %LOCALAPPDATA%\Programs\Context Capsule, with a Start menu shortcut and
 // an entry in Settings → Apps and an "Open with" choice for .md files (never the default; all HKCU, so no admin).
 // `--uninstall` takes it all away again (the user's recordings only if they say so). The Claude extension is
-// inside the exe and written next to it.
+// inside the exe and written next to it, and so is the any-AI program (`program`).
 //! "Just run it" runs the copy where it is; it asks again next time it is opened, but never at login
 //! (`--login`). Also the file swap updates use: rename the running exe to `.old` (Windows allows that), move the new one in.
 
@@ -225,7 +225,7 @@ pub fn data_to_delete(root: &Path) -> Vec<PathBuf> {
     if name == ".context-capsule" || name == "context-capsule" {
         return vec![root.to_path_buf()];
     }
-    ["sessions", "capsules", "models", "config.json", "state.json", "projects.json", "app.log", ".reminded", "control", ".login-set"]
+    ["sessions", "capsules", "models", "config.json", "state.json", "projects.json", "app.log", ".reminded", "control", ".login-set", "mcp-token"]
         .iter()
         .map(|n| root.join(n))
         .collect()
@@ -289,6 +289,11 @@ mod win {
         }
         if let Some(exe_dir) = exe.parent() {
             write_extension(exe_dir);
+        }
+        // The any-AI program next to the exe (a second or two when it changed: not in the way of starting).
+        {
+            let (exe, log) = (exe.clone(), log.clone());
+            std::thread::spawn(move || crate::program::ensure(&exe, &|l: &str| log.write(l)));
         }
         if installed {
             register_uninstall(&exe); // keeps DisplayVersion right after an update
@@ -379,7 +384,7 @@ mod win {
     }
 
     fn register_uninstall(exe: &Path) {
-        let size = std::fs::metadata(exe).map(|m| m.len()).unwrap_or(0) + EXTENSION.len() as u64;
+        let size = std::fs::metadata(exe).map(|m| m.len()).unwrap_or(0) + EXTENSION.len() as u64 + crate::program::embedded().size;
         for (name, value) in uninstall_values(exe, version(), size) {
             let _ = match value {
                 RegValue::Text(t) => win::set_reg_string(UNINSTALL_KEY, name, &t),
@@ -400,7 +405,7 @@ mod win {
             if let Some(d) = target.parent() {
                 link.SetWorkingDirectory(&HSTRING::from(d.as_os_str()))?;
             }
-            link.SetDescription(w!("Turn your work into context for Claude"))?;
+            link.SetDescription(w!("Turn your work into context for your AI"))?;
             link.cast::<IPersistFile>()?.Save(&HSTRING::from(lnk.as_os_str()), true)
         }
     }

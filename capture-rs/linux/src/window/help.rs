@@ -1,4 +1,5 @@
-// context-capsule — linux: Help — the shortcuts (the current ones), how it works, and what stays private. Short.
+// context-capsule — linux: Help — the shortcuts (the current ones; making capsules follows Your AI), how it works,
+// and what stays private. Short.
 
 use super::widgets::{boxed_list, card, clear_list, heading, keycap, label, line, row, vbox};
 use super::Ctx;
@@ -46,7 +47,7 @@ impl Help {
     pub fn refresh(&self, ctx: &Ctx) {
         let keys = ctx.keys();
         clear_list(&self.keys);
-        for (what, k) in shortcuts(&keys) {
+        for (what, k) in shortcuts(&keys, &crate::ai::state().kind()) {
             let r = row(what, "");
             if k.contains('+') || k.starts_with('F') {
                 r.add_suffix(&keycap(&k));

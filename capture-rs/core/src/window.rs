@@ -3,6 +3,7 @@
 //! Plain, short words. Raw recordings are never shown anywhere in the window (a product rule): only time per
 //! project, counts and capsules.
 
+use crate::anyai::YourAi;
 use crate::capsules::{project_name, CapsuleSummary};
 use crate::look;
 use crate::platform::Status;
@@ -273,10 +274,10 @@ pub const NONE_YET: &str = "None yet.";
 pub const MAKE_TITLE: &str = "Make today's capsules";
 pub const MAKE_BUTTON: &str = "Make";
 
-/// The line under "Make today's capsules" (the request is typed in Claude for you).
-pub fn make_hint(keys: &Keys) -> String {
-    let _ = keys;
-    "Opens Claude with the request typed in".to_string()
+/// The line under "Make today's capsules": it follows Your AI (Claude with the request typed in, another app,
+/// or Copy my day). `day_line`: shown after Copy my day until the reply is saved.
+pub fn make_hint(ai: &YourAi, name: &str, day_line: Option<&str>) -> String {
+    crate::anyai::make_line(ai, name, day_line, "Enter")
 }
 
 /// Everything Home shows, computed off the UI thread from the files.
@@ -328,13 +329,12 @@ pub const COPY_FILE: &str = "Copy file";
 pub const COPY_TEXT: &str = "Copy text";
 pub const SAVE_COPY: &str = "Save a copy…";
 pub const COPIED_FILE: &str = "Copied. Paste it in WhatsApp, Slack, email or any chat.";
-pub const COPIED_TEXT: &str = "Text copied. Paste it into a chat, or into Claude.";
+pub const COPIED_TEXT: &str = "Text copied. Paste it into a chat, or into your AI.";
 
-/// Capsules: open one someone sent, search, and ask Claude.
+/// Capsules: open one someone sent, search, and ask your AI (the button: `anyai::ask_button`).
 pub const OPEN_CAPSULE: &str = "Open a capsule…";
 pub const SEARCH_CAPSULES: &str = "Search capsules";
-pub const ASK_CLAUDE: &str = "Ask Claude";
-pub const NO_MATCHES: &str = "No capsules match. Ask Claude to search inside them.";
+pub const NO_MATCHES: &str = "No capsules match. Ask your AI to search inside them.";
 
 /// Before a capsule is shared (Copy file, Copy text, Save a copy…).
 pub const CHECK_TITLE: &str = "Check before sharing";
@@ -343,7 +343,7 @@ pub const CHECK_INTRO: &str =
 pub const SHARE: &str = "Share";
 
 pub const PROJECTS_INTRO: &str = "Work is sorted into these by itself, from words in window names and web addresses.";
-pub const NO_PROJECTS: &str = "No projects yet. Claude makes them when it sorts your day.";
+pub const NO_PROJECTS: &str = "No projects yet. Your AI makes them when it sorts your day.";
 pub const EDIT: &str = "Edit";
 pub const DELETE: &str = "Delete";
 pub const SAVE: &str = "Save";
@@ -417,8 +417,8 @@ pub const ROW_VOICE_MODEL: SetupRow = SetupRow {
     button: "Get",
     help: "A one-time download (about 150 MB) so speech becomes text on this computer. Audio is never saved.",
 };
-pub const ROW_CLAUDE: SetupRow =
-    SetupRow { title: "Connect Claude", button: "Connect", help: "Lets Claude start contextualizing and write your capsules." };
+/// Connect your AI: the AI apps listed under it (`anyai`); a ✓ when at least one is connected.
+pub const ROW_AI: SetupRow = SetupRow { title: crate::anyai::CONNECT_YOUR_AI, button: crate::anyai::CONNECT, help: crate::anyai::CONNECT_HELP };
 pub const ROW_LOGIN: SetupRow = SetupRow { title: "Open at login", button: "Turn On", help: "Always ready in the tray." };
 
 // MARK: Help
@@ -427,19 +427,20 @@ pub const SHORTCUTS: &str = "Shortcuts";
 pub const HOW_IT_WORKS: &str = "How it works";
 pub const PRIVACY: &str = "Privacy";
 
-/// (what, keys)
-pub fn shortcuts(keys: &Keys) -> [(&'static str, String); 3] {
+/// (what, keys). The last one follows Your AI ("in your AI", or "Copy my day").
+pub fn shortcuts(keys: &Keys, ai: &YourAi) -> [(&'static str, String); 3] {
     [
         ("Start or stop contextualizing", keys.record.clone()),
         ("Speak a note, then again when done", keys.voice.clone()),
-        ("Make my capsules for today", "in Claude".into()),
+        ("Make my capsules for today", crate::anyai::help_make_keys(ai).into()),
     ]
 }
 
-pub const HOW: [&str; 3] = [
+pub const HOW: [&str; 4] = [
     "While you work, Context Capsule saves the text of the screen you picked, and what you say in voice notes.",
-    "At the end of the day, Claude sorts it into projects and writes a capsule for each: what you did, what you decided and why, and what's next.",
-    "Send a capsule to anyone. Their Claude reads it and can carry on your work.",
+    "At the end of the day, your AI sorts it into projects and writes a capsule for each: what you did, what you decided and why, and what's next.",
+    "Any AI works. Apps like Claude or Cursor connect in Settings. For any other AI, such as a website: Copy my day, paste it in, then Save from clipboard.",
+    "Send a capsule to anyone. Their AI reads it and can carry on your work.",
 ];
 
 pub fn privacy(keys: &Keys) -> [String; 4] {
@@ -447,7 +448,7 @@ pub fn privacy(keys: &Keys) -> [String; 4] {
         format!("Recordings stay on {}. No account, no cloud.", keys.this_computer),
         "Only text is saved: no screenshots, no audio.".into(),
         "Password managers, WhatsApp, Signal and password fields are never recorded.".into(),
-        "Text goes to Claude only when you ask Claude to make or read a capsule.".into(),
+        "Text goes to your AI only when you ask it to make or read a capsule, or paste your day into it yourself.".into(),
     ]
 }
 
@@ -482,7 +483,8 @@ mod tests {
         assert_eq!(voice_button(&s), "Speak a note");
         s.listening = true;
         assert_eq!(voice_button(&s), "Done speaking");
-        assert_eq!(make_hint(&Keys::linux(&Hotkeys::DEFAULT)), "Opens Claude with the request typed in");
+        assert_eq!(make_hint(&YourAi::Claude, "Claude", None), "Claude opens with the request typed in. Press Enter.");
+        assert_eq!(make_hint(&YourAi::Other, "your AI", None), "Copy your day, paste it into your AI, then save its reply here.");
     }
 
     #[test]
@@ -537,7 +539,9 @@ mod tests {
         let p = Project { id: "web".into(), name: "Website".into(), clues: vec!["acme.com".into(), "figma".into()] };
         assert_eq!(found_by(&p), "Found by: acme.com, figma");
         assert_eq!(delete_question(&p), "Delete “Website”?");
-        assert_eq!(shortcuts(&wk())[0], ("Start or stop contextualizing", "Alt+C".to_string()));
+        assert_eq!(shortcuts(&wk(), &YourAi::Claude)[0], ("Start or stop contextualizing", "Alt+C".to_string()));
+        assert_eq!(shortcuts(&wk(), &YourAi::Other)[2].1, "Copy my day");
+        assert_eq!(shortcuts(&wk(), &YourAi::Claude)[2].1, "in your AI");
         assert_eq!(privacy(&wk())[0], "Recordings stay on this PC. No account, no cloud.");
         assert!(no_capsules(&Keys::linux(&Hotkeys::DEFAULT)).contains("(Alt+C)"));
     }

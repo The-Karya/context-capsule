@@ -341,7 +341,7 @@ impl Platform for LinuxPlatform {
     }
 
     fn remind(&mut self) {
-        reminder::ask_and_make(self.notifier.clone());
+        reminder::ask_and_make(self.notifier.clone(), self.tray.maker());
     }
 
     /// X11 only: on Wayland no app may know where the mouse is, so only the window in use is read.

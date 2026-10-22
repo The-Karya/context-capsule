@@ -20,6 +20,12 @@ context-capsule-core = { path = "../core" }
 chrono = { version = "0.4", default-features = false, features = ["clock", "std"] }
 sha2 = "0.10"
 serde_json = "1"
+# The any-AI program inside the exe is zstd-compressed (build.rs); unpacked once, next to the exe.
+ruzstd = "0.8"
+
+[build-dependencies]
+sha2 = "0.10"
+zstd = { version = "0.13", default-features = false }
 
 [target.'cfg(windows)'.dependencies]
 windows-future = "0.3"

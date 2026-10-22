@@ -1,6 +1,7 @@
 // context-capsule — windows: the Context Capsule window — one place for everything: Home (start / stop, speak a
-// note, add a screen, what you're working on, time per project, recent capsules, make today's capsules), Capsules,
-// Projects, Settings (set up and preferences) and Help. Opens from the tray ("Open Context Capsule"), and by
+// note, add a screen, what you're working on, time per project, recent capsules, make today's capsules with your
+// AI), Capsules (with Copy my day / Save from clipboard), Projects, Settings (set up, Connect your AI, Your AI and
+// preferences) and Help. Opens from the tray ("Open Context Capsule"), and by
 // itself on Settings the first time.
 //! A plain Win32 window drawn in code with Windows 11's look (Segoe UI Variable, system colors and accent, light
 //! and dark following Windows or the Appearance setting). `layout` decides what goes where; `paint` draws it.
@@ -11,11 +12,10 @@ use crate::app::{Ui, UiCmd};
 use crate::layout::{self, Action, Data, Field, Node, ShareHow, ShareView, View, HEADER, SIDEBAR};
 use crate::paint::{self, Faces, Feel, Fonts, GdiMeasure, Theme};
 use crate::setup::{self, Done};
-use crate::{hotkeys, input, reminder, tray, win, windows_list};
+use crate::{ai, hotkeys, input, tray, win, windows_list};
 use context_capsule_core::settings::{self, Appearance, ConfigFile, ShareScreens};
 use context_capsule_core::shortcuts::{self as shortcuts, Hotkeys, Pressed, Which};
 use context_capsule_core::window::{self as w, HomeNumbers, Keys, Section};
-use context_capsule_core::claude::search_prompt;
 use context_capsule_core::{AppLog, CapsuleSummary, Config, Msg, Paths, Projects, Status, WorkStats};
 use std::cell::RefCell;
 use std::collections::HashMap;
@@ -131,7 +131,14 @@ struct Win {
     recording_keys: Option<Which>,
     /// Why the last new keys were refused, under that row.
     keys_note: Option<(Which, String)>,
+    /// The any-AI state's version last laid out (`ai::AiState::version`).
+    ai_seen: u64,
+    /// Seconds on Settings: the AI apps are asked for again every `AI_EVERY` of them.
+    ai_ticks: u32,
 }
+
+/// While Settings is open, the AI apps are asked for again this often (seconds), as on the Mac.
+const AI_EVERY: u32 = 10;
 
 thread_local! {
     static WIN: RefCell<Option<Win>> = const { RefCell::new(None) };
@@ -206,6 +213,8 @@ pub fn show(section: Option<Section>, ctx: Ctx, status: &Status) {
         icons: vec![],
         recording_keys: None,
         keys_note: None,
+        ai_seen: 0,
+        ai_ticks: 0,
         ctx,
     };
     state.apply_theme();
@@ -216,6 +225,9 @@ pub fn show(section: Option<Section>, ctx: Ctx, status: &Status) {
         w.request_load();
         w.rebuild();
         w.ctx.log.write("window: open");
+        if w.section == Section::Settings {
+            ai::refresh(&w.ctx.ui, &w.ctx.log);
+        }
     });
     // SAFETY: timers on our own window; showing it.
     unsafe {
@@ -250,6 +262,17 @@ pub fn set_data(data: Data) {
         }
         w.rebuild();
     });
+}
+
+/// The any-AI state changed (the apps, Your AI, Copy my day…): lay out again. If the window is busy (a menu or
+/// dialog is open over it), the next second's tick does it.
+pub fn ai_changed() {
+    with_win(|w| w.rebuild());
+}
+
+/// Capsules were saved (Save from clipboard): read the lists and numbers again.
+pub fn reload() {
+    with_win(|w| w.request_load());
 }
 
 /// The app is quitting.
@@ -462,6 +485,8 @@ impl Win {
             self.hover = None;
             if s == Section::Settings {
                 self.setup = setup::done();
+                self.ai_ticks = 0;
+                ai::refresh(&self.ctx.ui, &self.ctx.log);
             }
         }
     }
@@ -503,6 +528,8 @@ impl Win {
         let date = win::long_date_today();
         let now = SystemTime::now();
         let keys = Keys::windows(&hotkeys::current());
+        let ai = ai::snapshot();
+        self.ai_seen = ai.version;
         let view = View {
             section: self.section,
             status: &self.status,
@@ -521,6 +548,7 @@ impl Win {
             share: self.share.as_ref(),
             recording_keys: self.recording_keys,
             keys_note: self.keys_note.as_ref().map(|(which, text)| (*which, text.as_str())),
+            ai: &ai,
         };
         // SAFETY: the screen DC, only for measuring text; released below.
         let dc = unsafe { GetDC(Some(self.hwnd)) };
@@ -960,9 +988,33 @@ fn perform(action: Action, at: POINT) {
                 with_win(|w| w.request_load());
             }
         }
-        Action::Make => {
-            let (ui, log) = (ctx.ui.clone(), ctx.log.clone());
-            std::thread::spawn(move || reminder::make(&ui, &log));
+        // Follows Your AI; stops contextualizing first (the UI thread's app does both).
+        Action::Make => ctx.ui.post(crate::app::UiCmd::Make),
+        Action::CopyMyDay => ai::copy_my_day(&ctx.ui, &ctx.log),
+        Action::SaveClipboard => ai::save_from_clipboard(&ctx.ui, &ctx.log),
+        Action::AiConnect(id) => ai::connect(&ctx.ui, &ctx.log, &id),
+        Action::AiMenu(id) => {
+            if menu(hwnd, &[context_capsule_core::anyai::DISCONNECT.to_string()], None, at) == Some(0) {
+                ai::disconnect(&ctx.ui, &ctx.log, &id);
+            }
+        }
+        Action::AiMore => {
+            ai::with(|s| {
+                s.more = !s.more;
+                s.changed();
+            });
+            with_win(|w| w.rebuild());
+        }
+        Action::YourAi => {
+            let items = ai::choice_menu(&ai::snapshot());
+            let labels: Vec<String> = items.iter().map(|(l, _)| l.clone()).collect();
+            let current = ai::with(|s| s.choice.clone());
+            let checked = items.iter().position(|(_, id)| id.as_deref() == Some(current.as_str()));
+            if let Some(Some(id)) = menu(hwnd, &labels, checked, at).and_then(|i| items.get(i)).map(|(_, id)| id.clone()) {
+                if id != current {
+                    ai::set_choice(&id, &ctx.log);
+                }
+            }
         }
         Action::Open(path) => {
             // No app for .md files yet: Notepad reads it.
@@ -1068,14 +1120,12 @@ fn perform(action: Action, at: POINT) {
         Action::CheckUpdates => crate::update::check_now(),
         Action::OpenCapsule => {
             if let Some(path) = win::open_capsule_dialog(hwnd) {
-                let (ui, log) = (ctx.ui.clone(), ctx.log.clone());
-                std::thread::spawn(move || reminder::open_received(&ui, &log, &path));
+                ai::open_received(&ctx.ui, &ctx.log, &path);
             }
         }
-        Action::AskClaude => {
+        Action::Ask => {
             let Some(question) = with_win(|w| w.search.trim().to_string()).filter(|q| !q.is_empty()) else { return };
-            let (ui, log) = (ctx.ui.clone(), ctx.log.clone());
-            std::thread::spawn(move || reminder::ask_claude(&ui, &log, &search_prompt(&question), "ask claude"));
+            ai::ask(&ctx.ui, &ctx.log, &question);
         }
         Action::ShareToggle(i) => {
             with_win(|w| {
@@ -1459,7 +1509,7 @@ extern "system" fn proc(hwnd: HWND, msg: u32, wp: WPARAM, lp: LPARAM) -> LRESULT
         WM_FIELD_ENTER => {
             let ask = with_win(|w| {
                 if field_of_hwnd(w, HWND(lp.0 as *mut _)) == Some(Field::Search) {
-                    return true; // Enter in the search box: Ask Claude
+                    return true; // Enter in the search box: Ask
                 }
                 if w.editing.is_some() {
                     w.save_edit();
@@ -1472,7 +1522,7 @@ extern "system" fn proc(hwnd: HWND, msg: u32, wp: WPARAM, lp: LPARAM) -> LRESULT
                 false
             });
             if ask == Some(true) {
-                perform(Action::AskClaude, POINT::default());
+                perform(Action::Ask, POINT::default());
             }
         }
         WM_FIELD_ESCAPE => {
@@ -1532,7 +1582,13 @@ extern "system" fn proc(hwnd: HWND, msg: u32, wp: WPARAM, lp: LPARAM) -> LRESULT
                     let done = setup::done();
                     again |= done != w.setup;
                     w.setup = done;
+                    ai::with(|s| s.claude_seen(done.claude));
+                    w.ai_ticks += 1;
+                    if w.ai_ticks % AI_EVERY == 0 {
+                        ai::refresh(&w.ctx.ui, &w.ctx.log);
+                    }
                 }
+                again |= ai::with(|s| s.version) != w.ai_seen;
                 if w.notice.as_ref().is_some_and(|(_, at)| at.elapsed() > NOTICE_FOR) {
                     w.notice = None;
                     w.invalidate();

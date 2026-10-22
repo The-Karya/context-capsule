@@ -1,10 +1,12 @@
 // context-capsule — windows: the Context Capsule window's layout — what goes where for Home, Capsules, Projects,
-// Settings and Help, as a flat list of shapes, words and controls in device-independent pixels. Pure (no Windows
+// Settings (with Connect your AI and Your AI) and Help, as a flat list of shapes, words and controls in device-independent pixels. Pure (no Windows
 // calls): text is measured through `Measure`, so it runs and is tested on any OS. `main_window` draws it.
 //! The words and numbers come from core's `window` module, the same as the Mac's window. Raw recordings are
 //! never shown (only time per project, counts and capsules).
 
+use crate::ai::{self, AiState};
 use crate::setup::{Done, Step};
+use context_capsule_core::anyai::{self, AiClient};
 use context_capsule_core::capsules::{self, CapsuleSummary};
 use context_capsule_core::share_check::{self, Kind};
 use context_capsule_core::settings::{self, Appearance};
@@ -200,9 +202,18 @@ pub enum Action {
     /// Settings → Updates.
     AutoUpdate,
     CheckUpdates,
-    /// Capsules: a capsule someone sent (a file dialog), and Claude searching them.
+    /// Capsules: a capsule someone sent (a file dialog), and your AI searching them.
     OpenCapsule,
-    AskClaude,
+    Ask,
+    /// Any AI: Copy my day, Save from clipboard (Make follows Your AI, and is Copy my day for a website).
+    CopyMyDay,
+    SaveClipboard,
+    /// Settings → Connect your AI: Connect an app; its ⋯ menu (Disconnect); the "More" fold.
+    AiConnect(String),
+    AiMenu(String),
+    AiMore,
+    /// Settings → Your AI: the choice.
+    YourAi,
     /// Check before sharing: one item's check box, Share, Cancel.
     ShareToggle(usize),
     ShareGo,
@@ -276,6 +287,7 @@ pub mod glyph {
     pub const ADD: &str = "\u{E710}";
     pub const MORE: &str = "\u{E712}";
     pub const CHEVRON: &str = "\u{E70D}";
+    pub const CHEVRON_RIGHT: &str = "\u{E76C}";
     pub const MIC: &str = "\u{E720}";
     pub const LINK: &str = "\u{E71B}";
     pub const POWER: &str = "\u{E7E8}";
@@ -335,6 +347,8 @@ pub struct View<'a> {
     /// Settings → Shortcuts: the one waiting for new keys, and a short line under one row (why it was refused).
     pub recording_keys: Option<Which>,
     pub keys_note: Option<(Which, &'a str)>,
+    /// The AI apps and Your AI (Settings, Home's Make today's capsules, Capsules, Help).
+    pub ai: &'a AiState,
 }
 
 pub struct Layout {
@@ -784,8 +798,12 @@ fn side(col: &mut Col, v: &View) {
     });
     col.gap(GAP);
 
-    // Make today's capsules, with the main button.
-    let hint = w::make_hint(v.keys);
+    // Make today's capsules, the way Your AI works: Copy my day and Save from clipboard for a website or any other
+    // AI, else one button (Claude or another app opens with the request).
+    let ai = v.ai;
+    let kind = ai.kind();
+    let hint = w::make_hint(&kind, &ai.name(), ai.day_line.as_deref());
+    let your = kind.home_line(&ai.clients);
     col.card(|out, x, w, top, m| {
         let inner = w - 2.0 * CARD_PAD;
         let mut y = top + CARD_PAD;
@@ -795,8 +813,38 @@ fn side(col: &mut Col, v: &View) {
         let hh = m.text(&hint, Font::Small, inner, 0).1;
         out.push(Node::Text { r: Rect::new(x + CARD_PAD, y, inner, hh), text: hint.clone(), font: Font::Small, ink: Ink::Secondary, align: Align::Left, lines: 0 });
         y += hh + 12.0;
-        out.push(Node::Button { r: Rect::new(x + CARD_PAD, y, inner, BUTTON_H), action: Action::Make, label: w::MAKE_BUTTON.into(), icon: None, style: Style::Accent, enabled: true, check: false });
-        y + BUTTON_H + CARD_PAD
+        let full = |action: Action, label: &str, style: Style, enabled: bool, y: f64| Node::Button {
+            r: Rect::new(x + CARD_PAD, y, inner, BUTTON_H),
+            action,
+            label: label.into(),
+            icon: None,
+            style,
+            enabled,
+            check: false,
+        };
+        if kind.uses_copy() {
+            out.push(full(Action::Make, anyai::COPY_MY_DAY, Style::Accent, !ai.working, y));
+            y += BUTTON_H + 8.0;
+            out.push(full(Action::SaveClipboard, anyai::SAVE_FROM_CLIPBOARD, Style::Standard, !ai.working, y));
+        } else {
+            out.push(full(Action::Make, anyai::MAKE_CAPSULES, Style::Accent, true, y));
+        }
+        y += BUTTON_H + 10.0;
+        // "Your AI: Cursor  Change"
+        let lw = button_width(m, anyai::CHANGE, Style::Subtle);
+        let yh = m.text(&your, Font::Small, inner, 1).1;
+        let tw = m.text(&your, Font::Small, (inner - lw - 4.0).max(40.0), 1).0;
+        out.push(Node::Text { r: Rect::new(x + CARD_PAD, y + 4.0, tw, yh), text: your.clone(), font: Font::Small, ink: Ink::Secondary, align: Align::Left, lines: 1 });
+        out.push(Node::Button {
+            r: Rect::new(x + CARD_PAD + tw + 4.0, y, lw, yh + 8.0),
+            action: Action::Nav(Section::Settings),
+            label: anyai::CHANGE.into(),
+            icon: None,
+            style: Style::Subtle,
+            enabled: true,
+            check: false,
+        });
+        y + yh + 8.0 + CARD_PAD - 4.0
     });
 }
 
@@ -874,20 +922,23 @@ fn capsules_page(col: &mut Col, v: &View) {
     col.button(col.x + mw + 8.0, w::OPEN_CAPSULE, Action::OpenCapsule, Style::Standard);
     col.gap(BUTTON_H + 16.0);
 
-    // Search as you type, or ask Claude (it reads inside every capsule).
+    // Search as you type, or ask your AI (it reads inside every capsule).
     let asking = !v.search.trim().is_empty();
-    let aw = button_width(col.m, w::ASK_CLAUDE, Style::Accent);
+    let ask = anyai::ask_button(&v.ai.kind());
+    let aw = button_width(col.m, ask, Style::Accent);
     col.nodes.push(Node::Field { r: Rect::new(col.x, col.y, (col.w - aw - 8.0).max(80.0), BUTTON_H), field: Field::Search });
     col.nodes.push(Node::Button {
         r: Rect::new(col.x + col.w - aw, col.y, aw, BUTTON_H),
-        action: Action::AskClaude,
-        label: w::ASK_CLAUDE.into(),
+        action: Action::Ask,
+        label: ask.into(),
         icon: None,
         style: Style::Accent,
         enabled: asking,
         check: false,
     });
-    col.gap(BUTTON_H + GAP);
+    col.gap(BUTTON_H + 12.0);
+    copy_row(col, v.ai);
+    col.gap(GAP);
 
     if v.data.capsules.is_empty() {
         col.para(&w::no_capsules(v.keys), Font::Body, Ink::Secondary);
@@ -905,6 +956,31 @@ fn capsules_page(col: &mut Col, v: &View) {
         col.caption(&g.title);
         capsule_card(col, &g.items, v.today);
     }
+}
+
+/// Capsules: for an AI on the web or any other AI — the line (or what to do next after Copy my day), then Copy my
+/// day and Save from clipboard. Too narrow for one row: the line above the buttons.
+fn copy_row(col: &mut Col, ai: &AiState) {
+    let line = ai.day_line.as_deref().unwrap_or(anyai::ON_THE_WEB);
+    let cw = button_width(col.m, anyai::COPY_MY_DAY, Style::Standard);
+    let sw = button_width(col.m, anyai::SAVE_FROM_CLIPBOARD, Style::Standard);
+    let buttons = cw + 8.0 + sw;
+    let room = col.w - buttons - 12.0;
+    let mut bx = col.x + col.w - buttons;
+    if room >= 160.0 {
+        let lh = col.text_h(line, Font::Small, room, 2);
+        col.nodes.push(Node::Text { r: Rect::new(col.x, col.y + ((BUTTON_H - lh) / 2.0).max(0.0), room, lh), text: line.into(), font: Font::Small, ink: Ink::Secondary, align: Align::Left, lines: 2 });
+        col.y += (lh - BUTTON_H).max(0.0) / 2.0;
+    } else {
+        col.para(line, Font::Small, Ink::Secondary);
+        col.gap(8.0);
+        bx = col.x;
+    }
+    for (label, action, w) in [(anyai::COPY_MY_DAY, Action::CopyMyDay, cw), (anyai::SAVE_FROM_CLIPBOARD, Action::SaveClipboard, sw)] {
+        col.nodes.push(Node::Button { r: Rect::new(bx, col.y, w, BUTTON_H), action, label: label.into(), icon: None, style: Style::Standard, enabled: !ai.working, check: false });
+        bx += w + 8.0;
+    }
+    col.gap(BUTTON_H);
 }
 
 /// "Check before sharing": what was found, by group, each with a check box (all checked), then Cancel and Share.
@@ -1047,11 +1123,16 @@ fn settings_page(col: &mut Col, v: &View) {
 
     col.caption(w::SET_UP);
     let done = v.setup;
+    let ai = v.ai;
     col.card(|out, x, w, top, m| {
         let mut y = top;
         for (i, step) in Step::ALL.iter().enumerate() {
             if i > 0 {
                 divider(out, x, w, y);
+            }
+            if *step == Step::Claude {
+                y = connect_rows(out, m, x, w, y, done.claude || ai.any_connected(), ai);
+                continue;
             }
             let r = step.row();
             let right = if done.get(*step) { 24.0 } else { button_width(m, r.button, Style::Standard) };
@@ -1065,6 +1146,29 @@ fn settings_page(col: &mut Col, v: &View) {
         }
         y
     });
+    col.gap(GAP);
+
+    // Your AI: what Make today's capsules opens.
+    col.caption(anyai::YOUR_AI);
+    let label = ai.choice_label();
+    col.card(|out, x, w, top, m| {
+        let bw = button_width(m, &label, Style::Dropdown).min((w * 0.5).max(120.0));
+        let (bottom, h) = row(out, m, x, w, top, None, anyai::MAKE_WITH, None, bw);
+        out.push(Node::Button {
+            r: Rect::new(x + w - CARD_PAD - bw, top + (h - BUTTON_H) / 2.0, bw, BUTTON_H),
+            action: Action::YourAi,
+            label: label.clone(),
+            icon: None,
+            style: Style::Dropdown,
+            enabled: true,
+            check: false,
+        });
+        bottom
+    });
+    col.gap(6.0);
+    col.x += 4.0;
+    col.para(&anyai::settings_line(&ai.kind(), &ai.name()), Font::Small, Ink::Secondary);
+    col.x -= 4.0;
     col.gap(GAP);
 
     col.caption(w::EVERY_DAY);
@@ -1154,6 +1258,82 @@ fn settings_page(col: &mut Col, v: &View) {
     updates_section(col, v);
 }
 
+/// Settings → Set up → Connect your AI: the header row (✓ when an AI is connected), one row per installed app
+/// (Connect, or ✓ and a ⋯ menu with Disconnect; a word while it works), the apps not installed under "More", a
+/// note after connecting, and the line about any other AI. Returns the bottom.
+fn connect_rows(out: &mut Vec<Node>, m: &dyn Measure, x: f64, w: f64, top: f64, done: bool, ai: &AiState) -> f64 {
+    let r = Step::Claude.row();
+    let (mut y, h) = row(out, m, x, w, top, Some(step_icon(Step::Claude)), r.title, Some(r.help), if done { 24.0 } else { 0.0 });
+    if done {
+        out.push(Node::Text { r: Rect::new(x + w - CARD_PAD - 24.0, top, 24.0, h), text: glyph::CHECK.into(), font: Font::Icon, ink: Ink::Secondary, align: Align::Center, lines: 1 });
+    }
+    let left = x + CARD_PAD + 36.0;
+    let right = x + w - CARD_PAD;
+    let sub_divider = |out: &mut Vec<Node>, y: f64| out.push(Node::Divider(Rect::new(left, y, (right - left).max(0.0), 1.0)));
+    const SUB: f64 = 40.0;
+    for c in ai.installed() {
+        sub_divider(out, y);
+        app_row(out, m, left, right, y, SUB, c, ai);
+        y += SUB;
+    }
+    let missing = ai.missing();
+    if !missing.is_empty() {
+        sub_divider(out, y);
+        out.push(Node::Button {
+            r: Rect::new(left - 8.0, y + 2.0, (right - left + 8.0).max(40.0), 32.0),
+            action: Action::AiMore,
+            label: anyai::MORE.into(),
+            icon: Some(if ai.more { glyph::CHEVRON } else { glyph::CHEVRON_RIGHT }),
+            style: Style::Row { selected: false },
+            enabled: true,
+            check: false,
+        });
+        y += 36.0;
+        if ai.more {
+            let nw = m.text(anyai::NOT_INSTALLED, Font::Small, 400.0, 1).0;
+            for c in missing {
+                let lh = m.text(&c.name, Font::Small, (right - left - nw - 12.0).max(20.0), 1).1;
+                out.push(Node::Text { r: Rect::new(left, y + (28.0 - lh) / 2.0, (right - left - nw - 12.0).max(20.0), lh), text: c.name.clone(), font: Font::Small, ink: Ink::Secondary, align: Align::Left, lines: 1 });
+                out.push(Node::Text { r: Rect::new(right - nw, y + (28.0 - lh) / 2.0, nw, lh), text: anyai::NOT_INSTALLED.into(), font: Font::Small, ink: Ink::Secondary, align: Align::Right, lines: 1 });
+                y += 28.0;
+            }
+        }
+    }
+    let lw = (right - left).max(40.0);
+    if let Some(note) = &ai.note {
+        let nh = m.text(note, Font::Small, lw, 0).1;
+        out.push(Node::Text { r: Rect::new(left, y + 6.0, lw, nh), text: note.clone(), font: Font::Small, ink: Ink::Secondary, align: Align::Left, lines: 0 });
+        y += nh + 6.0;
+    }
+    let ah = m.text(anyai::ANY_OTHER_LINE, Font::Small, lw, 0).1;
+    out.push(Node::Text { r: Rect::new(left, y + 6.0, lw, ah), text: anyai::ANY_OTHER_LINE.into(), font: Font::Small, ink: Ink::Secondary, align: Align::Left, lines: 0 });
+    y + 6.0 + ah + 12.0
+}
+
+/// One AI app under Connect your AI.
+#[allow(clippy::too_many_arguments)]
+fn app_row(out: &mut Vec<Node>, m: &dyn Measure, left: f64, right: f64, y: f64, h: f64, c: &AiClient, ai: &AiState) {
+    let by = y + (h - BUTTON_H) / 2.0;
+    let used = if ai.busy.as_deref() == Some(c.id.as_str()) {
+        let word = if c.connected { ai::DISCONNECTING } else { ai::CONNECTING };
+        let ww = m.text(word, Font::Small, 300.0, 1).0;
+        let wh = m.text(word, Font::Small, ww, 1).1;
+        out.push(Node::Text { r: Rect::new(right - ww, y + (h - wh) / 2.0, ww, wh), text: word.into(), font: Font::Small, ink: Ink::Secondary, align: Align::Right, lines: 1 });
+        ww
+    } else if c.connected {
+        out.push(Node::Button { r: Rect::new(right - 36.0, by, 36.0, BUTTON_H), action: Action::AiMenu(c.id.clone()), label: String::new(), icon: Some(glyph::MORE), style: Style::Subtle, enabled: true, check: false });
+        out.push(Node::Text { r: Rect::new(right - 36.0 - 4.0 - 24.0, y, 24.0, h), text: glyph::CHECK.into(), font: Font::IconSmall, ink: Ink::Secondary, align: Align::Center, lines: 1 });
+        36.0 + 4.0 + 24.0
+    } else {
+        let bw = button_width(m, anyai::CONNECT, Style::Standard);
+        out.push(Node::Button { r: Rect::new(right - bw, by, bw, BUTTON_H), action: Action::AiConnect(c.id.clone()), label: anyai::CONNECT.into(), icon: None, style: Style::Standard, enabled: ai.busy.is_none(), check: false });
+        bw
+    };
+    let tw = (right - left - used - 12.0).max(20.0);
+    let th = m.text(&c.name, Font::Body, tw, 1).1;
+    out.push(Node::Text { r: Rect::new(left, y + (h - th) / 2.0, tw, th), text: c.name.clone(), font: Font::Body, ink: Ink::Primary, align: Align::Left, lines: 1 });
+}
+
 /// Settings → Shortcuts: "Start or stop" and "Speak a note", each a button showing its keys (click, then press
 /// the new keys; Esc cancels), a line under a row when keys were refused, and Reset.
 fn shortcuts_section(col: &mut Col, v: &View) {
@@ -1204,7 +1384,7 @@ pub fn app_label(app: &str) -> String {
 
 fn help_page(col: &mut Col, v: &View) {
     col.caption(w::SHORTCUTS);
-    let lines = w::shortcuts(v.keys);
+    let lines = w::shortcuts(v.keys, &v.ai.kind());
     col.card(|out, x, w, top, m| {
         let mut y = top;
         for (i, (what, keys)) in lines.iter().enumerate() {
@@ -1337,7 +1517,16 @@ mod tests {
             share: None,
             recording_keys: None,
             keys_note: None,
+            ai: Box::leak(Box::new(AiState::default())),
         }
+    }
+
+    /// Claude (connected), Cursor (not), Zed (not installed); Your AI = `choice`.
+    fn ai_state(choice: &str) -> AiState {
+        let client = |id: &str, name: &str, installed: bool, connected: bool| AiClient { id: id.into(), name: name.into(), installed, connected, how: "config".into() };
+        let mut s = AiState::default();
+        s.set_clients(vec![AiClient::claude(true, true), client("cursor", "Cursor", true, false), client("zed", "Zed", false, false)], Some(choice));
+        s
     }
 
     #[test]
@@ -1345,8 +1534,10 @@ mod tests {
         let (status, data) = (Status::default(), data());
         let mut v = view(Section::Capsules, &status, &data);
         let l = layout(&v, 1000.0, 700.0, &Fake);
-        let ask = |l: &Layout| l.content.iter().find_map(|n| if let Node::Button { action: Action::AskClaude, enabled, .. } = n { Some(*enabled) } else { None });
-        assert_eq!(ask(&l), Some(false), "Ask Claude: off while the box is empty");
+        let ask = |l: &Layout| l.content.iter().find_map(|n| if let Node::Button { action: Action::Ask, enabled, .. } = n { Some(*enabled) } else { None });
+        assert_eq!(ask(&l), Some(false), "Ask: off while the box is empty");
+        assert!(find(&l, "Ask your AI").is_some() && find(&l, "Using an AI on the web, or any other AI?").is_some());
+        assert!(find(&l, "Copy my day").is_some() && find(&l, "Save from clipboard").is_some());
         assert!(find(&l, "Open a capsule…").is_some());
         assert!(l.content.iter().any(|n| matches!(n, Node::Field { field: Field::Search, .. })));
         assert_eq!(texts(&l).iter().filter(|x| *x == "Open").count(), 3);
@@ -1404,7 +1595,7 @@ mod tests {
         let t = texts(&l);
         for word in ["Your work", "Context Capsule", "Home", "Good evening, Saachi.", "Tuesday, 20 October", "Today 40 m", "Not contextualizing",
             "Start contextualizing", "Website", "Not sorted yet", "Recent capsules", "See all", "Shortcuts", "Working on", "Find by itself",
-            "New project", "Make today's capsules", "Make", "Streak", "3 days", "in a row", "2 capsules", "contextualized"] {
+            "New project", "Make today's capsules", "Copy my day", "Save from clipboard", "Your AI: any AI", "Change", "Streak", "3 days", "in a row", "2 capsules", "contextualized"] {
             assert!(t.iter().any(|x| x == word), "{word} on Home: {t:?}");
         }
         assert_eq!(t.iter().filter(|x| *x == "Open").count(), 3, "three recent capsules");
@@ -1508,11 +1699,11 @@ mod tests {
         let fields: Vec<Field> = l.content.iter().filter_map(|n| if let Node::Field { field, .. } = n { Some(*field) } else { None }).collect();
         assert_eq!(fields, [Field::ProjectName, Field::ProjectClues]);
         let t = texts(&layout(&view(Section::Settings, &status, &data), 1000.0, 700.0, &Fake));
-        for word in ["You", "Your name", "Set up", "Voice notes", "Connect Claude", "Connect", "Open at login", "Every day", "When you start", "Pick a screen or window", "Remind me to make capsules",
+        for word in ["You", "Your name", "Set up", "Voice notes", "Connect your AI", "Any other AI (ChatGPT website, Gemini, Copilot…): use Copy my day.", "Your AI", "Make today's capsules with", "Any other AI", "Open at login", "Every day", "When you start", "Pick a screen or window", "Remind me to make capsules",
             "18:00", "30 days", "Sounds", "Capsules are never deleted.", "Language", "Same as my computer", "Appearance", "System", "Never record", "Slack", "Remove", "Choose…", "Updates", "Update automatically", "Check for updates"] {
             assert!(t.iter().any(|x| x == word), "{word} in Settings: {t:?}");
         }
-        assert!(!t.iter().any(|x| x == "Allow" || x == "Turn On"), "done rows show a check instead");
+        assert!(!t.iter().any(|x| x == "Allow" || x == "Turn On" || x == "Connect"), "done rows show a check instead; no apps listed yet");
         for word in ["Shortcuts", "Start or stop", "Speak a note", "Alt+C", "Alt+V", "Reset", "Click a shortcut, then press the new keys."] {
             assert!(t.iter().any(|x| x == word), "{word} in Settings → Shortcuts: {t:?}");
         }
@@ -1537,8 +1728,84 @@ mod tests {
         let home = texts(&layout(&v, 1000.0, 700.0, &Fake));
         assert!(home.iter().any(|x| x == "R") && home.iter().any(|x| x.starts_with("Ctrl+Shift+R to start")), "{home:?}");
         let t = texts(&layout(&view(Section::Help, &status, &data), 1000.0, 700.0, &Fake));
-        for word in ["Start or stop contextualizing", "Alt", "C", "V", "in Claude", "How it works", "Privacy"] {
+        for word in ["Start or stop contextualizing", "Alt", "C", "V", "Copy my day", "How it works", "Privacy"] {
             assert!(t.iter().any(|x| x == word), "{word} in Help: {t:?}");
+        }
+    }
+
+    #[test]
+    fn any_ai() {
+        let (status, data) = (Status::default(), data());
+        let mut ai = ai_state("cursor");
+        let mut v = view(Section::Settings, &status, &data);
+        v.ai = &ai;
+        let l = layout(&v, 1000.0, 900.0, &Fake);
+        let t = texts(&l);
+        for word in ["Connect your AI", "Claude", "Cursor", "Connect", "More", "Make today's capsules with", "Cursor (not connected)", "Make today's capsules opens Cursor with the request."] {
+            assert!(t.iter().any(|x| x == word), "{word} in Settings: {t:?}");
+        }
+        assert!(!t.iter().any(|x| x == "Zed" || x == "Not installed"), "not installed: folded under More");
+        let actions: Vec<&Action> = l.content.iter().filter_map(|n| n.action()).collect();
+        assert!(actions.contains(&&Action::AiMenu("claude".into())) && actions.contains(&&Action::AiConnect("cursor".into())) && actions.contains(&&Action::YourAi));
+        assert!(find(&l, glyph::CHECK).is_some(), "the header and Claude show a check");
+
+        ai.more = true;
+        ai.busy = Some("cursor".into());
+        ai.note = Some("Connected to Cursor. Restart Cursor to use it.".into());
+        let mut v = view(Section::Settings, &status, &data);
+        v.ai = &ai;
+        let t = texts(&layout(&v, 1000.0, 900.0, &Fake));
+        for word in ["Zed", "Not installed", "Connecting…", "Connected to Cursor. Restart Cursor to use it."] {
+            assert!(t.iter().any(|x| x == word), "{word}: {t:?}");
+        }
+        assert!(!t.iter().any(|x| x == "Connect"), "busy: no Connect button");
+
+        // Home follows Your AI.
+        let cursor = ai_state("cursor");
+        let mut v = view(Section::Home, &status, &data);
+        v.ai = &cursor;
+        let t = texts(&layout(&v, 1200.0, 800.0, &Fake));
+        assert!(t.iter().any(|x| x == "Make capsules") && t.iter().any(|x| x == "Your AI: Cursor") && t.iter().any(|x| x == "Cursor opens. Paste the request in a new chat."), "{t:?}");
+        assert!(!t.iter().any(|x| x == "Copy my day"));
+        let claude = ai_state("claude");
+        v.ai = &claude;
+        let t = texts(&layout(&v, 1200.0, 800.0, &Fake));
+        assert!(t.iter().any(|x| x == "Claude opens with the request typed in. Press Enter."));
+        let mut web = ai_state("chatgpt-web");
+        web.day_line = Some(anyai::PASTE_LINE.into());
+        web.working = true;
+        v.ai = &web;
+        let l = layout(&v, 1200.0, 800.0, &Fake);
+        let t = texts(&l);
+        assert!(t.iter().any(|x| x == anyai::PASTE_LINE) && t.iter().any(|x| x == "Your AI: ChatGPT"), "{t:?}");
+        let off: Vec<&str> = l.content.iter().filter_map(|n| match n { Node::Button { label, enabled: false, .. } => Some(label.as_str()), _ => None }).collect();
+        assert_eq!(off, ["Copy my day", "Save from clipboard"], "off while working");
+
+        // Capsules: Ask Claude only when Your AI is Claude; the line after Copy my day.
+        let mut v = view(Section::Capsules, &status, &data);
+        v.ai = &claude;
+        assert!(texts(&layout(&v, 1000.0, 700.0, &Fake)).iter().any(|x| x == "Ask Claude"));
+        v.ai = &web;
+        let t = texts(&layout(&v, 1000.0, 700.0, &Fake));
+        assert!(t.iter().any(|x| x == "Ask your AI") && t.iter().any(|x| x == anyai::PASTE_LINE));
+
+        // Help: the last shortcut follows Your AI.
+        let mut v = view(Section::Help, &status, &data);
+        v.ai = &claude;
+        assert!(texts(&layout(&v, 1000.0, 700.0, &Fake)).iter().any(|x| x == "in your AI"));
+
+        // Nothing overlaps or spills, at every width.
+        for section in [Section::Settings, Section::Home, Section::Capsules] {
+            for width in [640.0, 1000.0, 1600.0] {
+                let mut v = view(section, &status, &data);
+                v.ai = &ai;
+                let l = layout(&v, width, 700.0, &Fake);
+                let rects: Vec<Rect> = controls(&l.content).iter().map(|i| l.content[*i].rect()).collect();
+                for (i, a) in rects.iter().enumerate() {
+                    assert!(rects[i + 1..].iter().all(|b| !a.overlaps(b)), "{section:?} at {width}: {a:?}");
+                    assert!(a.x >= SIDEBAR && a.right() <= width + 0.5, "{section:?} at {width}: inside: {a:?}");
+                }
+            }
         }
     }
 
@@ -1611,7 +1878,15 @@ mod tests {
             ("settings", Section::Settings, 1000.0, 1200.0, false),
             ("capsules", Section::Capsules, 1000.0, 700.0, true),
         ] {
-            let l = layout(&view(section, &status, &data), width, height, &Fake);
+            // Your AI: Cursor (Claude connected, Zed under More); narrow Home: a website, after Copy my day.
+            let mut ai = ai_state(if name == "home-narrow" { "chatgpt-web" } else { "cursor" });
+            ai.more = true;
+            if name == "home-narrow" {
+                ai.day_line = Some(anyai::PASTE_LINE.into());
+            }
+            let mut v = view(section, &status, &data);
+            v.ai = &ai;
+            let l = layout(&v, width, height, &Fake);
             let path = std::env::temp_dir().join(format!("cc-windows-{name}.svg"));
             std::fs::write(&path, svg(&l, width, height.max(l.height + HEADER), dark)).unwrap();
             eprintln!("{}", path.display());

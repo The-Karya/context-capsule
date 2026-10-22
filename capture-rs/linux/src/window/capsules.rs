@@ -1,12 +1,14 @@
 // context-capsule — linux: Capsules — every capsule by project (the growing "Whole project" one first, then
 // days), each with Open, and Copy file / Copy text / Save a copy… (after "Check before sharing") / Show in
-// folder; "Make today's capsules", "Open a capsule…" (one someone sent), and a search box with "Ask Claude".
+// folder; "Make today's capsules", "Open a capsule…" (one someone sent), a search box with "Ask your AI" (or
+// "Ask Claude"), and Copy my day / Save from clipboard for any other AI.
 
 use super::share::{check_then_share, How};
 use super::widgets::{self, hbox, label, line, row, vbox};
 use super::Ctx;
-use crate::ui;
+use crate::{ai, ui};
 use adw::prelude::*;
+use context_capsule_core::anyai;
 use context_capsule_core::capsules::{groups, search, today, CapsuleSummary};
 use context_capsule_core::claude::search_prompt;
 use context_capsule_core::window as words;
@@ -23,6 +25,12 @@ pub struct Capsules {
     search: gtk::SearchEntry,
     /// Every capsule and project, as last read (the search box filters these as you type).
     all: RefCell<(Vec<CapsuleSummary>, Vec<Project>)>,
+    /// "Ask Claude" or "Ask your AI".
+    ask: gtk::Button,
+    /// After Copy my day, what to do next; else "Using an AI on the web…".
+    day_line: gtk::Label,
+    copy_day: gtk::Button,
+    save: gtk::Button,
 }
 
 impl Capsules {
@@ -45,19 +53,51 @@ impl Capsules {
         top.append(&make);
         root.append(&top);
 
-        // Search as you type, or ask Claude (it reads inside every capsule).
+        // Search as you type, or ask your AI (it reads inside every capsule).
         let ask_row = hbox(8);
         let search = gtk::SearchEntry::new();
         search.set_placeholder_text(Some(words::SEARCH_CAPSULES));
         search.set_hexpand(true);
-        let ask = gtk::Button::with_label(words::ASK_CLAUDE);
+        let ask = gtk::Button::with_label(anyai::ASK_YOUR_AI);
         ask.set_sensitive(false);
         ask_row.append(&search);
         ask_row.append(&ask);
         root.append(&ask_row);
+
+        // Any other AI: Copy my day, then Save from clipboard.
+        let copy_row = hbox(8);
+        let day_line = label("", &["dim-label", "caption"]);
+        day_line.set_hexpand(true);
+        day_line.set_valign(gtk::Align::Center);
+        let copy_day = gtk::Button::with_label(anyai::COPY_MY_DAY);
+        copy_day.set_tooltip_text(Some(anyai::COPY_MY_DAY_HELP));
+        copy_day.set_valign(gtk::Align::Center);
+        let save = gtk::Button::with_label(anyai::SAVE_FROM_CLIPBOARD);
+        save.set_tooltip_text(Some(anyai::SAVE_HELP));
+        save.set_valign(gtk::Align::Center);
+        copy_row.append(&day_line);
+        copy_row.append(&copy_day);
+        copy_row.append(&save);
+        root.append(&copy_row);
+        let c = ctx.clone();
+        copy_day.connect_clicked(move |_| c.copy_my_day());
+        let c = ctx.clone();
+        save.connect_clicked(move |_| c.save_from_clipboard());
+
         let list = vbox(24);
         root.append(&list);
-        let page = Rc::new(Capsules { ctx: ctx.clone(), root, list, search: search.clone(), all: RefCell::new((vec![], vec![])) });
+        let page = Rc::new(Capsules {
+            ctx: ctx.clone(),
+            root,
+            list,
+            search: search.clone(),
+            all: RefCell::new((vec![], vec![])),
+            ask: ask.clone(),
+            day_line,
+            copy_day,
+            save,
+        });
+        page.set_ai();
 
         let weak = Rc::downgrade(&page);
         let ask_button = ask.clone();
@@ -71,13 +111,22 @@ impl Capsules {
         let ask_now = move |s: &gtk::SearchEntry| {
             let q = s.text().trim().to_string();
             if !q.is_empty() {
-                c.ask_claude(&search_prompt(&q));
+                c.open_prompt(&search_prompt(&q), ai::WHY_SEARCH, ai::AGAIN_SEARCH);
             }
         };
         let (s, a) = (search.clone(), ask_now.clone());
         ask.connect_clicked(move |_| a(&s));
         search.connect_activate(move |s| ask_now(s));
         page
+    }
+
+    /// The Ask button and the Copy my day row, from Your AI.
+    pub fn set_ai(&self) {
+        let s = ai::state();
+        self.ask.set_label(anyai::ask_button(&s.kind()));
+        self.day_line.set_text(s.day_line.as_deref().unwrap_or(anyai::ON_THE_WEB));
+        self.copy_day.set_sensitive(!s.working);
+        self.save.set_sensitive(!s.working);
     }
 
     /// Read the capsules folder again.

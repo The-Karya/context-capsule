@@ -5,6 +5,7 @@
 #![cfg_attr(windows, windows_subsystem = "windows")]
 #![cfg_attr(not(windows), allow(dead_code))]
 
+mod ai;
 mod connect;
 mod hotkeys;
 mod input;
@@ -18,6 +19,7 @@ mod ocr;
 mod palette;
 mod picker;
 mod pointer;
+mod program;
 mod reminder;
 mod setup;
 mod tray;
