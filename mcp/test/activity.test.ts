@@ -1,14 +1,20 @@
 // context-capsule — mcp: tests for the activity timeline (grouping, dedupe, noise, budget)
 import { beforeEach, describe, expect, test } from "bun:test";
+import fs from "node:fs";
+import path from "node:path";
 import {
   buildSegments,
   collapse,
   condenseActivity,
+  condenseDay,
   fairShares,
   isNoiseLine,
+  localDay,
+  momentText,
   trimTo,
 } from "../src/activity.ts";
-import { readEvents, readSessionMeta, formatClock, type CaptureEvent } from "../src/sessions.ts";
+import { loadDay } from "../src/day.ts";
+import { readEvents, readGaps, readSessionMeta, formatClock, type CaptureEvent } from "../src/sessions.ts";
 import { at, ev, fixtureEvents, tempHome, writeFixtureSession } from "./helpers.ts";
 
 describe("noise and whitespace", () => {
@@ -248,5 +254,79 @@ describe("the window under the mouse", () => {
     const out = condenseActivity({ id: "x", started_at: at(0), ended_at: at(3) }, events);
     expect(out).toContain("Safari — Docs (looked at, on another screen)");
     expect(out).toContain("Apps: Code 2m"); // Safari not counted as time
+  });
+});
+
+describe("gaps: stretches that weren't read (gaps.jsonl)", () => {
+  const gap = (from: number, to: number, why: string) => ({ t: at(from), end: at(to), why });
+  const writeGaps = (dir: string, lines: string[]) => fs.writeFileSync(path.join(dir, "gaps.jsonl"), lines.join("\n") + "\n");
+
+  test("read if present; bad lines skipped; none when the file is missing", () => {
+    const home = tempHome();
+    const dir = writeFixtureSession(home);
+    expect(readGaps("20261019-100000")).toEqual([]);
+    writeGaps(dir, [
+      JSON.stringify(gap(5, 7, "locked")),
+      "{broken",
+      JSON.stringify({ t: "nope", why: "x" }),
+      JSON.stringify(gap(2, 3, "private_app")),
+    ]);
+    expect(readGaps("20261019-100000").map((g) => g.why)).toEqual(["private_app", "locked"]);
+  });
+
+  test("one short line each, in time order, in the session view", () => {
+    const gaps = [gap(4, 5, "private_app"), gap(11, 12, "locked")];
+    const out = condenseActivity({ id: "x", started_at: at(0), ended_at: at(12) }, fixtureEvents(), { gaps });
+    const line = `(Not read ${formatClock(at(4))}–${formatClock(at(5))}: a private app was in front)`;
+    expect(out).toContain(line);
+    expect(out).toContain(`(Not read ${formatClock(at(11))}–${formatClock(at(12))}: the screen was locked)`);
+    // after the Figma segment at 10:03, before the Notion one at 10:06
+    expect(out.indexOf(line)).toBeGreaterThan(out.indexOf("Pricing v2"));
+    expect(out.indexOf(line)).toBeLessThan(out.indexOf("Competitor pricing"));
+  });
+
+  test("many gaps stay inside the budget", () => {
+    const gaps = Array.from({ length: 300 }, (_, i) => gap(i, i, i % 2 ? "not_shared" : "no_text"));
+    const meta = { id: "x", started_at: at(0), ended_at: at(300) };
+    for (const max of [800, 3000, 20_000]) {
+      const out = condenseActivity(meta, fixtureEvents(), { maxChars: max, gaps });
+      expect(out.length).toBeLessThanOrEqual(max);
+      expect(out).toContain("Not read");
+    }
+    const big = condenseActivity(meta, fixtureEvents(), { gaps });
+    expect(big).toMatch(/\(271 more stretches not read, /);
+    expect(big).toContain("Teams plan should be $12 per seat"); // screen text still there
+  });
+
+  test("a session with only gaps says so", () => {
+    const out = condenseActivity({ id: "x", started_at: at(0), ended_at: at(5) }, [], { gaps: [gap(0, 5, "system")] });
+    expect(out).toContain("(No activity was captured in this session.)");
+    expect(out).toContain(": system screen)");
+  });
+
+  test("the day view and get_moment list them too", () => {
+    const home = tempHome();
+    const dir = writeFixtureSession(home);
+    writeGaps(dir, [JSON.stringify(gap(4, 5, "not_shared"))]);
+    const d = loadDay(localDay(at(0)));
+    expect(d.gaps.length).toBe(1);
+    const day = condenseDay(d.day, d.events, d.sessionIds, { gaps: d.gaps });
+    expect(day).toContain(`(Not read ${formatClock(at(4))}–${formatClock(at(5))}: this window wasn't shared)`);
+    const gaps = readGaps("20261019-100000");
+    expect(momentText("20261019-100000", d.events, Date.parse(at(3)), Date.parse(at(6)), 50_000, gaps)).toContain(
+      "this window wasn't shared",
+    );
+    expect(momentText("20261019-100000", d.events, Date.parse(at(7)), Date.parse(at(9)), 50_000, gaps)).not.toContain("Not read");
+  });
+
+  test("a moment deleted in the timeline is simply gone", () => {
+    const home = tempHome();
+    const dir = writeFixtureSession(home);
+    const file = path.join(dir, "events.jsonl");
+    const lines = fs.readFileSync(file, "utf8").split("\n").filter(Boolean);
+    fs.writeFileSync(file, lines.filter((l) => !l.includes("Notion Plus")).join("\n") + "\n");
+    const out = condenseActivity(readSessionMeta("20261019-100000"), readEvents("20261019-100000"));
+    expect(out).not.toContain("Notion Plus");
+    expect(out).toContain("Drop the Starter tier");
   });
 });

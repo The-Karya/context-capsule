@@ -1018,5 +1018,214 @@ check(AIProgram.find(resources: nil, repos: ["/repo"], exists: { _ in false }) =
 let roots = AIProgram.repoCandidates(appPath: "/r/capture/build/Context Capsule.app", cwd: "/r")
 check(roots.prefix(3) == ["/r/capture/build", "/r/capture", "/r"] && Set(roots).count == roots.count, "repo roots", "\(roots)")
 
+// MARK: gaps (gaps.jsonl)
+
+check(Gaps.why(.privateApp) == "private_app" && Gaps.why(.privateWindow) == "private_app", "gap: private app")
+check(Gaps.why(.notPicked) == "not_shared" && Gaps.why(.unknownDisplay) == "not_shared", "gap: not shared")
+check(Gaps.why(.overlay) == "system", "gap: Mission Control is a system screen")
+check(Gaps.why(.noWindow) == "no_text" && Gaps.why(.waitingFrame) == "no_text", "gap: nothing readable")
+check(Gaps.why(.privateApp, frontBundle: "com.apple.loginwindow") == "locked", "gap: the lock screen")
+check(Gaps.why(.privateApp, frontBundle: "com.apple.ScreenSaver.Engine") == "locked", "gap: the screen saver")
+check(Gaps.why(.noWindow, locked: true) == "locked", "gap: locked screen")
+check(Gaps.codes.allSatisfy { Gaps.message($0) != "not read" }, "every gap code has words")
+check(Gaps.message("private_app") == "a private app was in front" && Gaps.message("locked") == "the screen was locked",
+      "gap words")
+check(Gaps.line(t: "2026-10-21T10:40:00Z", end: "2026-10-21T10:55:00Z", why: "private_app")
+      == #"{"t":"2026-10-21T10:40:00Z","end":"2026-10-21T10:55:00Z","why":"private_app"}"#, "gap line format")
+
+let gapURL = tmp.appendingPathComponent("g/gaps.jsonl")
+let gapLog = GapLog(url: gapURL)
+let g0 = Date(timeIntervalSince1970: 1_792_404_000) // 2026-10-19T…Z
+func gapLines() -> [String] { ((try? String(contentsOf: gapURL, encoding: .utf8)) ?? "").split(separator: "\n").map(String.init) }
+try! gapLog.note("private_app", at: g0)
+try! gapLog.note("private_app", at: g0.addingTimeInterval(3))
+check(!FileManager.default.fileExists(atPath: gapURL.path), "gap: under 5 s isn't written (no file yet)")
+try! gapLog.note("private_app", at: g0.addingTimeInterval(6))
+check(gapLines() == [Gaps.line(t: Clock.iso(g0), end: Clock.iso(g0.addingTimeInterval(6)), why: "private_app")],
+      "gap: written once 5 s long", "\(gapLines())")
+try! gapLog.note("private_app", at: g0.addingTimeInterval(9))
+check(gapLines() == [Gaps.line(t: Clock.iso(g0), end: Clock.iso(g0.addingTimeInterval(9)), why: "private_app")],
+      "gap: the same reason extends the line", "\(gapLines())")
+try! gapLog.note(nil, at: g0.addingTimeInterval(12)) // a sample was read
+try! gapLog.note("private_app", at: g0.addingTimeInterval(15))
+try! gapLog.note("private_app", at: g0.addingTimeInterval(18))
+check(gapLines().count == 1, "gap: a read sample ends the stretch; a short one after isn't written")
+try! gapLog.note("not_shared", at: g0.addingTimeInterval(21))
+try! gapLog.note("not_shared", at: g0.addingTimeInterval(24))
+try! gapLog.note("not_shared", at: g0.addingTimeInterval(27))
+try! gapLog.note("system", at: g0.addingTimeInterval(30))
+check(gapLines().count == 2 && gapLines()[1] == Gaps.line(t: Clock.iso(g0.addingTimeInterval(21)),
+                                                         end: Clock.iso(g0.addingTimeInterval(27)), why: "not_shared"),
+      "gap: another reason starts a new line", "\(gapLines())")
+check(gapLog.written == 2, "gap: lines written")
+check(gapLines().allSatisfy { (try? JSONSerialization.jsonObject(with: Data($0.utf8))) != nil }, "gap lines are JSON")
+
+// MARK: timeline
+
+check(ClaudeLink.sessionPrompt("20261021-094500") == "Use Context Capsule to make a capsule from my session 20261021-094500.",
+      "make a capsule from this: the request")
+
+let fold1 = Timeline.fold("a\n\n  b \nc\nd")
+check(fold1.0 == "a\nb\nc" && fold1.1, "fold: first 3 lines, blank lines left out, more", "\(fold1)")
+check(Timeline.fold("a\nb\nc") == ("a\nb\nc", false), "fold: exactly 3 lines, no more")
+check(Timeline.fold("") == ("", false), "fold: no text")
+let foldLong = Timeline.fold(String(repeating: "x", count: 500))
+check(foldLong.0.count == Timeline.previewWidth && foldLong.0.hasSuffix("…") && foldLong.1, "fold: a long line is cut")
+check(Timeline.fold("a\r\nb").0 == "a\nb", "fold: Windows line ends")
+
+let tlIso = ISO8601DateFormatter()
+for stamp in ["2026-10-21T04:15:00Z", "1970-01-01T00:00:00Z", "2024-02-29T23:59:59Z", "2000-03-01T12:00:00Z", "2099-12-31T00:00:01Z"] {
+    check(Timeline.date(stamp, tlIso) == tlIso.date(from: stamp), "timeline: quick time reading", stamp)
+}
+check(Timeline.date("2026-10-21T04:15:00.250Z", tlIso) == nil || Timeline.date("2026-10-21T10:15:00+05:30", tlIso) == tlIso.date(from: "2026-10-21T04:15:00Z"),
+      "timeline: other ISO forms go to the system's parser")
+check(Timeline.date("2026-13-21T04:15:00Z", tlIso) == nil && Timeline.date("nope", tlIso) == nil, "timeline: bad times")
+check(Timeline.isSessionID("20261021-094500") && !Timeline.isSessionID("../20261021") && !Timeline.isSessionID("2026102a-094500"),
+      "session ids")
+
+// A day in Kolkata (UTC+5:30): a recording from the evening before that runs past midnight, a morning recording with a
+// pointer moment, a voice note, a gap and a broken line, and an empty recording in the afternoon.
+var tlCal = Calendar(identifier: .gregorian)
+tlCal.timeZone = TimeZone(identifier: "Asia/Kolkata")!
+let tlRoot = tmp.appendingPathComponent("timeline", isDirectory: true)
+let tlSessions = tlRoot.appendingPathComponent("sessions", isDirectory: true)
+let tlState = tlRoot.appendingPathComponent("state.json")
+func tlWrite(_ id: String, _ file: String, _ lines: [String]) {
+    let url = tlSessions.appendingPathComponent(id).appendingPathComponent(file)
+    try! FileManager.default.createDirectory(at: url.deletingLastPathComponent(), withIntermediateDirectories: true)
+    try! (lines.joined(separator: "\n") + "\n").write(to: url, atomically: true, encoding: .utf8)
+}
+let tl_night = "20261020-230000", tl_morning = "20261021-094500", tl_empty = "20261021-150000"
+tlWrite(tl_night, "session.json", [#"{"id":"20261020-230000","started_at":"2026-10-20T17:30:00Z","ended_at":"2026-10-20T18:55:00Z","host":"Mac","version":1}"#])
+tlWrite(tl_night, "events.jsonl", [
+    #"{"t":"2026-10-20T17:30:00Z","end":"2026-10-20T17:40:00Z","app":"Google Chrome","bundle":"com.google.Chrome","title":"Inbox","src":"ax","text":"late mail"}"#,
+    #"{"t":"2026-10-20T18:40:00Z","end":"2026-10-20T18:44:00Z","app":"Code","bundle":"com.microsoft.VSCode","title":"pricing.ts","where":"/Users/s/site/pricing.ts","src":"ax","text":"export const annual = 120"}"#,
+])
+tlWrite(tl_night, "gaps.jsonl", [#"{"t":"2026-10-20T18:45:00Z","end":"2026-10-20T18:50:00Z","why":"locked"}"#])
+tlWrite(tl_night, "assign.json", [#"{"assign":[{"project":"website"}]}"#])
+let chromeLine = #"{"t":"2026-10-21T04:15:00Z","end":"2026-10-21T04:25:00Z","app":"Google Chrome","bundle":"com.google.Chrome","title":"Pricing — Linear","where":"https://linear.app/acme/issue/WEB-12","project":"website","project_by":"auto","src":"ax","text":"Pricing plans\nMonthly 12\nAnnual 120\nTeams ask for annual\nShip by Friday"}"#
+tlWrite(tl_morning, "events.jsonl", [
+    chromeLine,
+    #"{"t":"2026-10-21T04:25:03Z","end":"2026-10-21T04:25:03Z","app":"Slack","bundle":"com.tinyspeck.slackmacgap","title":"general","focus":"pointer","src":"ax","text":"lunch at 1?"}"#,
+    #"{"t":"2026-10-21T04:26:00Z","end":"2026-10-21T04:26:10Z","kind":"voice","src":"voice","app":"Google Chrome","bundle":"com.google.Chrome","title":"Pricing — Linear","project":"website","project_by":"auto","text":"We keep annual pricing because churn is lower.\nAnd monthly stays."}"#,
+    #"{"t":"2026-10-21T04:27"#, // broken (the app was writing)
+    #"{"t":"2026-10-21T04:36:00Z","end":"2026-10-21T04:38:00Z","app":"Figma","bundle":"com.figma.Desktop","title":"Pricing v2","src":"ocr","text":"Café menu\nPlans"}"#,
+])
+tlWrite(tl_morning, "gaps.jsonl", [
+    #"{"t":"2026-10-21T04:27:00Z","end":"2026-10-21T04:35:00Z","why":"private_app"}"#,
+    #"not json"#,
+])
+tlWrite(tl_empty, "session.json", [#"{"id":"20261021-150000","started_at":"2026-10-21T09:30:00Z","ended_at":"2026-10-21T09:31:00Z","host":"Mac","version":1}"#])
+tlWrite("20261022-090000", "events.jsonl", [#"{"t":"2026-10-22T03:30:00Z","end":"2026-10-22T03:31:00Z","app":"Notes","bundle":"","title":"x","text":"next tl_day"}"#])
+tlWrite("20261019-100000", "events.jsonl", [#"{"t":"2026-10-19T04:30:00Z","end":"2026-10-19T04:31:00Z","app":"Notes","bundle":"","title":"x","text":"old"}"#])
+try! FileManager.default.createDirectory(at: tlSessions.appendingPathComponent("not-a-session"), withIntermediateDirectories: true)
+let tlProjects = [Project(id: "website", name: "Website", match: ["linear.app"]), Project(id: "design", name: "Design", match: ["Pricing v2"])]
+let tl_iso = ISO8601DateFormatter()
+let tl_oct21 = tl_iso.date(from: "2026-10-21T06:00:00Z")!
+
+check(Timeline.candidates(["20261020-230000", "20261021-094500", "20261019-100000", "20261022-090000", "x"], dayStart: tlCal.startOfDay(for: tl_oct21),
+                          calendar: tlCal) == ["20261020-230000", "20261021-094500"], "timeline: sessions of the day and the day before")
+
+try! #"{"recording":true,"session_id":"20261021-094500","pid":1}"#.write(to: tlState, atomically: true, encoding: .utf8)
+check(Timeline.recordingSession(state: tlState) == tl_morning, "timeline: the recording session from state.json")
+var tl_day = Timeline.load(day: tl_oct21, sessions: tlSessions, projects: tlProjects, recording: Timeline.recordingSession(state: tlState),
+                        calendar: tlCal)
+check(tl_day.blocks.map(\.session) == [tl_night, tl_morning, tl_empty], "timeline: one block per session that overlaps the day",
+      "\(tl_day.blocks.map(\.session))")
+let tl_b0 = tl_day.blocks[0], tl_b1 = tl_day.blocks[1], tl_b2 = tl_day.blocks[2]
+check(tl_b0.items.count == 2 && tl_b0.moments == 1, "timeline: past midnight, only that day's part", "\(tl_b0.items.map(\.id))")
+check(tl_b0.start == tl_iso.date(from: "2026-10-20T18:40:00Z") && tl_b0.end == tl_iso.date(from: "2026-10-20T18:50:00Z"),
+      "timeline: block start and end from its first and last moment or gap")
+check(tl_b0.project == "website", "timeline: a correction (assign.json) sets the project")
+if case .gap(let g) = tl_b0.items[1] { check(g.why == "locked" && g.message == "the screen was locked", "timeline: gap after midnight") }
+else { check(false, "timeline: gap after midnight") }
+check(!tl_b0.recording && tl_b1.recording && !tl_b2.recording, "timeline: the block being recorded")
+let tl_kinds = tl_b1.items.map { item -> String in
+    switch item {
+    case .gap(let g): return "gap:\(g.why)"
+    case .moment(let m): return m.isNote ? "note" : m.lookedAt ? "looked:\(m.app)" : m.app
+    }
+}
+check(tl_kinds == ["Google Chrome", "looked:Slack", "note", "gap:private_app", "Figma"], "timeline: moments and gaps in time order", "\(tl_kinds)")
+check(tl_b1.moments == 3 && tl_b1.notes == 1, "timeline: counts (broken lines skipped)")
+check(tl_b1.project == "website", "timeline: the block's project is the most-used one")
+check(tl_b1.start == tl_iso.date(from: "2026-10-21T04:15:00Z") && tl_b1.end == tl_iso.date(from: "2026-10-21T04:38:00Z"), "timeline: block times")
+var tl_chrome: Timeline.Moment?
+var tl_voice: Timeline.Moment?
+var tl_figma: Timeline.Moment?
+for item in tl_b1.items {
+    if case .moment(let m) = item {
+        if m.app == "Google Chrome" && !m.isNote { tl_chrome = m }
+        if m.isNote { tl_voice = m }
+        if m.app == "Figma" { tl_figma = m }
+    }
+}
+check(tl_chrome?.preview == "Pricing plans\nMonthly 12\nAnnual 120" && tl_chrome?.more == true, "timeline: text folded to 3 lines")
+check(tl_chrome?.location == "https://linear.app/acme/issue/WEB-12" && tl_chrome?.title == "Pricing — Linear", "timeline: title and where")
+check(tl_voice?.preview == "We keep annual pricing because churn is lower.\nAnd monthly stays." && tl_voice?.more == false
+      && tl_voice?.kind == "voice", "timeline: a voice note keeps all its words")
+check(tl_figma?.project == "design", "timeline: today's clues find a project")
+check(tl_chrome.flatMap { Timeline.fullText($0, sessions: tlSessions) } == "Pricing plans\nMonthly 12\nAnnual 120\nTeams ask for annual\nShip by Friday",
+      "timeline: Show all reads the whole text from the file")
+check(tl_b2.items.isEmpty && tl_b2.start == tl_iso.date(from: "2026-10-21T09:30:00Z") && tl_b2.end == tl_iso.date(from: "2026-10-21T09:31:00Z"),
+      "timeline: an empty recording still shows, from its id and session.json")
+let tl_offs = Timeline.offs(tl_day.blocks)
+check(tl_offs.count == 2 && tl_offs[0].from == tl_b0.end && tl_offs[0].to == tl_b1.start && tl_offs[1].after == tl_morning, "timeline: Off between recordings")
+
+let tl_oct20 = Timeline.load(day: tl_iso.date(from: "2026-10-20T10:00:00Z")!, sessions: tlSessions, calendar: tlCal)
+check(tl_oct20.blocks.map(\.session) == [tl_night] && tl_oct20.blocks[0].items.count == 1, "timeline: the evening before has its own part")
+check(Timeline.load(day: tl_oct21, sessions: tlRoot.appendingPathComponent("none"), calendar: tlCal).blocks.isEmpty, "timeline: no sessions folder")
+
+func tl_found(_ q: String) -> [String] {
+    Timeline.filter(tl_day, query: q).flatMap { $0.items.compactMap { item -> String? in
+        if case .moment(let m) = item { return m.isNote ? "note" : m.app } else { return nil }
+    } }
+}
+check(Timeline.filter(tl_day, query: "") == tl_day.blocks && Timeline.filter(tl_day, query: " ") == tl_day.blocks, "search: empty query shows everything")
+check(tl_found("annual") == ["Code", "Google Chrome", "note"], "search: text, across recordings", "\(tl_found("annual"))")
+check(tl_found("linear.app/acme") == ["Google Chrome"], "search: where")
+check(tl_found("slack") == ["Slack"], "search: app")
+check(tl_found("PRICING v2") == ["Figma"], "search: title, any case, every word")
+check(tl_found("cafe") == ["Figma"], "search: accents don't matter")
+check(tl_found("annual zebra").isEmpty, "search: every word must be there")
+check(Timeline.filter(tl_day, query: "slack").allSatisfy { $0.items.allSatisfy { if case .gap = $0 { return false } else { return true } } },
+      "search: gaps hidden")
+
+// Delete: not while recording; then the exact line goes, nothing else.
+let tl_eventsURL = tlSessions.appendingPathComponent(tl_morning).appendingPathComponent("events.jsonl")
+let tl_before = try! Data(contentsOf: tl_eventsURL)
+do { try Timeline.deleteMoment(tl_chrome!, sessions: tlSessions, state: tlState); check(false, "delete: refused while recording") }
+catch { check(error as? Timeline.DeleteError == .recording, "delete: refused while recording") }
+do { try Timeline.deleteSession(tl_morning, sessions: tlSessions, state: tlState); check(false, "delete block: refused while recording") }
+catch { check(error as? Timeline.DeleteError == .recording, "delete block: refused while recording") }
+check(try! Data(contentsOf: tl_eventsURL) == tl_before, "delete: nothing changed while recording")
+
+try! #"{"recording":false,"session_id":null,"pid":1}"#.write(to: tlState, atomically: true, encoding: .utf8)
+check(Timeline.recordingSession(state: tlState) == nil, "timeline: not recording")
+try! Timeline.deleteMoment(tl_chrome!, sessions: tlSessions, state: tlState)
+let tl_after = try! String(contentsOf: tl_eventsURL, encoding: .utf8)
+check(!tl_after.contains("Teams ask for annual") && tl_after.contains("lunch at 1?") && tl_after.contains("churn is lower")
+      && tl_after.contains(#"{"t":"2026-10-21T04:27"#) && tl_after.split(separator: "\n").count == 4, "delete: only that line is gone")
+do { try Timeline.deleteMoment(tl_chrome!, sessions: tlSessions, state: tlState); check(false, "delete: twice") }
+catch { check(error as? Timeline.DeleteError == .notFound, "delete: a line that's gone (or moved) isn't guessed") }
+tl_day = Timeline.load(day: tl_oct21, sessions: tlSessions, projects: tlProjects, calendar: tlCal)
+check(tl_day.blocks[1].moments == 2 && tl_found("monthly 12").isEmpty, "delete: gone from the timeline")
+let tl_lastMoment: Timeline.Moment? = tl_day.blocks[1].items.compactMap { if case .moment(let m) = $0 { return m } else { return nil } }.last
+try! Timeline.deleteMoment(tl_lastMoment!, sessions: tlSessions, state: tlState)
+check(!(try! String(contentsOf: tl_eventsURL, encoding: .utf8)).contains("Café"), "delete: the last line too")
+
+let tl_dup = Data("{\"t\":\"A\",\"x\":1}\n{\"t\":\"B\"}\n{\"t\":\"A\",\"x\":1}\n".utf8)
+check(Timeline.removingLine(tl_dup, t: "A", line: Data("{\"t\":\"A\",\"x\":1}".utf8)) == Data("{\"t\":\"B\"}\n{\"t\":\"A\",\"x\":1}\n".utf8),
+      "delete: only the first of two same lines")
+check(Timeline.removingLine(tl_dup, t: "B", line: Data("{\"t\":\"A\",\"x\":1}".utf8)) == nil, "delete: the time must match the line")
+check(Timeline.removingLine(Data("{\"t\":\"A\"}".utf8), t: "A", line: Data("{\"t\":\"A\"}".utf8)) == Data(), "delete: a line with no newline")
+
+do { try Timeline.deleteSession("../x", sessions: tlSessions, state: tlState); check(false, "delete block: bad name") }
+catch { check(error as? Timeline.DeleteError == .badName, "delete block: bad name") }
+try! Timeline.deleteSession(tl_empty, sessions: tlSessions, state: tlState)
+check(!FileManager.default.fileExists(atPath: tlSessions.appendingPathComponent(tl_empty).path), "delete block: the folder is gone")
+check(Timeline.load(day: tl_oct21, sessions: tlSessions, calendar: tlCal).blocks.map(\.session) == [tl_night, tl_morning], "delete block: gone from the day")
+try? FileManager.default.removeItem(at: tmp)
+
 print("\(passes) passed, \(failures) failed")
 exit(failures == 0 ? 0 : 1)

@@ -1,6 +1,7 @@
 // context-capsule — mcp: condense raw screen events into a short timeline an AI can read
 import {
   type CaptureEvent,
+  type Gap,
   type SessionMeta,
   appTimes,
   eventMs,
@@ -140,6 +141,28 @@ export function noteLine(e: CaptureEvent): string {
   return `>> ${who} (${formatClock(e.t)}): "${collapse(e.text ?? "")}"`;
 }
 
+const GAP_WORDS: Record<string, string> = {
+  private_app: "a private app was in front",
+  not_shared: "this window wasn't shared",
+  no_text: "nothing readable",
+  system: "system screen",
+  locked: "the screen was locked",
+};
+
+/** `(Not read 10:40–10:55: a private app was in front)` — a stretch the recorder didn't read, in one short line. */
+export function gapLine(g: Gap): string {
+  return `(Not read ${formatClock(g.t)}–${formatClock(g.end)}: ${GAP_WORDS[g.why] ?? "not read"})`;
+}
+
+/** At most `max` gap lines; the rest folded into one "(… more stretches not read …)" line. */
+export function gapLines(gaps: Gap[], max: number): string[] {
+  if (gaps.length <= max) return gaps.map(gapLine);
+  const shown = gaps.slice(0, Math.max(0, max - 1));
+  const rest = gaps.slice(shown.length);
+  const ms = rest.reduce((n, g) => n + Math.max(0, Date.parse(g.end) - Date.parse(g.t)), 0);
+  return [...shown.map(gapLine), `(${rest.length} more stretches not read, ${formatDuration(ms)} in all)`];
+}
+
 /**
  * Split `budget` chars fairly: every item gets an equal share, and what short items
  * don't use flows to the longer ones (water-filling). Returns one allotment per item.
@@ -194,6 +217,8 @@ export interface ActivityOptions {
   heading?: string;
   /** Leave out the screen-text rule (the day view says it once at the top). */
   noRule?: boolean;
+  /** Stretches that weren't read (gaps.jsonl): one short line each, in time order. */
+  gaps?: Gap[];
 }
 
 /** The full condensed timeline for one session, never longer than maxChars. Voice and typed
@@ -245,17 +270,26 @@ export function condenseActivity(meta: SessionMeta, events: CaptureEvent[], opts
     ...(maxChars < 4000 ? [] : ["Long stretches are shortened here; for everything recorded in a stretch, call get_moment (session id and times)."]),
   ].join("\n");
 
-  if (!segs.length && !notes.length) return trimTo(`${head}\n\n(No activity was captured in this session.)`, maxChars);
+  const gaps = opts.gaps ?? [];
+  const gapText = gapLines(gaps, maxChars < 4000 ? 5 : 30);
+  if (!segs.length && !notes.length)
+    return trimTo([`${head}\n\n(No activity was captured in this session.)`, ...gapText].join("\n\n"), maxChars);
 
-  // Timeline order: segments and notes by where they sit in events.jsonl.
+  // Timeline order: segments and notes by where they sit in events.jsonl; a gap goes before the first event after it.
+  const gapIdx = (t: string) => {
+    const i = events.findIndex((e) => Date.parse(e.t) >= Date.parse(t));
+    return (i < 0 ? events.length : i) - 0.5;
+  };
   type Item = { kind: "seg"; i: number; idx: number } | { kind: "note"; line: string; idx: number };
   const items: Item[] = [
     ...segs.map((s, i) => ({ kind: "seg" as const, i, idx: s.idx })),
     ...notes.map(({ e, idx }) => ({ kind: "note" as const, line: noteLine(e), idx })),
+    // the folded "more stretches" line sits after the last gap shown
+    ...gapText.map((line, k) => ({ kind: "note" as const, line, idx: gapIdx(gaps[Math.min(k, gaps.length - 1)]!.t) + k * 1e-6 })),
   ].sort((a, b) => a.idx - b.idx);
 
   const headers = segs.map((s) => segmentHeader(s, names));
-  const noteChars = notes.length ? items.reduce((n, it) => n + (it.kind === "note" ? 2 + it.line.length : 0), 0) : 0;
+  const noteChars = items.reduce((n, it) => n + (it.kind === "note" ? 2 + it.line.length : 0), 0);
   // fixed cost: head + notes in full + per segment "\n\n" + header + "\n" + the <screen> wrapper
   const WRAP = screenBlock("").length;
   const fixed = head.length + noteChars + headers.reduce((n, h) => n + 2 + h.length + 1 + WRAP, 0);
@@ -281,7 +315,7 @@ export function condenseActivity(meta: SessionMeta, events: CaptureEvent[], opts
 
   if (out.length > maxChars) {
     if (notes.length) {
-      // the notes come first: drop screen segments before any of the user's words
+      // the notes come first: drop screen segments before any of the user's words (gap lines stay too, they're short)
       const noteOnly = render(false);
       const cut = `\n\n(${segs.length} screen segments left out to fit max_chars; notes kept)`;
       const joined = noteOnly.join("\n\n");
@@ -317,6 +351,8 @@ export interface DayOptions {
   /** Only this project ("" = only work not sorted yet). */
   project?: string;
   maxChars?: number;
+  /** Stretches that weren't read that day (gaps.jsonl), listed once near the top. */
+  gaps?: Gap[];
 }
 
 /** Every session's events on one local day, split by project: a time summary, then one condensed
@@ -337,6 +373,7 @@ export function condenseDay(day: string, events: CaptureEvent[], sessionIds: str
       ? 'Work "not sorted yet" matched no project: suggest which project it belongs to (or a new one, with clues from its windows) and ask the user.'
       : "",
     maxChars < 4000 ? SCREEN_RULE_SHORT : SCREEN_RULE,
+    ...(opts.gaps?.length ? ["Not read (nothing was recorded in these stretches):", ...gapLines(opts.gaps, maxChars < 4000 ? 5 : 20)] : []),
   ]
     .filter(Boolean)
     .join("\n");
@@ -366,7 +403,14 @@ export function condenseDay(day: string, events: CaptureEvent[], sessionIds: str
 
 /** Every event of a session between two times, in full (screen text wrapped as information), so Claude can
  * look closer at a moment the condensed timeline shortened. Says where to continue if it doesn't fit. */
-export function momentText(sessionId: string, events: CaptureEvent[], from: number, to: number, maxChars: number): string {
+export function momentText(
+  sessionId: string,
+  events: CaptureEvent[],
+  from: number,
+  to: number,
+  maxChars: number,
+  gaps: Gap[] = [],
+): string {
   const names = projectNames();
   const inRange = events.filter((e) => {
     const t = Date.parse(e.t);
@@ -374,9 +418,13 @@ export function momentText(sessionId: string, events: CaptureEvent[], from: numb
     return end >= from && t < to;
   });
   const head = `# Session ${sessionId}, ${formatClock(new Date(from).toISOString())}–${formatClock(new Date(to).toISOString())}: everything recorded\n${SCREEN_RULE}`;
-  if (!inRange.length) return `${head}\n\n(Nothing was recorded in this stretch.)`;
-  const parts: string[] = [head];
-  let used = head.length;
+  const gapsIn = gapLines(
+    gaps.filter((g) => Date.parse(g.end) >= from && Date.parse(g.t) < to),
+    20,
+  );
+  if (!inRange.length) return [`${head}\n\n(Nothing was recorded in this stretch.)`, ...gapsIn].join("\n\n");
+  const parts: string[] = gapsIn.length ? [head, gapsIn.join("\n")] : [head];
+  let used = parts.join("\n\n").length;
   for (const e of inRange) {
     let block: string;
     if (isNote(e)) block = noteLine(e);

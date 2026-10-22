@@ -19,7 +19,17 @@ Frames stay in memory and are never written to disk. The file format is in
 **The Context Capsule window** (menu → *Open Context Capsule*, ⌘O; opens on Settings the first
 time) has everything in one place, with a sidebar:
 - **Home** — Start / Stop contextualizing with a live timer, Speak a note, Add a screen, the
-  current project (change it or make a new one), Make today's capsules.
+  current project (change it or make a new one), Make today's capsules, See today's timeline.
+- **Timeline** — everything recorded on one day, raw (Today, Yesterday, or pick a day). A block per
+  recording ("10:02 – 11:30 · 12 moments · Website"), "Off" between recordings. Each moment: time, app
+  icon, title, page or file, project, and its first 3 lines of text with **Show all** (the whole text is
+  read from the file only then). "Looked at" marks a window read under the mouse on another screen. Voice
+  and typed notes are speech bubbles with all their words. Stretches that weren't read show as "Not read
+  10:40 – 10:55: a private app was in front" (from `gaps.jsonl`, below). **Search this day** filters by
+  title, page, app and text. Each moment and each block has a menu with **Delete** ("Delete this moment?
+  It can't be undone."); not while that recording is still going ("Stop first"). **Make a capsule from
+  this** opens your AI with `Use Context Capsule to make a capsule from my session <id>.` (a website or
+  any other AI gets Copy my day for that day). While contextualizing, Today updates every few seconds.
 - **Capsules** — by project, with Share (Copy file — paste into WhatsApp, Slack, email…; Copy
   text; Save a copy…; Show in Finder; More… for AirDrop/Mail/Messages) and Open. A search field
   filters by title and "In short" as you type (Return only filters); **Ask your AI** opens your AI
@@ -71,6 +81,15 @@ The app runs `context-capsule-mcp` (in `Contents/Resources`; built from `../mcp`
 - **Copy my day** copies one message with today's work (from `day`) and opens the website if one is chosen.
   Paste it into your AI, copy its whole reply, then **Save from clipboard**: `save` checks every capsule in
   it, and a small box says what was saved and what wasn't, and why.
+
+## What wasn't read (gaps.jsonl)
+
+Next to `events.jsonl`, each recording gets a `gaps.jsonl` once something wasn't read for 5 seconds or more:
+`{"t":"…","end":"…","why":"private_app"}`. Samples skipped for the same reason one after another make one
+line whose `end` moves, like events. The menu's skip reasons map to: a private app or a private window on
+top → `private_app`; the front window isn't in what you shared (or the shared screen can't be found) →
+`not_shared`; no window, or waiting for the screen to update → `no_text`; Mission Control → `system`; the
+lock screen, the screen saver or a locked screen → `locked`. Only times and the reason, never any text.
 
 ## Several screens
 
@@ -215,7 +234,7 @@ false and `last_error` is `"cancelled"`.
 ./tests/run.sh      # redaction, exclusion, dedupe, file formats, picked-content membership,
                     # front-window choice, Mission Control, frame freshness, OCR crop + masks, displays, AX text assembly + secure-field skipping, AX-vs-OCR choice,
                     # check before sharing (every case in ../spec/share-check.json), is-it-a-capsule, search,
-                    # any AI (reading context-capsule-mcp's answers, Your AI, finding the program)
+                    # any AI (reading context-capsule-mcp's answers, Your AI, finding the program), gaps.jsonl, the timeline
 "./build/Context Capsule.app/Contents/MacOS/ContextCapsule" --selftest   # OCR (whole, cropped, masked) on a generated image
 ```
 
@@ -223,12 +242,13 @@ false and `last_error` is `"cancelled"`.
 
 | file | does |
 |---|---|
-| `Sources/Core.swift` | pure logic: paths, JSON, times, redaction, exclusion, event log, picked-content membership, AX text assembly, AX-vs-OCR choice, voice notes (silence, events, the press-to-talk state machine), check before sharing, is-it-a-capsule, search |
+| `Sources/Core.swift` | pure logic: paths, JSON, times, redaction, exclusion, event log, picked-content membership, AX text assembly, AX-vs-OCR choice, voice notes (silence, events, the press-to-talk state machine), check before sharing, is-it-a-capsule, search, gaps (gaps.jsonl), the timeline (a day read into blocks, fold, search, delete) |
 | `Sources/Library.swift` | Share (with the "Check before sharing" box), opening Claude with a request, opening a received capsule |
 | `Sources/AIBridge.swift` | any AI: runs context-capsule-mcp, Connect your AI, Your AI, Copy my day, Save from clipboard |
 | `Sources/Picker.swift` | the system picker (`SCContentSharingPicker`) and the one `SCStream` of the picked content |
 | `Sources/Screen.swift` | front app + window, Accessibility text, Vision OCR |
-| `Sources/Recorder.swift` | sessions, 3 s sampling, notes into the session, state.json, control file |
+| `Sources/Recorder.swift` | sessions, 3 s sampling, notes into the session, gaps.jsonl, state.json, control file |
+| `Sources/TimelineView.swift` | the Timeline page (a lazy list; files read off the main thread) |
 | `Sources/Voice.swift` | mic + on-device Apple Speech for voice notes |
 | `Sources/App.swift` | menu-bar icon and menu, ⌥C / ⌥V hotkeys, messages, Accessibility menu item, files opened with the app |
 | `Sources/UpdateCore.swift` | pure update logic: the feed, its Ed25519 signature, versions, when to check |

@@ -1763,3 +1763,470 @@ enum AIProgram {
         return out.filter { seen.insert($0).inserted }
     }
 }
+
+// MARK: - Gaps: stretches that weren't read (SPEC "Timeline", gaps.jsonl)
+
+enum Gaps {
+    /// Shorter stretches aren't written.
+    static let minimum: TimeInterval = 5
+    static let codes = ["private_app", "not_shared", "no_text", "system", "locked"]
+
+    /// The gaps.jsonl code for why a sample wrote nothing. The lock screen (or the screen saver) in front, or a
+    /// locked screen, is "locked" whatever the sample said.
+    static func why(_ skip: Skip, frontBundle: String? = nil, locked: Bool = false) -> String {
+        let b = (frontBundle ?? "").lowercased()
+        if locked || b.contains("com.apple.loginwindow") || b.contains("com.apple.screensaver") { return "locked" }
+        switch skip {
+        case .privateApp, .privateWindow: return "private_app"
+        case .notPicked, .unknownDisplay: return "not_shared"
+        case .overlay: return "system"
+        case .noWindow, .waitingFrame: return "no_text"
+        }
+    }
+
+    /// In plain words, after "Not read 10:40–10:55: ".
+    static func message(_ why: String) -> String {
+        switch why {
+        case "private_app": return "a private app was in front"
+        case "not_shared": return "this window wasn't shared"
+        case "no_text": return "nothing readable"
+        case "system": return "system screen"
+        case "locked": return "the screen was locked"
+        default: return "not read"
+        }
+    }
+
+    /// One gaps.jsonl line (no newline): {"t","end","why"}.
+    static func line(t: String, end: String, why: String) -> String {
+        jsonObject([("t", .string(t)), ("end", .string(end)), ("why", .string(why))])
+    }
+}
+
+/// Append-only gaps.jsonl, written like events: samples skipped for the same reason, one after another, make one line
+/// whose `end` moves; a stretch under 5 s is never written. The file is made only when the first line is written.
+final class GapLog {
+    let url: URL
+    private var run: (why: String, t: Date, end: Date)?
+    /// Where the open stretch's line starts in the file, once it is written.
+    private var lineStart: UInt64?
+    /// Lines written by this log.
+    private(set) var written = 0
+
+    init(url: URL) { self.url = url }
+
+    /// One sample: `why` is a gap code, or nil when the sample was read (that ends the stretch).
+    func note(_ why: String?, at: Date) throws {
+        guard let why else { close(); return }
+        if var r = run, r.why == why, at >= r.end {
+            r.end = at
+            run = r
+        } else {
+            run = (why, at, at)
+            lineStart = nil
+        }
+        guard let r = run, r.end.timeIntervalSince(r.t) >= Gaps.minimum else { return }
+        let t = Clock.iso(r.t), end = Clock.iso(r.end)
+        if !FileManager.default.fileExists(atPath: url.path) {
+            try FileManager.default.createDirectory(at: url.deletingLastPathComponent(), withIntermediateDirectories: true)
+            try Data().write(to: url)
+        }
+        let h = try FileHandle(forWritingTo: url)
+        defer { try? h.close() }
+        if let start = lineStart {
+            // Same length (ISO times): overwrite just the end value in place.
+            try h.seek(toOffset: start + UInt64(("{\"t\":" + jsonString(t) + ",\"end\":\"").utf8.count))
+            try h.write(contentsOf: Data(end.utf8))
+        } else {
+            lineStart = try h.seekToEnd()
+            try h.write(contentsOf: Data((Gaps.line(t: t, end: end, why: r.why) + "\n").utf8))
+            written += 1
+        }
+    }
+
+    /// The stretch is over (a sample was read, or recording stopped): the next skip starts a new one.
+    func close() {
+        run = nil
+        lineStart = nil
+    }
+}
+
+// MARK: - Timeline (SPEC "Timeline"): one day, everything recorded, raw
+
+extension ClaudeLink {
+    /// Timeline → Make a capsule from this.
+    static func sessionPrompt(_ id: String) -> String { "Use Context Capsule to make a capsule from my session \(id)." }
+}
+
+enum Timeline {
+    /// One events.jsonl line. Screen text keeps only its first lines here (`preview`); the whole text is read from the
+    /// file on Show all (`fullText`). Notes keep all their words.
+    struct Moment: Identifiable, Equatable {
+        let session: String
+        /// The line's `t`, as written (to find the line again).
+        let stamp: String
+        let t: Date
+        let end: Date
+        let app: String
+        let bundle: String
+        let title: String
+        let location: String
+        /// Project id ("" = not sorted yet): a correction, the recorder's, else today's clues.
+        let project: String
+        /// "" for a screen moment, "voice" or "note".
+        let kind: String
+        /// Read because the mouse was over it on another shared screen.
+        let lookedAt: Bool
+        let preview: String
+        /// More text than the preview shows.
+        let more: Bool
+        /// Where the line is in events.jsonl, and its length in bytes (without the newline).
+        let offset: Int
+        let length: Int
+
+        var id: String { "\(session)#\(offset)" }
+        var isNote: Bool { kind == Event.voice || kind == Event.note }
+    }
+
+    struct Gap: Identifiable, Equatable {
+        let session: String
+        let t: Date
+        let end: Date
+        let why: String
+        var id: String { "\(session)~\(Int(t.timeIntervalSince1970))~\(why)" }
+        var message: String { Gaps.message(why) }
+    }
+
+    enum Item: Identifiable, Equatable {
+        case moment(Moment)
+        case gap(Gap)
+        var id: String {
+            switch self { case .moment(let m): return m.id; case .gap(let g): return g.id }
+        }
+        var time: Date {
+            switch self { case .moment(let m): return m.t; case .gap(let g): return g.t }
+        }
+    }
+
+    /// One recording (session) on the day.
+    struct Block: Identifiable, Equatable {
+        let session: String
+        var start: Date
+        var end: Date
+        /// The most-used project ("" = none).
+        var project: String
+        /// Screen moments (notes not counted).
+        var moments: Int
+        var notes: Int
+        var items: [Item]
+        /// This is the recording going on now.
+        var recording: Bool
+        var id: String { session }
+    }
+
+    /// Time between two recordings ("Off").
+    struct Off: Equatable {
+        let after: String
+        let from: Date
+        let to: Date
+    }
+
+    struct Day: Equatable {
+        var blocks: [Block] = []
+        /// Moment id → its title, where, app and text, folded for search.
+        var haystacks: [String: String] = [:]
+    }
+
+    static let previewLines = 3
+    static let previewWidth = 300
+
+    // MARK: reading
+
+    static func isSessionID(_ id: String) -> Bool {
+        id.count == 15 && id.enumerated().allSatisfy { i, c in i == 8 ? c == "-" : c.isASCII && c.isNumber }
+    }
+
+    /// "yyyyMMdd-HHmmss" (local time) → the moment it started.
+    static func sessionStart(_ id: String, timeZone: TimeZone = .current) -> Date? {
+        guard isSessionID(id) else { return nil }
+        let f = DateFormatter()
+        f.locale = Locale(identifier: "en_US_POSIX")
+        f.calendar = Calendar(identifier: .gregorian)
+        f.timeZone = timeZone
+        f.dateFormat = "yyyyMMdd-HHmmss"
+        return f.date(from: id)
+    }
+
+    /// Sessions that can overlap the day: started that day or the day before (a recording can run past midnight).
+    static func candidates(_ names: [String], dayStart: Date, calendar: Calendar = .current) -> [String] {
+        let today = String(Clock.sessionID(dayStart, timeZone: calendar.timeZone).prefix(8))
+        let before = calendar.date(byAdding: .day, value: -1, to: dayStart)
+            .map { String(Clock.sessionID($0, timeZone: calendar.timeZone).prefix(8)) }
+        return names.filter { isSessionID($0) && ($0.hasPrefix(today) || before.map($0.hasPrefix) == true) }.sorted()
+    }
+
+    /// The session being recorded now, from state.json (nil when not recording).
+    static func recordingSession(state: URL) -> String? {
+        guard let data = try? Data(contentsOf: state),
+              let obj = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+              obj["recording"] as? Bool == true, let id = obj["session_id"] as? String, !id.isEmpty else { return nil }
+        return id
+    }
+
+    /// Every recording overlapping one local day, in time order, with its moments and gaps on that day.
+    static func load(day: Date, sessions: URL, projects: [Project] = [], recording: String? = nil,
+                     calendar: Calendar = .current) -> Day {
+        let from = calendar.startOfDay(for: day)
+        let to = calendar.date(byAdding: .day, value: 1, to: from) ?? from.addingTimeInterval(86_400)
+        let names = (try? FileManager.default.contentsOfDirectory(atPath: sessions.path)) ?? []
+        var out = Day()
+        for id in candidates(names, dayStart: from, calendar: calendar) {
+            let dir = sessions.appendingPathComponent(id, isDirectory: true)
+            if let (block, hay) = block(id, dir: dir, from: from, to: to, projects: projects, recording: recording == id,
+                                        timeZone: calendar.timeZone) {
+                out.blocks.append(block)
+                out.haystacks.merge(hay) { a, _ in a }
+            }
+        }
+        out.blocks.sort { $0.start < $1.start }
+        return out
+    }
+
+    /// One session's part of [from, to): nil when nothing of it is on that day.
+    static func block(_ id: String, dir: URL, from: Date, to: Date, projects: [Project] = [], recording: Bool = false,
+                      timeZone: TimeZone = .current) -> (Block, [String: String])? {
+        let fixes = Assignments.load(dir.appendingPathComponent("assign.json"))
+        let events = (try? Data(contentsOf: dir.appendingPathComponent("events.jsonl"))) ?? Data()
+        let parsed = moments(events, session: id, from: from, to: to, fixes: fixes, projects: projects)
+        let gapData = (try? Data(contentsOf: dir.appendingPathComponent("gaps.jsonl"))) ?? Data()
+        let gapList = gaps(gapData, session: id, from: from, to: to)
+        let started = sessionStart(id, timeZone: timeZone)
+        let startedToday = started.map { $0 >= from && $0 < to } ?? false
+        if parsed.isEmpty && gapList.isEmpty && !startedToday { return nil }
+
+        var items = parsed.map { Item.moment($0.0) } + gapList.map { Item.gap($0) }
+        items.sort { $0.time < $1.time }
+        var byProject: [String: Double] = [:]
+        for (m, _) in parsed where !m.isNote && !m.lookedAt {
+            byProject[m.project, default: 0] += max(3, m.end.timeIntervalSince(m.t))
+        }
+        let project = byProject.filter { !$0.key.isEmpty }
+            .max { $0.value < $1.value || ($0.value == $1.value && $0.key > $1.key) }?.key ?? ""
+        let times = parsed.flatMap { [$0.0.t, $0.0.end] } + gapList.flatMap { [$0.t, $0.end] }
+        let start = times.min() ?? started ?? from
+        var end = times.max() ?? start
+        if times.isEmpty, let ended = endedAt(dir) { end = min(max(ended, start), to) }
+        let notes = parsed.filter { $0.0.isNote }.count
+        let block = Block(session: id, start: start, end: end, project: project, moments: parsed.count - notes, notes: notes,
+                          items: items, recording: recording)
+        var hay: [String: String] = [:]
+        for (m, h) in parsed { hay[m.id] = h }
+        return (block, hay)
+    }
+
+    private static func endedAt(_ dir: URL) -> Date? {
+        guard let data = try? Data(contentsOf: dir.appendingPathComponent("session.json")),
+              let obj = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+              let s = obj["ended_at"] as? String else { return nil }
+        return ISO8601DateFormatter().date(from: s)
+    }
+
+    /// The byte ranges of the lines in a file (without their newlines; empty lines left out).
+    static func lineRanges(_ data: Data) -> [Range<Int>] {
+        var out: [Range<Int>] = []
+        data.withUnsafeBytes { (raw: UnsafeRawBufferPointer) in
+            guard let base = raw.baseAddress else { return }
+            var start = 0
+            let n = raw.count
+            while start < n {
+                let hit = memchr(base + start, 0x0A, n - start)
+                let stop = hit.map { UnsafeRawPointer($0) - base } ?? n
+                if stop > start { out.append(start..<stop) }
+                start = stop + 1
+            }
+        }
+        return out
+    }
+
+    /// An ISO-8601 UTC time as the recorders write it ("2026-10-21T04:15:00Z"), read quickly; anything else through
+    /// the system's parser.
+    static func date(_ s: String, _ iso: ISO8601DateFormatter) -> Date? {
+        let u = Array(s.utf8)
+        func n(_ a: Int, _ b: Int) -> Int? {
+            var v = 0
+            for i in a..<b { let c = u[i]; guard c >= 48 && c <= 57 else { return nil }; v = v * 10 + Int(c - 48) }
+            return v
+        }
+        guard u.count == 20, u[4] == 45, u[7] == 45, u[10] == 84, u[13] == 58, u[16] == 58, u[19] == 90,
+              let y = n(0, 4), let mo = n(5, 7), let d = n(8, 10), let h = n(11, 13), let mi = n(14, 16), let sec = n(17, 19),
+              (1...12).contains(mo), (1...31).contains(d), h < 24, mi < 60, sec < 61 else { return iso.date(from: s) }
+        // Days from 1970-01-01 (civil calendar, proleptic Gregorian).
+        let yy = mo <= 2 ? y - 1 : y
+        let era = (yy >= 0 ? yy : yy - 399) / 400
+        let yoe = yy - era * 400
+        let doy = (153 * (mo + (mo > 2 ? -3 : 9)) + 2) / 5 + d - 1
+        let doe = yoe * 365 + yoe / 4 - yoe / 100 + doy
+        let days = era * 146_097 + doe - 719_468
+        return Date(timeIntervalSince1970: TimeInterval(days * 86_400 + h * 3600 + mi * 60 + sec))
+    }
+
+    /// A string from JSONSerialization, made a native Swift string (fast to split and search).
+    private static func native(_ v: Any?) -> String {
+        guard var s = v as? String else { return "" }
+        s.makeContiguousUTF8()
+        return s
+    }
+
+    /// The moments of events.jsonl that start in [from, to), each with its search text. Broken lines are skipped.
+    static func moments(_ data: Data, session: String, from: Date, to: Date, fixes: [Assignments.Fix] = [],
+                        projects: [Project] = []) -> [(Moment, String)] {
+        let iso = ISO8601DateFormatter()
+        var out: [(Moment, String)] = []
+        for r in lineRanges(data) {
+            guard let obj = try? JSONSerialization.jsonObject(with: data.subdata(in: r)) as? [String: Any],
+                  let stamp = obj["t"] as? String, let t = date(stamp, iso), t >= from, t < to else { continue }
+            let end = (obj["end"] as? String).flatMap { date($0, iso) }.map { max($0, t) } ?? t
+            let kind = obj["kind"] as? String ?? ""
+            let isNote = kind == Event.voice || kind == Event.note
+            let app = native(obj["app"]), title = native(obj["title"])
+            let location = native(obj["where"]), text = native(obj["text"])
+            var project = obj["project"] as? String ?? ""
+            if let fixed = Assignments.at(fixes, t) {
+                project = fixed
+            } else if project.isEmpty, !(isNote && app.isEmpty),
+                      let p = Projects.detect(projects, title: title, location: location, app: app) {
+                project = p.id
+            }
+            let folded = isNote ? (text.trimmingCharacters(in: .whitespacesAndNewlines), false) : fold(text)
+            let m = Moment(session: session, stamp: stamp, t: t, end: end, app: app, bundle: obj["bundle"] as? String ?? "",
+                           title: title, location: location, project: project, kind: isNote ? kind : "",
+                           lookedAt: (obj["focus"] as? String) == "pointer", preview: folded.0, more: folded.1,
+                           offset: r.lowerBound, length: r.count)
+            out.append((m, searchable([title, location, app, text].joined(separator: "\n"))))
+        }
+        return out
+    }
+
+    /// The gaps of gaps.jsonl that overlap [from, to), cut to it.
+    static func gaps(_ data: Data, session: String, from: Date, to: Date) -> [Gap] {
+        let iso = ISO8601DateFormatter()
+        var out: [Gap] = []
+        for r in lineRanges(data) {
+            guard let obj = try? JSONSerialization.jsonObject(with: data.subdata(in: r)) as? [String: Any],
+                  let t = (obj["t"] as? String).flatMap({ date($0, iso) }), let why = obj["why"] as? String else { continue }
+            let end = (obj["end"] as? String).flatMap { date($0, iso) }.map { max($0, t) } ?? t
+            guard end >= from, t < to else { continue }
+            out.append(Gap(session: session, t: max(t, from), end: min(end, to), why: why))
+        }
+        return out
+    }
+
+    /// The first lines of a moment's text (blank lines left out, long lines cut with "…"), and whether there's more.
+    static func fold(_ text: String, lines: Int = previewLines, width: Int = previewWidth) -> (String, Bool) {
+        var kept: [String] = []
+        var more = false
+        for raw in text.split(whereSeparator: \.isNewline) {
+            let line = raw.trimmingCharacters(in: .whitespaces)
+            if line.isEmpty { continue }
+            if kept.count == lines { more = true; break }
+            if line.count > width {
+                kept.append(String(line.prefix(width - 1)) + "…")
+                more = true
+            } else {
+                kept.append(line)
+            }
+        }
+        return (kept.joined(separator: "\n"), more)
+    }
+
+    /// A moment's whole text, read again from its line in events.jsonl (Show all).
+    static func fullText(_ m: Moment, sessions: URL) -> String? {
+        let url = sessions.appendingPathComponent(m.session).appendingPathComponent("events.jsonl")
+        guard let h = try? FileHandle(forReadingFrom: url) else { return nil }
+        defer { try? h.close() }
+        guard (try? h.seek(toOffset: UInt64(m.offset))) != nil, let data = try? h.read(upToCount: m.length),
+              let obj = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+              obj["t"] as? String == m.stamp else { return nil }
+        return obj["text"] as? String
+    }
+
+    // MARK: search
+
+    /// Lower case, without accents: what search compares.
+    static func searchable(_ s: String) -> String {
+        s.folding(options: [.caseInsensitive, .diacriticInsensitive, .widthInsensitive], locale: nil)
+    }
+
+    static func words(_ query: String) -> [String] {
+        searchable(query).split(whereSeparator: { $0.isWhitespace }).map(String.init)
+    }
+
+    /// Every word is somewhere in the moment's title, where, app or text.
+    static func matches(_ haystack: String, words: [String]) -> Bool {
+        words.allSatisfy { haystack.contains($0) }
+    }
+
+    /// The day with only the moments that match (no gaps; blocks with no match left out). An empty query: all.
+    static func filter(_ day: Day, query: String) -> [Block] {
+        let w = words(query)
+        guard !w.isEmpty else { return day.blocks }
+        return day.blocks.compactMap { b in
+            var b = b
+            b.items = b.items.filter { item in
+                guard case .moment(let m) = item else { return false }
+                return matches(day.haystacks[m.id] ?? "", words: w)
+            }
+            return b.items.isEmpty ? nil : b
+        }
+    }
+
+    /// Time between recordings, a minute or more ("Off").
+    static func offs(_ blocks: [Block]) -> [Off] {
+        zip(blocks, blocks.dropFirst()).compactMap { a, b in
+            b.start.timeIntervalSince(a.end) >= 60 ? Off(after: a.session, from: a.end, to: b.start) : nil
+        }
+    }
+
+    // MARK: delete
+
+    enum DeleteError: Error, Equatable {
+        /// That session is still recording: stop first.
+        case recording
+        /// The line isn't there anymore (or the file changed): reload.
+        case notFound
+        case badName
+    }
+
+    /// The file without the first line that is exactly `line` and has `t` as its time; nil if there's no such line.
+    static func removingLine(_ content: Data, t: String, line: Data) -> Data? {
+        guard let obj = try? JSONSerialization.jsonObject(with: line) as? [String: Any], obj["t"] as? String == t else { return nil }
+        for r in lineRanges(content) where r.count == line.count && content.subdata(in: r) == line {
+            var out = content
+            let stop = r.upperBound < content.count ? r.upperBound + 1 : r.upperBound // and its newline
+            out.removeSubrange(r.lowerBound..<stop)
+            return out
+        }
+        return nil
+    }
+
+    /// Removes one moment from its events.jsonl (the file is rewritten at once). Not while that session records.
+    static func deleteMoment(_ m: Moment, sessions: URL, state: URL) throws {
+        guard isSessionID(m.session) else { throw DeleteError.badName }
+        if recordingSession(state: state) == m.session { throw DeleteError.recording }
+        let url = sessions.appendingPathComponent(m.session).appendingPathComponent("events.jsonl")
+        let data = try Data(contentsOf: url)
+        guard m.offset >= 0, m.offset + m.length <= data.count,
+              let out = removingLine(data, t: m.stamp, line: data.subdata(in: m.offset..<(m.offset + m.length))) else {
+            throw DeleteError.notFound
+        }
+        try out.write(to: url, options: .atomic)
+    }
+
+    /// Removes a whole recording (its folder). Not while it records.
+    static func deleteSession(_ id: String, sessions: URL, state: URL) throws {
+        guard isSessionID(id) else { throw DeleteError.badName }
+        if recordingSession(state: state) == id { throw DeleteError.recording }
+        let dir = sessions.appendingPathComponent(id, isDirectory: true)
+        guard FileManager.default.fileExists(atPath: dir.path) else { throw DeleteError.notFound }
+        try FileManager.default.removeItem(at: dir)
+    }
+}

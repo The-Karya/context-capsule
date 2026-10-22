@@ -35,6 +35,10 @@ final class Recorder {
     private(set) var lastError: String?
     private var sessionDir: URL?
     private var log: EventLog?
+    /// gaps.jsonl: stretches that weren't read (only touched on the work queue).
+    private var gaps: GapLog?
+    /// The screen is locked (main thread).
+    private var screenLocked = false
     private var config = Config()
     private var timer: Timer?
     private var sampling = false
@@ -58,6 +62,12 @@ final class Recorder {
         let center = NSWorkspace.shared.notificationCenter
         for name in [NSWorkspace.didActivateApplicationNotification, NSWorkspace.activeSpaceDidChangeNotification] {
             center.addObserver(forName: name, object: nil, queue: .main) { [weak self] _ in self?.changedAt = Date() }
+        }
+        let distributed = DistributedNotificationCenter.default()
+        for (name, locked) in [("com.apple.screenIsLocked", true), ("com.apple.screenIsUnlocked", false)] {
+            distributed.addObserver(forName: Notification.Name(name), object: nil, queue: .main) { [weak self] _ in
+                self?.screenLocked = locked
+            }
         }
     }
 
@@ -157,6 +167,7 @@ final class Recorder {
             try writeAtomically(sessionJSON(id: id, startedAt: now, endedAt: nil, host: host),
                                 to: dir.appendingPathComponent("session.json"))
             log = try EventLog(url: dir.appendingPathComponent("events.jsonl"))
+            gaps = GapLog(url: dir.appendingPathComponent("gaps.jsonl"))
         } catch {
             NSLog("Context Capsule: cannot create session \(id): \(error)")
             capture.stop()
@@ -209,6 +220,8 @@ final class Recorder {
             work.async { if log.appended == 0 { DispatchQueue.main.async { self.onEmptySession?(top) } } }
         }
         log = nil
+        if let gaps { work.async { gaps.close() } }
+        gaps = nil
         let ended = Date()
         let host = self.host
         let finish: () -> Void = {
@@ -420,13 +433,13 @@ final class Recorder {
         let isExcluded: (String?, String?) -> Bool = { bundle, name in
             bundle == own || Exclusion.isExcluded(bundle: bundle, appName: name, userList: userList)
         }
-        guard let front = Screen.frontWindow(isExcluded: isExcluded) else { return skip(.noWindow, log) }
+        guard let front = Screen.frontWindow(isExcluded: isExcluded) else { return skip(.noWindow, log, at: now) }
         if WindowList.overlayActive(front.list) {
             changedAt = now // the frame after it closes is the first good one
-            return skip(.overlay, log)
+            return skip(.overlay, log, at: now, bundle: front.bundle)
         }
         let picks = capture.pickedContents()
-        guard !picks.isEmpty else { return skip(.notPicked, log) }
+        guard !picks.isEmpty else { return skip(.notPicked, log, at: now, bundle: front.bundle) }
 
         // The window in use.
         var targets: [Target] = []
@@ -456,7 +469,7 @@ final class Recorder {
             targets.append(Target(appName: app.localizedName ?? pointer.owner, bundle: app.bundleIdentifier, pid: pointer.pid,
                                   window: pointer, pick: pointerPick, focus: "pointer"))
         }
-        if targets.isEmpty { return skip(frontSkip ?? .notPicked, log) }
+        if targets.isEmpty { return skip(frontSkip ?? .notPicked, log, at: now, bundle: front.bundle) }
 
         sampling = true
         reloadProjects()
@@ -466,9 +479,13 @@ final class Recorder {
         let choice = self.projectChoice
         let newLines = self.newLines
         let list = front.list
+        let gaps = self.gaps
+        let frontBundle = front.bundle
+        let locked = screenLocked
         work.async { [weak self] in
             var outcome: Skip? = frontSkip
             defer {
+                Self.noteGap(outcome, gaps: gaps, at: now, bundle: frontBundle, locked: locked)
                 let count = log.appended
                 DispatchQueue.main.async { self?.sampled(outcome, count: count) }
             }
@@ -543,9 +560,22 @@ final class Recorder {
         }
     }
 
-    private func skip(_ why: Skip, _ log: EventLog) {
-        work.async { log.breakRun() }
+    private func skip(_ why: Skip, _ log: EventLog, at now: Date, bundle: String? = nil) {
+        let gaps = self.gaps
+        let locked = screenLocked
+        work.async {
+            log.breakRun()
+            Self.noteGap(why, gaps: gaps, at: now, bundle: bundle, locked: locked)
+        }
         sampled(why, count: eventCount)
+    }
+
+    /// gaps.jsonl (work queue): a skipped sample extends or starts a stretch; a read one ends it.
+    private static func noteGap(_ why: Skip?, gaps: GapLog?, at now: Date, bundle: String?, locked: Bool) {
+        guard let gaps else { return }
+        do { try gaps.note(why.map { Gaps.why($0, frontBundle: bundle, locked: locked) }, at: now) } catch {
+            AppLog.shared.write("cannot write gaps.jsonl: \(error.localizedDescription)")
+        }
     }
 
     /// Main thread: note how the sample went; state.json only changes when something did.

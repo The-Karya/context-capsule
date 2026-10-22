@@ -3,7 +3,16 @@
 import fs from "node:fs";
 import { DEFAULT_MAX_CHARS, condenseDay, localDay, projectNames, trimTo } from "./activity.js";
 import { listCapsules, type CapsuleInfo } from "./capsules.js";
-import { type CaptureEvent, formatDuration, isNote, listSessionIds, projectTimes, readEvents } from "./sessions.js";
+import {
+  type CaptureEvent,
+  type Gap,
+  formatDuration,
+  isNote,
+  listSessionIds,
+  projectTimes,
+  readEvents,
+  readGaps,
+} from "./sessions.js";
 
 /** Below this, a project's time that day is noise (a glance at a window), not work to write up. */
 export const MIN_PROJECT_MS = 2 * 60 * 1000;
@@ -12,6 +21,8 @@ export interface Day {
   day: string;
   sessionIds: string[];
   events: CaptureEvent[];
+  /** Stretches that weren't read that day (gaps.jsonl of every session), in time order. */
+  gaps: Gap[];
   /** Per project worked on (id "" = not sorted yet): time, sessions, notes. Most time first. */
   projects: { id: string; ms: number; sessions: string[]; notes: number }[];
 }
@@ -41,10 +52,12 @@ export function loadDay(day: string): Day {
     .reverse();
   const sessionIds: string[] = [];
   const events: CaptureEvent[] = [];
+  const gaps: Gap[] = [];
   const sessionsOf = new Map<string, Set<string>>();
   const notesOf = new Map<string, number>();
   for (const id of ids) {
     const ev = readEvents(id).filter((e) => localDay(e.t) === day);
+    gaps.push(...readGaps(id).filter((g) => localDay(g.t) === day || localDay(g.end) === day));
     if (!ev.length) continue;
     sessionIds.push(id);
     for (const e of ev) {
@@ -60,7 +73,8 @@ export function loadDay(day: string): Day {
   const projects = [...ids2]
     .map((id) => ({ id, ms: times.get(id) ?? 0, sessions: [...(sessionsOf.get(id) ?? [])], notes: notesOf.get(id) ?? 0 }))
     .sort((a, b) => b.ms - a.ms);
-  return { day, sessionIds, events, projects };
+  gaps.sort((a, b) => Date.parse(a.t) - Date.parse(b.t));
+  return { day, sessionIds, events, gaps, projects };
 }
 
 /** What "Not sorted yet" holds, in words: "30m", "2 notes", "30m and 1 note" ("" if nothing worth sorting). */
@@ -148,7 +162,7 @@ export function prepareDay(day: string, maxChars = DEFAULT_MAX_CHARS): string {
     : "";
 
   const dayBudget = maxChars - head.length - capsules.length - 40;
-  const dayText = condenseDay(day, d.events, d.sessionIds, { maxChars: Math.max(500, dayBudget) });
+  const dayText = condenseDay(day, d.events, d.sessionIds, { maxChars: Math.max(500, dayBudget), gaps: d.gaps });
   return [head, capsules, `## The day\n\n${dayText}`].filter(Boolean).join("\n\n");
 }
 

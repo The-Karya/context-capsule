@@ -35,6 +35,13 @@ export interface CaptureEvent {
   focus?: "pointer";
 }
 
+/** A stretch the recorder didn't read (gaps.jsonl): why, in the recorder's words. */
+export interface Gap {
+  t: string;
+  end: string;
+  why: "private_app" | "not_shared" | "no_text" | "system" | "locked" | string;
+}
+
 /** Spoken or typed by the user, not read off the screen. */
 export function isNote(e: CaptureEvent): boolean {
   return e.kind === "voice" || e.kind === "note";
@@ -167,6 +174,29 @@ export function resolveProjects(sessionId: string, events: CaptureEvent[]): Capt
     }
   }
   return events;
+}
+
+/** Read gaps.jsonl (stretches that weren't read), if the recorder wrote one. Bad lines are skipped. Sorted by time. */
+export function readGaps(id: string): Gap[] {
+  let raw = "";
+  try {
+    raw = fs.readFileSync(path.join(sessionsDir(), id, "gaps.jsonl"), "utf8");
+  } catch {
+    return [];
+  }
+  const out: Gap[] = [];
+  for (const line of raw.split("\n")) {
+    if (!line.trim()) continue;
+    try {
+      const g = JSON.parse(line) as Partial<Gap>;
+      if (typeof g.t !== "string" || Number.isNaN(Date.parse(g.t)) || typeof g.why !== "string") continue;
+      const end = typeof g.end === "string" && Date.parse(g.end) >= Date.parse(g.t) ? g.end : g.t;
+      out.push({ t: g.t, end, why: g.why });
+    } catch {
+      // skip partial or broken lines
+    }
+  }
+  return out.sort((a, b) => Date.parse(a.t) - Date.parse(b.t));
 }
 
 /** Time per project ("" = not sorted yet), most first. Notes don't count as time. */

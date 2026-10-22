@@ -54,7 +54,7 @@ export function chatDay(day: string, maxChars = CHAT_MAX_CHARS): { text: string;
     : "";
 
   const dayBudget = Math.max(500, maxChars - empty.length - capsules.length - 4);
-  const dayText = defuseMarkers(condenseDay(day, d.events, d.sessionIds, { maxChars: dayBudget }));
+  const dayText = defuseMarkers(condenseDay(day, d.events, d.sessionIds, { maxChars: dayBudget, gaps: d.gaps }));
   const text = trimTo(chatDayPrompt({ day, projects, loose: looseLabel(d), capsules, dayText }), maxChars);
   return { text, chars: text.length };
 }

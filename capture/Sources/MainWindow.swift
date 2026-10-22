@@ -57,11 +57,12 @@ final class AppModel: ObservableObject {
 }
 
 enum Section: String, CaseIterable, Identifiable {
-    case home, capsules, projects, settings, help
+    case home, timeline, capsules, projects, settings, help
     var id: String { rawValue }
     var title: String {
         switch self {
         case .home: return "Home"
+        case .timeline: return "Timeline"
         case .capsules: return "Capsules"
         case .projects: return "Projects"
         case .settings: return "Settings"
@@ -71,6 +72,7 @@ enum Section: String, CaseIterable, Identifiable {
     var icon: String {
         switch self {
         case .home: return "house"
+        case .timeline: return "calendar.day.timeline.left"
         case .capsules: return "doc.text"
         case .projects: return "folder"
         case .settings: return "gearshape"
@@ -89,13 +91,14 @@ struct MainView: View {
     @ObservedObject var nav: Navigation
     @ObservedObject var setup: SetupStatus
     @ObservedObject var prefs: Preferences
+    @ObservedObject var timeline: TimelineModel
     @ObservedObject var ai = AIState.shared
 
     var body: some View {
         NavigationSplitView {
             List(selection: $nav.section) {
                 SwiftUI.Section("Your work") {
-                    ForEach([Section.home, .capsules, .projects]) { s in Label(s.title, systemImage: s.icon).tag(s) }
+                    ForEach([Section.home, .timeline, .capsules, .projects]) { s in Label(s.title, systemImage: s.icon).tag(s) }
                 }
                 SwiftUI.Section("Context Capsule") {
                     ForEach([Section.settings, .help]) { s in Label(s.title, systemImage: s.icon).tag(s) }
@@ -104,12 +107,17 @@ struct MainView: View {
             .navigationSplitViewColumnWidth(min: 170, ideal: 190, max: 240)
         } detail: {
             // The content widens with the window up to a comfortable width, and stays centred;
-            // on wide windows Home gets a second column.
+            // on wide windows Home gets a second column. The timeline scrolls on its own (a lazy list: big days stay fast).
+            Group {
+            if nav.section == .timeline {
+                TimelinePage(model: timeline, app: app, library: library)
+            } else {
             GeometryReader { geo in
                 ScrollView {
                     VStack(alignment: .leading, spacing: nav.section == .home ? 24 : 8) {
                         switch nav.section ?? .home {
                         case .home: HomeView(app: app, nav: nav, ai: ai, wide: geo.size.width > 900)
+                        case .timeline: EmptyView()
                         case .capsules: CapsulesView(library: library, app: app, ai: ai)
                         case .projects: ProjectsView(library: library)
                         case .settings: SettingsView(status: setup, prefs: prefs, app: app, ai: ai)
@@ -122,6 +130,8 @@ struct MainView: View {
                     .frame(maxWidth: geo.size.width > 900 ? 1120 : 760, alignment: .leading)
                     .frame(maxWidth: .infinity)
                 }
+            }
+            }
             }
             .navigationTitle("")
             .toolbar {
@@ -141,7 +151,7 @@ struct MainView: View {
 
 // MARK: Home
 
-private struct Title: View {
+struct Title: View {
     let text: String
     var body: some View { Text(text).font(.system(size: 22, weight: .semibold)) }
 }
@@ -152,7 +162,7 @@ extension EnvironmentValues {
     var captionGap: CGFloat { get { self[CaptionGap.self] } set { self[CaptionGap.self] = newValue } }
 }
 
-private struct Caption: View {
+struct Caption: View {
     let text: String
     @Environment(\.captionGap) private var gap
     var body: some View {
@@ -274,7 +284,11 @@ private struct HomeView: View {
         statusCard
         stats
         VStack(alignment: .leading, spacing: 8) {
-            Caption(text: "Today by project")
+            HStack {
+                Caption(text: "Today by project")
+                Spacer()
+                Button("See today's timeline") { nav.section = .timeline }.buttonStyle(.borderless).font(.system(size: 12))
+            }
             Panel {
                 VStack(alignment: .leading, spacing: 10) {
                     if app.today.byProject.isEmpty {
@@ -498,7 +512,7 @@ private struct CapsulesView: View {
 }
 
 /// The Mac's own search field. Filters as you type; Return does nothing more.
-private struct SearchField: NSViewRepresentable {
+struct SearchField: NSViewRepresentable {
     @Binding var text: String
     let prompt: String
 
@@ -977,6 +991,7 @@ final class MainWindow: NSObject, NSWindowDelegate {
     let app: AppModel
     let library: LibraryModel
     let nav = Navigation()
+    let timeline: TimelineModel
     let setup = SetupStatus()
     let prefs: Preferences
     private var window: NSWindow?
@@ -984,6 +999,7 @@ final class MainWindow: NSObject, NSWindowDelegate {
     init(app: AppModel, paths: Paths) {
         self.app = app
         library = LibraryModel(paths: paths)
+        timeline = TimelineModel(paths: paths)
         prefs = Preferences(url: paths.config)
         self.paths = paths
         Preferences.apply(Preferences.appearance(from: paths.config))
@@ -1026,7 +1042,7 @@ final class MainWindow: NSObject, NSWindowDelegate {
             window.makeKeyAndOrderFront(nil)
             return
         }
-        let view = MainView(app: app, library: library, nav: nav, setup: setup, prefs: prefs)
+        let view = MainView(app: app, library: library, nav: nav, setup: setup, prefs: prefs, timeline: timeline)
         let window = NSWindow(contentViewController: NSHostingController(rootView: view))
         window.title = "Context Capsule"
         window.styleMask = [.titled, .closable, .miniaturizable, .resizable, .fullSizeContentView]

@@ -267,6 +267,17 @@ final class AIState: ObservableObject {
         }
     }
 
+    /// Timeline → Make a capsule from this: one recording. Claude or another connected app gets the request; a website or
+    /// any other AI gets Copy my day for that day (it can't read one recording by itself).
+    func makeCapsule(session id: String, day: String) {
+        let prompt = ClaudeLink.sessionPrompt(id)
+        switch kind {
+        case .claude: Claude.open(prompt, why: "to read your recording", again: "click Make a capsule from this again")
+        case .app: open(prompt, why: "to read your recording", again: "click Make a capsule from this again")
+        case .website, .other: copyDay(date: day)
+        }
+    }
+
     /// A request for Your AI (ask your capsules, continue from a capsule). Claude, websites and any other AI: Claude, as
     /// before (these need Context Capsule's tools). Another connected app: open it with the request on the clipboard.
     func open(_ prompt: String, why: String, again: String) {
@@ -318,11 +329,14 @@ final class AIState: ObservableObject {
     // MARK: Copy my day, Save from clipboard
 
     /// Runs `day`, copies the message, opens the chosen website, and says what to do next.
-    func copyMyDay() {
+    func copyMyDay() { copyDay(date: nil) }
+
+    /// Copy my day for a day (YYYY-MM-DD; nil = today).
+    func copyDay(date: String?) {
         guard !working else { return }
         working = true
         AppLog.shared.write("copy my day")
-        AIBridge.day { [weak self] r in
+        AIBridge.day(date: date) { [weak self] r in
             guard let self else { return }
             self.working = false
             switch r {
@@ -330,7 +344,7 @@ final class AIState: ObservableObject {
                 self.alert("Couldn't copy your day", f.message)
             case .success(let day):
                 guard !day.text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
-                    self.toast("Nothing recorded today yet.")
+                    self.toast(date == nil ? "Nothing recorded today yet." : "Nothing recorded that day.")
                     return
                 }
                 let pb = NSPasteboard.general

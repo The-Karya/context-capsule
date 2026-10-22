@@ -175,6 +175,11 @@ Also:
   very short lines are dropped;
 - voice and typed notes sit in the timeline where they happened:
   `>> You said (10:14): "…"` / `>> You typed (10:20): "…"`;
+- stretches the recorder didn't read (from the session's `gaps.jsonl`, when there is one:
+  `{"t","end","why"}`, `why` = `private_app`, `not_shared`, `no_text`, `system` or `locked`) are one short
+  line each, where they happened: `(Not read 10:40–10:55: a private app was in front)`. `get_day_activity`
+  lists the day's near the top, `get_moment` those in its stretch; many are folded into one line;
+- a moment deleted in the app's Timeline is simply gone (its line is removed from `events.jsonl`);
 - the result fits `max_chars` (default 60000). Notes are budgeted first and never cut
   before screen text; then each segment gets a fair share, and long ones are cut with `…`.
 

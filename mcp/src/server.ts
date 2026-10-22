@@ -48,6 +48,7 @@ import {
   projectTimes,
   noSessionsMessage,
   readEvents,
+  readGaps,
   readSessionMeta,
   resolveSessionId,
   summarizeSession,
@@ -431,7 +432,7 @@ export function createServer(opts: ServerOptions = {}): McpServer {
     },
     safe(({ date, project, max_chars }: { date?: string; project?: string; max_chars?: number }) => {
       const d = loadDay(checkDay(date));
-      return text(condenseDay(d.day, d.events, d.sessionIds, { project, maxChars: max_chars }));
+      return text(condenseDay(d.day, d.events, d.sessionIds, { project, maxChars: max_chars, gaps: d.gaps }));
     }),
   );
 
@@ -485,7 +486,7 @@ export function createServer(opts: ServerOptions = {}): McpServer {
       const f = Date.parse(toIso(from, day));
       const t = to ? Date.parse(toIso(to, day)) : f + 10 * 60 * 1000;
       if (!(t > f)) return fail("The end must be after the start.");
-      return text(momentText(id, readEvents(id), f, t, max_chars ?? DEFAULT_MAX_CHARS));
+      return text(momentText(id, readEvents(id), f, t, max_chars ?? DEFAULT_MAX_CHARS, readGaps(id)));
     }),
   );
 
@@ -561,7 +562,9 @@ export function createServer(opts: ServerOptions = {}): McpServer {
     },
     safe(({ session_id, max_chars }: { session_id: string; max_chars?: number }) => {
       const id = resolveSessionId(session_id);
-      return text(condenseActivity(readSessionMeta(id), readEvents(id), { maxChars: max_chars ?? DEFAULT_MAX_CHARS }));
+      return text(
+        condenseActivity(readSessionMeta(id), readEvents(id), { maxChars: max_chars ?? DEFAULT_MAX_CHARS, gaps: readGaps(id) }),
+      );
     }),
   );
 

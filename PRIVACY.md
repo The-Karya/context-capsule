@@ -10,6 +10,7 @@ download on Windows/Linux). Here is every place your data goes, and the code tha
 | Screenshots | Nowhere: the latest frame is kept in memory only, then dropped | Nobody | — | `capture/Sources/Picker.swift` (`latestFrame`), never written |
 | Your voice | Nowhere: the mic feeds on-device speech recognition in memory; only the text is saved | Nobody | While you hold a voice note | `capture/Sources/Voice.swift` (`requiresOnDeviceRecognition`) |
 | Voice-note text, typed notes | Your session files | Only you | When saved | `events.jsonl` (`"kind":"voice"` / `"note"`) |
+| When something wasn't read, and why (times and a reason only, no text) | Your session files | Only you | While recording | `gaps.jsonl` |
 | A timeline or capsule your AI reads | **Your AI conversation**, so to that AI's company (Anthropic for Claude, OpenAI for ChatGPT…), under your own plan and its terms | Your AI | Only when you ask your AI to make, read or continue a capsule | `mcp/src/server.ts` (the tools return text to your AI) |
 | Connecting an AI app (Settings → Connect your AI, `context-capsule-mcp connect`) | That AI app's own settings file on this computer (a `.bak` of it is kept next to it); nothing is sent | — | Only when you click Connect | `mcp/src/clients.ts` |
 | Copy my day / Save from clipboard | Your clipboard; then only into the AI chat *you* paste it in, under that AI's terms | That AI | Only when you paste it | `mcp/src/anyai.ts` |
