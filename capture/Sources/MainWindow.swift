@@ -21,6 +21,9 @@ final class AppModel: ObservableObject {
     @Published var canAddScreen = false
     @Published var hasSeveralScreens = false
     @Published var allScreens = false
+    /// The shortcuts, as the Mac writes them ("⌥C").
+    @Published var recordKey = Shortcut.defaultRecord.symbols
+    @Published var voiceKey = Shortcut.defaultVoice.symbols
     /// For the personal Home.
     @Published var name = ""
     @Published var today = WorkStats.Totals()
@@ -36,6 +39,11 @@ final class AppModel: ObservableObject {
     var pickProject: (String?) -> Void = { _ in }
     var newProject: () -> Void = {}
     var askAccessibility: () -> Void = {}
+    /// New keys for Start or stop (true) or Speak a note; nil = done, else why not.
+    var setShortcut: (Bool, Shortcut) -> String? = { _, _ in nil }
+    /// While Settings listens for new keys, the shortcuts are off (so pressing them doesn't start anything).
+    var pauseHotKeys: (Bool) -> Void = { _ in }
+    var resetShortcuts: () -> Void = {}
     /// Updates (Settings → Updates).
     @Published var version = ""
     @Published var updateLine = ""
@@ -103,7 +111,7 @@ struct MainView: View {
                         case .capsules: CapsulesView(library: library, app: app)
                         case .projects: ProjectsView(library: library)
                         case .settings: SettingsView(status: setup, prefs: prefs, app: app)
-                        case .help: HelpView()
+                        case .help: HelpView(app: app)
                         }
                     }
                     .environment(\.captionGap, nav.section == .home ? 0 : 16)
@@ -365,8 +373,8 @@ private struct HomeView: View {
         Panel {
             VStack(alignment: .leading, spacing: 12) {
                 Text("Shortcuts").font(.system(size: 14, weight: .semibold))
-                HStack { Keycap(text: "⌥ C"); Text("Start or stop").font(.system(size: 13)); Spacer() }
-                HStack { Keycap(text: "⌥ V"); Text("Speak a note").font(.system(size: 13)); Spacer() }
+                HStack { Keycap(text: app.recordKey); Text("Start or stop").font(.system(size: 13)); Spacer() }
+                HStack { Keycap(text: app.voiceKey); Text("Speak a note").font(.system(size: 13)); Spacer() }
             }
             .padding(16)
         }
@@ -436,7 +444,7 @@ private struct CapsulesView: View {
         }
         .padding(.bottom, 4)
         if library.capsules.isEmpty {
-            Text("No capsules yet. Start contextualizing (⌥C), then make today's capsules.")
+            Text("No capsules yet. Start contextualizing (\(app.recordKey)), then make today's capsules.")
                 .font(.system(size: 13)).foregroundStyle(.secondary)
         } else if library.groups.isEmpty {
             Text("No titles match. Ask Claude to look inside every capsule.")
@@ -684,6 +692,22 @@ private struct SettingsView: View {
                     button: "Turn On") { Setup.setLaunchAtLogin(true); status.refresh() }
         }
 
+        Caption(text: "Shortcuts")
+        Panel {
+            ShortcutRow(title: "Start or stop", record: true, app: app)
+            Divider().padding(.leading, 14)
+            ShortcutRow(title: "Speak a note", record: false, app: app)
+        }
+        HStack {
+            Text("Click a shortcut, then press the keys you want.").font(.system(size: 12)).foregroundStyle(.secondary)
+            Spacer()
+            if app.recordKey != Shortcut.defaultRecord.symbols || app.voiceKey != Shortcut.defaultVoice.symbols {
+                Button("Reset", action: app.resetShortcuts)
+                .buttonStyle(.borderless).font(.system(size: 12))
+            }
+        }
+        .padding(.leading, 4)
+
         Caption(text: "Screens")
         Panel {
             row("When you start") {
@@ -795,7 +819,57 @@ private struct SettingsView: View {
 
 // MARK: Help
 
+/// One shortcut in Settings: click, press the new keys (Esc cancels).
+private struct ShortcutRow: View {
+    let title: String
+    let record: Bool
+    @ObservedObject var app: AppModel
+    @State private var listening = false
+    @State private var problem: String?
+    @State private var monitor: Any?
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 4) {
+            HStack {
+                Text(title).font(.system(size: 14))
+                Spacer()
+                Button(listening ? "Press keys…" : (record ? app.recordKey : app.voiceKey)) { listening ? stop() : start() }
+                    .frame(minWidth: 110)
+            }
+            if let problem {
+                Text(problem).font(.system(size: 12)).foregroundStyle(.red)
+            }
+        }
+        .padding(.horizontal, 14)
+        .padding(.vertical, 8)
+        .frame(minHeight: 44)
+        .onDisappear { stop() }
+    }
+
+    private func start() {
+        problem = nil
+        listening = true
+        app.pauseHotKeys(true)
+        monitor = NSEvent.addLocalMonitorForEvents(matching: .keyDown) { event in
+            if event.keyCode == 53 { stop(); return nil } // Esc
+            guard let keys = KeyCodes.shortcut(from: event) else { return nil }
+            stop()
+            problem = app.setShortcut(record, keys)
+            return nil
+        }
+    }
+
+    private func stop() {
+        if let monitor { NSEvent.removeMonitor(monitor) }
+        monitor = nil
+        if listening { app.pauseHotKeys(false) }
+        listening = false
+    }
+}
+
 private struct HelpView: View {
+    @ObservedObject var app: AppModel
+
     private func line(_ keys: String, _ text: String) -> some View {
         HStack {
             Text(text).font(.system(size: 14))
@@ -810,9 +884,9 @@ private struct HelpView: View {
         Title(text: "Help")
         Caption(text: "Shortcuts")
         Panel {
-            line("⌥ C", "Start or stop contextualizing")
+            line(app.recordKey, "Start or stop contextualizing")
             Divider().padding(.leading, 14)
-            line("⌥ V", "Speak a note, then again when done")
+            line(app.voiceKey, "Speak a note, then again when done")
             Divider().padding(.leading, 14)
             line("in Claude", "Make my capsules for today")
         }

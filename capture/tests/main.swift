@@ -925,5 +925,26 @@ try! #"{"auto_update": false, "update_feed": "https://example.com/"}"#.write(to:
 check(!Config.load(from: upCfg).autoUpdate && Config.load(from: upCfg).updateFeed == "https://example.com/", "update settings read")
 
 try? FileManager.default.removeItem(at: tmp)
+// MARK: your own shortcuts
+
+check(Shortcut.parse("Alt+C") == Shortcut.defaultRecord && Shortcut.parse("alt + v") == Shortcut.defaultVoice, "parse shortcuts")
+check(Shortcut.parse("Shift+Cmd+Ctrl+k")?.text == "Ctrl+Shift+Cmd+K", "written in order")
+check(Shortcut.parse("Ctrl+Alt+Shift+Cmd+F5")?.symbols == "⌃⌥⇧⌘F5", "Mac symbols")
+check(Shortcut.parse("Alt+Space") == nil && Shortcut.parse("Hyper+C") == nil && Shortcut.parse("") == nil && Shortcut.parse("F13") == nil,
+      "unknown keys are refused")
+check(Shortcut.parse("Shift+C")!.problem(other: Shortcut.defaultVoice) == .needsModifier, "needs Ctrl, Alt or Cmd")
+check(Shortcut.parse("F6")!.problem(other: Shortcut.defaultVoice) == nil, "an F-key alone is fine")
+check(Shortcut.defaultVoice.problem(other: Shortcut.defaultVoice) == .sameAsOther, "not the same as the other")
+let keysURL = FileManager.default.temporaryDirectory.appendingPathComponent("cc-keys-\(getpid()).json")
+try! #"{"hotkeys": {"record": "Ctrl+Alt+R", "voice": "F6"}}"#.write(to: keysURL, atomically: true, encoding: .utf8)
+check(Shortcut.load(from: keysURL) == (Shortcut.parse("Ctrl+Alt+R")!, Shortcut.parse("F6")!), "load your shortcuts")
+try! #"{"hotkeys": {"record": "Shift+R", "voice": "Alt+V"}}"#.write(to: keysURL, atomically: true, encoding: .utf8)
+check(Shortcut.load(from: keysURL).record == Shortcut.defaultRecord, "a broken one falls back to the default")
+try! #"{"hotkeys": {"record": "Alt+V", "voice": "Alt+V"}}"#.write(to: keysURL, atomically: true, encoding: .utf8)
+let clash = Shortcut.load(from: keysURL)
+check(clash.record != clash.voice, "never the same twice", "\(clash)")
+check(Shortcut.load(from: URL(fileURLWithPath: "/nonexistent/none.json")) == (Shortcut.defaultRecord, Shortcut.defaultVoice), "defaults")
+try? FileManager.default.removeItem(at: keysURL)
+
 print("\(passes) passed, \(failures) failed")
 exit(failures == 0 ? 0 : 1)

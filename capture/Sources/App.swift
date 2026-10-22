@@ -94,7 +94,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         }
         recorder.onBusyListening = { [weak self] in
             guard let self else { return }
-            self.toast.show("Finish the voice note first: press ⌥V. Then ⌥C stops contextualizing.", under: self.statusItem.button, seconds: 4)
+            let keys = Shortcut.current
+            self.toast.show("Finish the voice note first: press \(keys.voice.symbols). Then \(keys.record.symbols) stops contextualizing.",
+                            under: self.statusItem.button, seconds: 4)
         }
         recorder.onAskProject = { [weak self] window in self?.askProject(window) }
         voice.onIndicator = { [weak self] on in
@@ -108,10 +110,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
             self.toast.show(outcome.message, under: self.statusItem.button, seconds: 6)
         }
 
-        hotKey = HotKey(keyCode: kVK_ANSI_C, modifiers: optionKey, id: 1) { [weak self] in self?.toggle() }
-        if hotKey == nil { NSLog("Context Capsule: ⌥C is taken by another app; use the menu instead") }
-        voiceKey = HotKey(keyCode: kVK_ANSI_V, modifiers: optionKey, id: 2) { [weak self] in self?.toggleVoice() }
-        if voiceKey == nil { NSLog("Context Capsule: ⌥V is taken by another app; use the menu instead") }
+        Shortcut.current = Shortcut.load(from: paths.config)
+        registerHotKeys()
 
         control = ControlWatcher(url: paths.control) { [weak self] cmd in
             switch cmd.kind {
@@ -141,6 +141,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         appModel.pickProject = { [weak self] id in self?.recorder.pinProject(id); self?.refresh() }
         appModel.newProject = { [weak self] in self?.newProject() }
         appModel.askAccessibility = { [weak self] in self?.askAccessibility() }
+        appModel.setShortcut = { [weak self] record, keys in self?.setShortcut(record: record, to: keys) }
+        appModel.resetShortcuts = { [weak self] in self?.resetShortcuts() }
+        appModel.pauseHotKeys = { [weak self] paused in
+            guard let self else { return }
+            if paused { self.hotKey = nil; self.voiceKey = nil } else { self.registerHotKeys() }
+        }
         // First launch: the window opens on Settings, to set things up.
         if !MainWindow.seen {
             UserDefaults.standard.set(true, forKey: MainWindow.seenKey)
@@ -237,8 +243,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
             iconTimer = nil
         }
         announce(recording: recording, listening: listening)
-        statusItem.button?.toolTip = listening ? "Listening — press ⌥V to finish the voice note"
-            : recording ? "Contextualizing (⌥C to stop, ⌥V to talk)" : "Context Capsule (⌥C to start contextualizing)"
+        let (rk, vk) = (Shortcut.current.record.symbols, Shortcut.current.voice.symbols)
+        statusItem.button?.toolTip = listening ? "Listening — press \(vk) to finish the voice note"
+            : recording ? "Contextualizing (\(rk) to stop, \(vk) to talk)" : "Context Capsule (\(rk) to start contextualizing)"
         voiceItem.title = listening ? "Done speaking" : "Speak a note"
         addScreenItem.isHidden = !recording || NSScreen.screens.count < 2
         addScreenItem.isEnabled = recorder.canAddScreen
@@ -263,6 +270,72 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     }
 
     /// What the window shows (it updates live while open).
+    // MARK: shortcuts
+
+    /// Registers the shortcuts in Shortcut.current; one another app already has stays unregistered (logged).
+    private func registerHotKeys() {
+        hotKey = nil
+        voiceKey = nil
+        let keys = Shortcut.current
+        hotKey = Self.hotKey(keys.record, id: 1) { [weak self] in self?.toggle() }
+        if hotKey == nil { AppLog.shared.write("shortcut \(keys.record.text) is taken by another app; use the menu instead") }
+        voiceKey = Self.hotKey(keys.voice, id: 2) { [weak self] in self?.toggleVoice() }
+        if voiceKey == nil { AppLog.shared.write("shortcut \(keys.voice.text) is taken by another app; use the menu instead") }
+        for (item, s) in [(toggleItem, keys.record), (voiceItem, keys.voice)] {
+            item.keyEquivalent = KeyCodes.menuKey(s)
+            item.keyEquivalentModifierMask = KeyCodes.menuModifiers(s)
+        }
+        appModel.recordKey = keys.record.symbols
+        appModel.voiceKey = keys.voice.symbols
+    }
+
+    private static func hotKey(_ s: Shortcut, id: UInt32, action: @escaping () -> Void) -> HotKey? {
+        guard let code = KeyCodes.code(s.key) else { return nil }
+        return HotKey(keyCode: code, modifiers: KeyCodes.carbonModifiers(s), id: id, action: action)
+    }
+
+    /// Settings: use new keys for "Start or stop" (record) or "Speak a note". nil = done; else why not (old keys stay).
+    private func setShortcut(record: Bool, to keys: Shortcut) -> String? {
+        let current = Shortcut.current
+        let other = record ? current.voice : current.record
+        switch keys.problem(other: other) {
+        case .needsModifier: return "Add ⌃, ⌥ or ⌘"
+        case .sameAsOther: return "Already used for \(record ? "Speak a note" : "Start or stop")"
+        case nil: break
+        }
+        // Free our own old keys first, then see if the new ones can be had.
+        hotKey = nil
+        voiceKey = nil
+        let free = Self.hotKey(keys, id: 9) {} != nil // let go again at once
+        guard free else {
+            registerHotKeys()
+            return "Another app uses these keys"
+        }
+        if record { Shortcut.current.record = keys } else { Shortcut.current.voice = keys }
+        saveShortcuts()
+        registerHotKeys()
+        refresh()
+        return nil
+    }
+
+    private func resetShortcuts() {
+        Shortcut.current = (Shortcut.defaultRecord, Shortcut.defaultVoice)
+        saveShortcuts()
+        registerHotKeys()
+        refresh()
+    }
+
+    private func saveShortcuts() {
+        let keys = Shortcut.current
+        let isDefault = keys.record == Shortcut.defaultRecord && keys.voice == Shortcut.defaultVoice
+        do {
+            try ConfigFile.set("hotkeys", isDefault ? nil : ["record": keys.record.text, "voice": keys.voice.text], in: paths.config)
+            AppLog.shared.write("shortcuts: \(keys.record.text), \(keys.voice.text)")
+        } catch {
+            AppLog.shared.write("cannot save shortcuts: \(error.localizedDescription)")
+        }
+    }
+
     private func updateModel(recording: Bool, listening: Bool) {
         let m = appModel
         m.recording = recording
@@ -560,5 +633,51 @@ final class Toast {
         }
         hide = item
         DispatchQueue.main.asyncAfter(deadline: .now() + seconds, execute: item)
+    }
+}
+
+/// Key names (see Shortcut.keys) ↔ Mac key codes, and modifiers for Carbon hotkeys and menus.
+enum KeyCodes {
+    static let table: [String: Int] = [
+        "A": kVK_ANSI_A, "B": kVK_ANSI_B, "C": kVK_ANSI_C, "D": kVK_ANSI_D, "E": kVK_ANSI_E, "F": kVK_ANSI_F,
+        "G": kVK_ANSI_G, "H": kVK_ANSI_H, "I": kVK_ANSI_I, "J": kVK_ANSI_J, "K": kVK_ANSI_K, "L": kVK_ANSI_L,
+        "M": kVK_ANSI_M, "N": kVK_ANSI_N, "O": kVK_ANSI_O, "P": kVK_ANSI_P, "Q": kVK_ANSI_Q, "R": kVK_ANSI_R,
+        "S": kVK_ANSI_S, "T": kVK_ANSI_T, "U": kVK_ANSI_U, "V": kVK_ANSI_V, "W": kVK_ANSI_W, "X": kVK_ANSI_X,
+        "Y": kVK_ANSI_Y, "Z": kVK_ANSI_Z,
+        "0": kVK_ANSI_0, "1": kVK_ANSI_1, "2": kVK_ANSI_2, "3": kVK_ANSI_3, "4": kVK_ANSI_4,
+        "5": kVK_ANSI_5, "6": kVK_ANSI_6, "7": kVK_ANSI_7, "8": kVK_ANSI_8, "9": kVK_ANSI_9,
+        "F1": kVK_F1, "F2": kVK_F2, "F3": kVK_F3, "F4": kVK_F4, "F5": kVK_F5, "F6": kVK_F6,
+        "F7": kVK_F7, "F8": kVK_F8, "F9": kVK_F9, "F10": kVK_F10, "F11": kVK_F11, "F12": kVK_F12,
+    ]
+
+    static func code(_ key: String) -> Int? { table[key] }
+    static func key(_ code: UInt16) -> String? { table.first { $0.value == Int(code) }?.key }
+
+    static func carbonModifiers(_ s: Shortcut) -> Int {
+        (s.ctrl ? controlKey : 0) | (s.alt ? optionKey : 0) | (s.shift ? shiftKey : 0) | (s.cmd ? cmdKey : 0)
+    }
+
+    /// The keys pressed in a key-down event, or nil when it isn't a key a shortcut can use.
+    static func shortcut(from event: NSEvent) -> Shortcut? {
+        guard let key = key(event.keyCode) else { return nil }
+        let f = event.modifierFlags
+        return Shortcut(ctrl: f.contains(.control), alt: f.contains(.option), shift: f.contains(.shift),
+                        cmd: f.contains(.command), key: key)
+    }
+
+    static func menuKey(_ s: Shortcut) -> String {
+        if s.isFunctionKey, let n = Int(s.key.dropFirst()), let scalar = UnicodeScalar(NSF1FunctionKey + n - 1) {
+            return String(Character(scalar))
+        }
+        return s.key.lowercased()
+    }
+
+    static func menuModifiers(_ s: Shortcut) -> NSEvent.ModifierFlags {
+        var f: NSEvent.ModifierFlags = []
+        if s.ctrl { f.insert(.control) }
+        if s.alt { f.insert(.option) }
+        if s.shift { f.insert(.shift) }
+        if s.cmd { f.insert(.command) }
+        return f
     }
 }

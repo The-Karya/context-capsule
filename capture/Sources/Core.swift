@@ -711,7 +711,7 @@ enum VoiceOutcome: Equatable {
         case .silent(let device):
             let mic = device.map { "“\($0)”" } ?? "the microphone"
             return "Didn't catch that. Nothing was heard from \(mic). Check System Settings → Sound → Input."
-        case .notRecording: return "Start contextualizing first (⌥C)"
+        case .notRecording: return "Start contextualizing first (\(Shortcut.current.record.symbols))"
         case .denied(.microphone):
             return "Context Capsule can't use the microphone. Turn it on in System Settings → Privacy & Security → Microphone."
         case .denied(.speech):
@@ -1510,4 +1510,76 @@ enum Assignments {
         for f in fixes where (f.from.map { t >= $0 } ?? true) && (f.to.map { t < $0 } ?? true) { hit = f.project }
         return hit
     }
+}
+
+// MARK: - Your own shortcuts
+
+/// A keyboard shortcut as written in config.json: modifiers then one key, joined by "+" ("Alt+C", "Ctrl+Shift+F5").
+/// Alt is Option on a Mac. See SPEC.md, "Your own shortcuts".
+struct Shortcut: Equatable {
+    var ctrl = false
+    var alt = false
+    var shift = false
+    var cmd = false
+    /// "A"–"Z", "0"–"9" or "F1"–"F12".
+    var key = ""
+
+    static let defaultRecord = Shortcut(alt: true, key: "C")
+    static let defaultVoice = Shortcut(alt: true, key: "V")
+    static let keys: [String] = (65...90).map { String(UnicodeScalar($0)!) } + (0...9).map(String.init) + (1...12).map { "F\($0)" }
+
+    var isFunctionKey: Bool { key.count > 1 && key.hasPrefix("F") }
+
+    static func parse(_ text: String) -> Shortcut? {
+        var s = Shortcut()
+        let parts = text.split(separator: "+").map { $0.trimmingCharacters(in: .whitespaces) }
+        guard let last = parts.last?.uppercased(), keys.contains(last) else { return nil }
+        s.key = last
+        for p in parts.dropLast() {
+            switch p.lowercased() {
+            case "ctrl", "control": s.ctrl = true
+            case "alt", "option", "opt": s.alt = true
+            case "shift": s.shift = true
+            case "cmd", "command": s.cmd = true
+            default: return nil
+            }
+        }
+        return s
+    }
+
+    /// For config.json and Windows / Linux: "Ctrl+Alt+Shift+Cmd+K" in that order.
+    var text: String {
+        ([ctrl ? "Ctrl" : nil, alt ? "Alt" : nil, shift ? "Shift" : nil, cmd ? "Cmd" : nil].compactMap { $0 } + [key])
+            .joined(separator: "+")
+    }
+
+    /// As the Mac writes it: "⌃⌥⇧⌘K".
+    var symbols: String { (ctrl ? "⌃" : "") + (alt ? "⌥" : "") + (shift ? "⇧" : "") + (cmd ? "⌘" : "") + key }
+
+    enum Problem: Equatable {
+        case needsModifier      // "Add Ctrl, ⌥ or ⌘"
+        case sameAsOther        // "Already used for …"
+    }
+
+    /// Can this be used, next to the other shortcut? (Whether another app has it is found when registering.)
+    func problem(other: Shortcut) -> Problem? {
+        if !(ctrl || alt || cmd) && !isFunctionKey { return .needsModifier }
+        if self == other { return .sameAsOther }
+        return nil
+    }
+
+    /// config.json "hotkeys": {"record": "Alt+C", "voice": "Alt+V"}; anything missing or broken = the default.
+    static func load(from url: URL) -> (record: Shortcut, voice: Shortcut) {
+        guard let data = try? Data(contentsOf: url),
+              let obj = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+              let keys = obj["hotkeys"] as? [String: Any] else { return (defaultRecord, defaultVoice) }
+        var record = (keys["record"] as? String).flatMap(parse) ?? defaultRecord
+        var voice = (keys["voice"] as? String).flatMap(parse) ?? defaultVoice
+        if record.problem(other: voice) != nil { record = defaultRecord }
+        if voice.problem(other: record) != nil { voice = record == defaultVoice ? defaultRecord : defaultVoice }
+        return (record, voice)
+    }
+
+    /// The shortcuts in use now, for every text that names them.
+    static var current = (record: defaultRecord, voice: defaultVoice)
 }
