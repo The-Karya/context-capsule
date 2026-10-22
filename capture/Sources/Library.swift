@@ -1,5 +1,5 @@
 // context-capsule — capture: the "My capsules" window — capsules by project (read, share, show in Finder),
-// a "Make today's capsules" button that opens Claude with the request typed in, and the projects list
+// a "Make today's capsules" button that opens your AI with the request, and the projects list
 // (rename, edit how they're found, delete), "Check before sharing", and opening a capsule someone sent.
 // Plain native look.
 
@@ -88,7 +88,7 @@ enum Share {
         let pb = NSPasteboard.general
         pb.clearContents()
         pb.setString(text, forType: .string)
-        toast?("Text copied. Paste it into a chat, or into Claude.")
+        toast?("Text copied. Paste it into a chat, or into your AI.")
     }
 
     /// AirDrop, Mail, Messages…: the system share menu, under the mouse in the front window.
@@ -244,13 +244,13 @@ enum Claude {
         open(ClaudeLink.dayPrompt, why: "to read your day", again: "click Make today's capsules again")
     }
 
-    /// Ask your capsules (the Capsules page).
+    /// Ask your capsules (the Capsules page), in your AI.
     static func ask(_ question: String) {
         guard !question.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return }
-        open(ClaudeLink.searchPrompt(question), why: "to search your capsules", again: "click Ask Claude again")
+        AIState.shared.open(ClaudeLink.searchPrompt(question), why: "to search your capsules", again: "click Ask again")
     }
 
-    /// A capsule someone sent: check it is one, then Claude carries on from it.
+    /// A capsule someone sent: check it is one, then your AI carries on from it.
     static func continueFrom(_ url: URL) {
         guard let text = try? String(contentsOf: url, encoding: .utf8), CapsuleSummary.isCapsule(text) else {
             AppLog.shared.write("open: not a capsule")
@@ -263,7 +263,7 @@ enum Claude {
             return
         }
         AppLog.shared.write("open: a capsule")
-        open(ClaudeLink.continuePrompt(path: url.path), why: "to read the capsule", again: "open the capsule again")
+        AIState.shared.open(ClaudeLink.continuePrompt(path: url.path), why: "to read the capsule", again: "open the capsule again")
     }
 
     /// "Open a capsule…": pick a .md file.

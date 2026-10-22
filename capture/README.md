@@ -22,9 +22,9 @@ time) has everything in one place, with a sidebar:
   current project (change it or make a new one), Make today's capsules.
 - **Capsules** — by project, with Share (Copy file — paste into WhatsApp, Slack, email…; Copy
   text; Save a copy…; Show in Finder; More… for AirDrop/Mail/Messages) and Open. A search field
-  filters by title and "In short" as you type (Return only filters); **Ask Claude** opens Claude
+  filters by title and "In short" as you type (Return only filters); **Ask your AI** opens your AI
   with "Use Context Capsule to search my capsules: …". **Open a capsule…** picks a capsule someone
-  sent you (below).
+  sent you (below). **Copy my day** and **Save from clipboard** are always here, for any AI (below).
 
 **Check before sharing.** Every share (Copy file, Copy text, Save a copy, More…) first lists what
 might be private — People, Emails, Phone numbers, Links, Money, Files — with a check box each (all
@@ -35,9 +35,9 @@ in `Core.swift` (`ShareCheck`), tested against `../spec/share-check.json`, the s
 **Opening a received capsule.** Context Capsule is in Finder's *Open With* for `.md` files (never
 the default app), and takes capsule files dropped on its window. If the file is a capsule (front
 matter with `capsule:` and `title:`), Claude opens with "Use Context Capsule to continue from the
-capsule at <path>." (connecting Claude first if needed); otherwise: "This isn't a capsule".
+capsule at <path>." (in your AI; connecting it first if needed); otherwise: "This isn't a capsule".
 - **Projects** — rename, edit how they're found, delete.
-- **Settings** — set up (read your apps, voice notes, Dictation, connect Claude, open at login),
+- **Settings** — set up (read your apps, voice notes, Dictation, connect your AI, open at login), Your AI,
   the evening reminder and its time, when to delete old recordings, sounds, the voice-note
   language, apps never to record, and updates (Update automatically, Check for Updates).
 - **Help** — shortcuts, how it works, privacy.
@@ -56,6 +56,22 @@ Menu: Start / Stop recording, Read text directly (Accessibility)…, Open sessio
 folder, Quit. While macOS shares the picked content you also see its own sharing
 icon in the menu bar; stopping there stops the recording.
 
+## Any AI
+
+The app runs `context-capsule-mcp` (in `Contents/Resources`; built from `../mcp`, see SPEC.md "Any AI") with
+`clients`, `connect`, `disconnect`, `day` and `save`, off the main thread with a time limit (`Sources/AIBridge.swift`).
+
+- **Settings → Set up → Connect your AI** lists the AI apps on this Mac: Connect, or a ✓ (Disconnect in its ⋯
+  menu); apps that aren't installed are under More. Claude installs the `.mcpb` extension, as before. The ✓ on
+  the row means at least one AI is connected.
+- **Your AI** (config.json `"ai"`: an id from `clients`, `chatgpt-web`, `gemini-web` or `any`; default: Claude
+  if connected, else the first connected app, else `any`) decides what **Make today's capsules** does: Claude
+  opens with the request typed in; another app opens with the request on the clipboard ("Paste it in a new
+  chat"); a website or any other AI gets **Copy my day**.
+- **Copy my day** copies one message with today's work (from `day`) and opens the website if one is chosen.
+  Paste it into your AI, copy its whole reply, then **Save from clipboard**: `save` checks every capsule in
+  it, and a small box says what was saved and what wasn't, and why.
+
 ## Several screens
 
 When more than one screen is connected, **Add a screen** (in the menu while recording)
@@ -66,7 +82,7 @@ the mouse pointer).
 ## Evening reminder and clean-up
 
 - At 18:00, if you recorded today and no capsule has been made for today, a small box asks
-  **Make today's capsules?** — *Make* opens the Claude app with the request typed in; *Not now*
+  **Make today's capsules?** — *Make* does it with your AI (as above); *Not now*
   closes it (once a day). Change the time with `"remind_at": "19:30"`, or `false` to turn it off.
 - Raw recordings older than 30 days are deleted (`"keep_recordings_days"`, `0` = keep
   forever). Capsules are never deleted. Both settings live in `~/.context-capsule/config.json`.
@@ -198,7 +214,8 @@ false and `last_error` is `"cancelled"`.
 ```sh
 ./tests/run.sh      # redaction, exclusion, dedupe, file formats, picked-content membership,
                     # front-window choice, Mission Control, frame freshness, OCR crop + masks, displays, AX text assembly + secure-field skipping, AX-vs-OCR choice,
-                    # check before sharing (every case in ../spec/share-check.json), is-it-a-capsule, search
+                    # check before sharing (every case in ../spec/share-check.json), is-it-a-capsule, search,
+                    # any AI (reading context-capsule-mcp's answers, Your AI, finding the program)
 "./build/Context Capsule.app/Contents/MacOS/ContextCapsule" --selftest   # OCR (whole, cropped, masked) on a generated image
 ```
 
@@ -208,6 +225,7 @@ false and `last_error` is `"cancelled"`.
 |---|---|
 | `Sources/Core.swift` | pure logic: paths, JSON, times, redaction, exclusion, event log, picked-content membership, AX text assembly, AX-vs-OCR choice, voice notes (silence, events, the press-to-talk state machine), check before sharing, is-it-a-capsule, search |
 | `Sources/Library.swift` | Share (with the "Check before sharing" box), opening Claude with a request, opening a received capsule |
+| `Sources/AIBridge.swift` | any AI: runs context-capsule-mcp, Connect your AI, Your AI, Copy my day, Save from clipboard |
 | `Sources/Picker.swift` | the system picker (`SCContentSharingPicker`) and the one `SCStream` of the picked content |
 | `Sources/Screen.swift` | front app + window, Accessibility text, Vision OCR |
 | `Sources/Recorder.swift` | sessions, 3 s sampling, notes into the session, state.json, control file |

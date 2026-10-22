@@ -1,4 +1,4 @@
-// context-capsule — capture: setup checks and actions (reading text, voice notes, Dictation, Claude, open at login)
+// context-capsule — capture: setup checks and actions (reading text, voice notes, Dictation, your AI, open at login)
 // and the shared pieces the Context Capsule window uses: a setup row, glass buttons, the blurred window background.
 
 import AppKit
@@ -13,10 +13,12 @@ final class SetupStatus: ObservableObject {
     @Published var microphone = false
     @Published var speech = false
     @Published var dictation = false
-    @Published var claude = false
+    /// At least one AI app is connected (Settings → Connect your AI).
+    @Published var ai = false
     @Published var atLogin = false
 
     private var timer: Timer?
+    private var ticks = 0
 
     func start() {
         refresh()
@@ -31,7 +33,10 @@ final class SetupStatus: ObservableObject {
         microphone = AVCaptureDevice.authorizationStatus(for: .audio) == .authorized
         speech = SFSpeechRecognizer.authorizationStatus() == .authorized
         dictation = Setup.dictationOn
-        claude = ClaudeConnect.isConnected
+        // The AI apps are asked about every 10 s (it runs a small program); Claude's extension is seen every second.
+        if ticks % 10 == 0 { AIState.shared.refresh() }
+        ticks += 1
+        ai = AIState.shared.anyConnected
         atLogin = SMAppService.mainApp.status == .enabled
     }
 
@@ -103,6 +108,113 @@ struct StepRow: View {
         .padding(.horizontal, 14)
         .frame(height: 44)
         .help(help)
+    }
+}
+
+/// Settings → Set up → Connect your AI: a ✓ when at least one AI is connected, then the AI apps on this Mac
+/// (Connect, or a ✓ with Disconnect in a small menu); apps that aren't installed are folded under More.
+struct ConnectAIRows: View {
+    @ObservedObject var ai: AIState
+    let done: Bool
+    @State private var more = false
+
+    private var installed: [AIClient] { ai.clients.filter(\.installed) }
+    private var missing: [AIClient] { ai.clients.filter { !$0.installed } }
+
+    var body: some View {
+        HStack(spacing: 12) {
+            Image(systemName: "link").font(.system(size: 15)).foregroundStyle(.secondary).frame(width: 22)
+            Text("Connect your AI").font(.system(size: 14))
+            Spacer()
+            if done {
+                Image(systemName: "checkmark").font(.system(size: 13, weight: .semibold)).foregroundStyle(.secondary)
+            } else if !ai.loaded {
+                ProgressView().controlSize(.small)
+            }
+        }
+        .padding(.horizontal, 14)
+        .frame(height: 44)
+        .help("Lets your AI start contextualizing and write your capsules.")
+
+        ForEach(installed, id: \.id) { c in
+            Divider().padding(.leading, 48)
+            row(c)
+        }
+        if !missing.isEmpty {
+            Divider().padding(.leading, 48)
+            Button { more.toggle() } label: {
+                HStack(spacing: 6) {
+                    Image(systemName: "chevron.right").font(.system(size: 10, weight: .semibold))
+                        .rotationEffect(.degrees(more ? 90 : 0))
+                    Text("More").font(.system(size: 13))
+                    Spacer()
+                }
+                .foregroundStyle(.secondary)
+                .contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
+            .padding(.leading, 48).padding(.trailing, 14)
+            .frame(height: 32)
+            if more {
+                ForEach(missing, id: \.id) { c in
+                    HStack {
+                        Text(c.name).font(.system(size: 13))
+                        Spacer()
+                        Text("Not installed").font(.system(size: 12))
+                    }
+                    .foregroundStyle(.tertiary)
+                    .padding(.leading, 48).padding(.trailing, 14)
+                    .frame(height: 28)
+                }
+            }
+        }
+        if let note = ai.note {
+            Text(note).font(.system(size: 12)).foregroundStyle(.secondary)
+                .padding(.leading, 48).padding(.trailing, 14).padding(.vertical, 6)
+                .frame(maxWidth: .infinity, alignment: .leading)
+        }
+        Text("Any other AI (ChatGPT website, Gemini, Copilot…): use Copy my day.")
+            .font(.system(size: 12)).foregroundStyle(.secondary)
+            .padding(.leading, 48).padding(.trailing, 14).padding(.top, 2).padding(.bottom, 10)
+            .frame(maxWidth: .infinity, alignment: .leading)
+    }
+
+    private func row(_ c: AIClient) -> some View {
+        HStack(spacing: 10) {
+            AppIcon(client: c).frame(width: 18, height: 18)
+            Text(c.name).font(.system(size: 13))
+            Spacer()
+            if ai.busy == c.id {
+                ProgressView().controlSize(.small)
+            } else if c.connected {
+                Image(systemName: "checkmark").font(.system(size: 12, weight: .semibold)).foregroundStyle(.secondary)
+                Menu {
+                    Button("Disconnect") { ai.disconnect(c) }
+                } label: {
+                    Image(systemName: "ellipsis")
+                }
+                .menuStyle(.borderlessButton)
+                .menuIndicator(.hidden)
+                .fixedSize()
+                .help("More")
+            } else {
+                Button("Connect") { ai.connect(c) }.controlSize(.small).disabled(ai.busy != nil)
+            }
+        }
+        .padding(.leading, 48).padding(.trailing, 14)
+        .frame(height: 36)
+    }
+}
+
+/// The app's own icon when it can be found, else a plain symbol.
+private struct AppIcon: View {
+    let client: AIClient
+    var body: some View {
+        if let url = AIState.appURL(client) {
+            Image(nsImage: NSWorkspace.shared.icon(forFile: url.path)).resizable().interpolation(.high)
+        } else {
+            Image(systemName: "terminal").foregroundStyle(.secondary)
+        }
     }
 }
 

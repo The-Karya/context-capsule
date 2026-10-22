@@ -37,14 +37,15 @@ signed and checked, and install when you click **Restart now**.
 2. **Settings** opens the first time. Turn each step on, and it gets a ✓:
    - **Read your apps** (Mac): cleaner text, and window names, so projects are found by themselves.
    - **Voice notes** and **Dictation**, so you can talk.
-   - **Connect Claude**, in one click: the Claude app asks you to install Context Capsule.
+   - **Connect your AI**: click Connect next to Claude, Cursor, VS Code… (Claude asks you to install
+     Context Capsule). Any other AI, like ChatGPT or Gemini on the web, needs nothing: use **Copy my day**.
    - **Open at login**.
 3. **Start contextualizing** (⌥C) and pick your screen. The menu bar shows a red dot and a timer.
 4. Work. Any time, **Speak a note** (⌥V): say what you're doing and why. The menu bar shows a
    mic with bars that move with your voice. Press ⌥V again when done.
-5. At the end of the day, click **Make today's capsules**. Claude opens with the request typed
-   in; press Return.
-   Claude sorts your day into projects and writes the capsules.
+5. At the end of the day, click **Make today's capsules**. Your AI opens with the request (Claude: typed in,
+   press Return; other apps: paste it in a new chat). Your AI sorts your day into projects and writes the capsules.
+   With a website or any other AI: **Copy my day**, paste it in, copy its whole reply, then **Save from clipboard**.
 6. **Share** a capsule from **Capsules**: copy it into WhatsApp, Slack or email, or AirDrop it.
 
 ## The Context Capsule window
@@ -174,8 +175,9 @@ mcp/extension/build.sh          # the Claude extension (needs Node 18+ and bun)
 ```
 
 - **macOS 14+** (Xcode command line tools): `capture/build.sh`, then open
-  `capture/build/Context Capsule.app`. The Claude extension is bundled inside, so
-  Settings → Connect Claude installs it. `capture/package.sh` makes the disk image and zip.
+  `capture/build/Context Capsule.app`. The Claude extension and `context-capsule-mcp` (from
+  `mcp/dist-bin/`, when built) are bundled inside, so Settings → Connect your AI works.
+  `capture/package.sh` makes the disk image and zip.
 - **Windows 10/11:** `capture-rs\windows\build.ps1` (Rust, Visual Studio Build Tools, CMake,
   LLVM), or from a Mac `capture-rs/windows/cross-build.sh`. Keep `context-capsule.mcpb`
   next to the `.exe`. See [capture-rs/windows/README.md](capture-rs/windows/README.md).

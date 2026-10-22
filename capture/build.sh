@@ -75,15 +75,43 @@ PLIST
 EXT="../mcp/dist-ext/context-capsule.mcpb"
 if [ -f "$EXT" ]; then cp "$EXT" "$APP/Contents/Resources/"; else echo "note: $EXT not built; Connect to Claude will be missing"; fi
 
+# context-capsule-mcp, the one program for any AI (SPEC "Any AI"): Connect your AI, Copy my day, Save from clipboard.
+# Built in mcp/dist-bin/ as one universal binary, or one per arch (-arm64, -x64): pick what ARCHS needs.
+MCPBIN="../mcp/dist-bin/context-capsule-mcp-macos"
+HELPER="$APP/Contents/Resources/context-capsule-mcp"
+mcp_for() { # mcp_for <arch>: the binary for one arch, if there is one
+  case "$1" in arm64) f="$MCPBIN-arm64" ;; x86_64) f="$MCPBIN-x64" ;; *) f="" ;; esac
+  if [ -n "$f" ] && [ -f "$f" ]; then echo "$f"; fi
+}
+HAVE=""
+MISSING=""
+for arch in $ARCHS; do
+  f="$(mcp_for "$arch")"
+  if [ -n "$f" ]; then HAVE="$HAVE $f"; else MISSING="$MISSING $arch"; fi
+done
+if [ -f "$MCPBIN" ]; then
+  cp "$MCPBIN" "$HELPER"
+elif [ -z "$MISSING" ] && [ -n "$HAVE" ]; then
+  # shellcheck disable=SC2086
+  set -- $HAVE
+  if [ $# -eq 1 ]; then cp "$1" "$HELPER"; else lipo -create "$@" -output "$HELPER"; fi
+else
+  echo "warning: $MCPBIN not built (for:$MISSING); Connect your AI and Copy my day will be missing"
+fi
+[ -f "$HELPER" ] && chmod 755 "$HELPER"
+
 # Sign with a fixed local identity when there is one, so macOS keeps the Accessibility / Microphone
 # permissions across rebuilds (it ties them to the signature). Else ad-hoc (permissions reset on rebuild).
 # Make one with Keychain Access → Certificate Assistant → Create a Certificate (type: Code Signing),
 # named "Context Capsule Dev", or set CODESIGN_IDENTITY.
 IDENTITY="${CODESIGN_IDENTITY:-Context Capsule Dev}"
+# The helper program is signed first, with the same identity, so the app's signature covers a signed helper.
 if security find-certificate -c "$IDENTITY" >/dev/null 2>&1 \
+   && { [ ! -f "$HELPER" ] || codesign --force -s "$IDENTITY" --identifier com.thekarya.contextcapsule.mcp "$HELPER" 2>/dev/null; } \
    && codesign --force -s "$IDENTITY" --identifier com.thekarya.contextcapsule "$APP" 2>/dev/null; then
   echo "signed with \"$IDENTITY\""
 else
+  if [ -f "$HELPER" ]; then codesign --force -s - --identifier com.thekarya.contextcapsule.mcp "$HELPER"; fi
   codesign --force -s - --identifier com.thekarya.contextcapsule "$APP"
   echo "signed ad-hoc (permissions reset after each rebuild)"
 fi

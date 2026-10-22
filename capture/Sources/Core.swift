@@ -1583,3 +1583,183 @@ struct Shortcut: Equatable {
     /// The shortcuts in use now, for every text that names them.
     static var current = (record: defaultRecord, voice: defaultVoice)
 }
+
+// MARK: - Any AI (SPEC "Any AI"): the context-capsule-mcp program's answers, and which AI is yours
+
+/// One AI app from `context-capsule-mcp clients`.
+struct AIClient: Equatable {
+    var id: String
+    var name: String
+    var installed: Bool
+    var connected: Bool
+    /// "extension" (Claude: the .mcpb) or "config" (Context Capsule is written into the app's MCP settings).
+    var how: String
+    /// Optional extras, if the program gives them: the Mac app's bundle id or path, to open it.
+    var bundle: String? = nil
+    var app: String? = nil
+}
+
+/// Reading what `context-capsule-mcp` prints (JSON on stdout). Unknown keys are ignored; anything broken is an error.
+enum AIAnswer {
+    struct Connect: Equatable { var ok: Bool; var message: String; var how: String? }
+    struct Day: Equatable { var text: String; var chars: Int }
+    struct Saved: Equatable { var title: String; var path: String }
+    struct Refused: Equatable { var title: String; var why: String }
+    struct Save: Equatable { var saved: [Saved]; var refused: [Refused] }
+
+    enum Problem: Error, Equatable { case notJSON, missing(String) }
+
+    /// The JSON value in the output. Tolerates lines before it: takes from the first line starting with { or [.
+    static func json(_ data: Data) throws -> Any {
+        if let v = try? JSONSerialization.jsonObject(with: data) { return v }
+        let text = String(decoding: data, as: UTF8.self)
+        let lines = text.split(separator: "\n", omittingEmptySubsequences: false)
+        if let i = lines.firstIndex(where: { $0.hasPrefix("{") || $0.hasPrefix("[") }),
+           let v = try? JSONSerialization.jsonObject(with: Data(lines[i...].joined(separator: "\n").utf8)) { return v }
+        throw Problem.notJSON
+    }
+
+    static func clients(_ data: Data) throws -> [AIClient] {
+        let v = try json(data)
+        // `[...]`, or `{"clients": [...]}` just in case.
+        guard let list = (v as? [Any]) ?? ((v as? [String: Any])?["clients"] as? [Any]) else { throw Problem.missing("clients") }
+        return list.compactMap { item in
+            guard let o = item as? [String: Any], let id = o["id"] as? String, !id.isEmpty else { return nil }
+            return AIClient(id: id, name: (o["name"] as? String).flatMap { $0.isEmpty ? nil : $0 } ?? id,
+                            installed: o["installed"] as? Bool ?? false, connected: o["connected"] as? Bool ?? false,
+                            how: o["how"] as? String ?? "config",
+                            bundle: o["bundle"] as? String ?? o["bundle_id"] as? String, app: o["app"] as? String)
+        }
+    }
+
+    static func connect(_ data: Data) throws -> Connect {
+        guard let o = try json(data) as? [String: Any], let ok = o["ok"] as? Bool else { throw Problem.missing("ok") }
+        return Connect(ok: ok, message: o["message"] as? String ?? "", how: o["how"] as? String)
+    }
+
+    static func day(_ data: Data) throws -> Day {
+        guard let o = try json(data) as? [String: Any], let text = o["text"] as? String else { throw Problem.missing("text") }
+        return Day(text: text, chars: (o["chars"] as? NSNumber)?.intValue ?? text.count)
+    }
+
+    static func save(_ data: Data) throws -> Save {
+        guard let o = try json(data) as? [String: Any], o["saved"] != nil || o["refused"] != nil else { throw Problem.missing("saved") }
+        let saved = (o["saved"] as? [[String: Any]] ?? []).map {
+            Saved(title: ($0["title"] as? String).flatMap { $0.isEmpty ? nil : $0 } ?? "Untitled", path: $0["path"] as? String ?? "")
+        }
+        let refused = (o["refused"] as? [[String: Any]] ?? []).map {
+            Refused(title: ($0["title"] as? String).flatMap { $0.isEmpty ? nil : $0 } ?? "Untitled",
+                    why: $0["why"] as? String ?? "")
+        }
+        return Save(saved: saved, refused: refused)
+    }
+
+    /// Settings → Connect your AI: installed apps first (Claude first among them), then by name.
+    static func sorted(_ list: [AIClient]) -> [AIClient] {
+        list.sorted { a, b in
+            if a.installed != b.installed { return a.installed }
+            if (a.id == "claude") != (b.id == "claude") { return a.id == "claude" }
+            return a.name.localizedCaseInsensitiveCompare(b.name) == .orderedAscending
+        }
+    }
+}
+
+/// "Your AI" (config.json "ai"): an id from `clients`, a known website, or "any" for any other AI.
+enum YourAI: Equatable {
+    case claude
+    case app(String)          // another app connected through MCP (Cursor, VS Code…)
+    case website(String, URL) // ChatGPT or Gemini on the web: Copy my day, then their site opens
+    case other                // any other AI: Copy my day
+
+    static let anyID = "any"
+    static let websites: [(id: String, name: String, url: URL)] = [
+        ("chatgpt-web", "ChatGPT (website)", URL(string: "https://chatgpt.com")!),
+        ("gemini-web", "Gemini (website)", URL(string: "https://gemini.google.com")!),
+    ]
+
+    /// The id in use: the saved one, else Claude if it's connected, else the first connected app, else "any".
+    /// A saved app id the program doesn't list (any more) falls back the same way; with no list yet it is kept.
+    static func resolve(saved: String?, clients: [AIClient]) -> String {
+        if let s = saved?.trimmingCharacters(in: .whitespaces), !s.isEmpty {
+            if s == anyID || websites.contains(where: { $0.id == s }) || clients.isEmpty || clients.contains(where: { $0.id == s }) {
+                return s
+            }
+        }
+        if clients.contains(where: { $0.id == "claude" && $0.connected }) { return "claude" }
+        return clients.first(where: \.connected)?.id ?? anyID
+    }
+
+    static func of(_ id: String) -> YourAI {
+        if id == "claude" { return .claude }
+        if id == anyID || id.isEmpty { return .other }
+        if let w = websites.first(where: { $0.id == id }) { return .website(id, w.url) }
+        return .app(id)
+    }
+
+    /// Copy my day / Save from clipboard is the way (no MCP).
+    var usesCopy: Bool {
+        switch self { case .website, .other: return true; case .claude, .app: return false }
+    }
+
+    /// config.json "ai" (nil when not set).
+    static func saved(in url: URL) -> String? {
+        guard let data = try? Data(contentsOf: url), let obj = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+              let s = obj["ai"] as? String, !s.trimmingCharacters(in: .whitespaces).isEmpty else { return nil }
+        return s
+    }
+
+    /// The line shown after Copy my day.
+    static let pasteLine = "Paste it into your AI. When it answers, copy its whole reply, then click Save from clipboard."
+
+    /// What Save from clipboard says: a title, then what was saved and what wasn't (and why).
+    static func summary(_ r: AIAnswer.Save) -> (title: String, detail: String) {
+        let n = r.saved.count
+        if n == 0 && r.refused.isEmpty {
+            return ("No capsules found",
+                    "The clipboard has no capsule in it. Copy your AI's whole reply, then click Save from clipboard again.")
+        }
+        let title = n == 0 ? "Nothing was saved" : "Saved \(n) capsule\(n == 1 ? "" : "s")"
+        var lines: [String] = r.saved.map { "✓ \($0.title)" }
+        if !r.refused.isEmpty {
+            if !lines.isEmpty { lines.append("") }
+            lines.append("Not saved:")
+            lines += r.refused.map { $0.why.isEmpty ? "• \($0.title)" : "• \($0.title): \($0.why)" }
+        }
+        return (title, lines.joined(separator: "\n"))
+    }
+}
+
+/// Where the context-capsule-mcp program is: inside the app, else (developing) in the repo's mcp/ folder.
+enum AIProgram {
+    enum Launch: Equatable { case binary(String), node(script: String) }
+
+    /// `resources`: the app's Contents/Resources; `repos`: folders that may be the repo root (nearest first).
+    static func find(resources: String?, repos: [String], exists: (String) -> Bool) -> Launch? {
+        if let r = resources {
+            let p = (r as NSString).appendingPathComponent("context-capsule-mcp")
+            if exists(p) { return .binary(p) }
+        }
+        for root in repos {
+            let bin = (root as NSString).appendingPathComponent("mcp/dist-bin/context-capsule-mcp-macos")
+            if exists(bin) { return .binary(bin) }
+        }
+        for root in repos {
+            let js = (root as NSString).appendingPathComponent("mcp/dist/index.js")
+            if exists(js) { return .node(script: js) }
+        }
+        return nil
+    }
+
+    /// The repo roots to try for an app at `appPath` (…/capture/build/Context Capsule.app → …), then `cwd` and its parent.
+    static func repoCandidates(appPath: String, cwd: String) -> [String] {
+        var out: [String] = []
+        var dir = (appPath as NSString).deletingLastPathComponent
+        for _ in 0..<4 {
+            out.append(dir)
+            dir = (dir as NSString).deletingLastPathComponent
+        }
+        out += [cwd, (cwd as NSString).deletingLastPathComponent]
+        var seen = Set<String>()
+        return out.filter { seen.insert($0).inserted }
+    }
+}

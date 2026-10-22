@@ -44,6 +44,26 @@ if [ -n "$DEVELOPER_ID" ]; then
 </dict>
 </plist>
 PLIST
+  # The context-capsule-mcp helper (a Bun-compiled program): its JavaScript engine needs these under the hardened runtime.
+  HELPER="$APP/Contents/Resources/context-capsule-mcp"
+  if [ -f "$HELPER" ]; then
+    HENT="build/helper-entitlements.plist"
+    cat > "$HENT" <<PLIST
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+  <key>com.apple.security.cs.allow-jit</key><true/>
+  <key>com.apple.security.cs.allow-unsigned-executable-memory</key><true/>
+  <key>com.apple.security.cs.disable-executable-page-protection</key><true/>
+  <key>com.apple.security.cs.allow-dyld-environment-variables</key><true/>
+  <key>com.apple.security.cs.disable-library-validation</key><true/>
+</dict>
+</plist>
+PLIST
+    codesign --force --options runtime --timestamp --entitlements "$HENT" \
+      -s "$DEVELOPER_ID" --identifier com.thekarya.contextcapsule.mcp "$HELPER"
+  fi
   codesign --force --options runtime --timestamp --entitlements "$ENT" \
     -s "$DEVELOPER_ID" --identifier com.thekarya.contextcapsule "$APP"
   echo "signed with \"$DEVELOPER_ID\" (hardened runtime)"

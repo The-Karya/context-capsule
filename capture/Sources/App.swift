@@ -41,6 +41,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     }
     private let updatePrompt = UpdatePrompt()
     private let updateItem = NSMenuItem(title: "Check for Updates", action: #selector(updateClicked), keyEquivalent: "")
+    /// Shown when Your AI is a website or any other AI: save the capsules in its copied reply.
+    private let saveReplyItem = NSMenuItem(title: "Save from clipboard", action: #selector(saveFromClipboard), keyEquivalent: "")
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         // Run from the disk image or Downloads: offer once to move to Applications (it then reopens from there).
@@ -64,6 +66,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         menu.addItem(.separator())
         menu.addItem(NSMenuItem(title: "Open Context Capsule", action: #selector(showMain), keyEquivalent: "o"))
         menu.addItem(NSMenuItem(title: "Make today's capsules", action: #selector(makeCapsules), keyEquivalent: ""))
+        menu.addItem(saveReplyItem)
         menu.addItem(.separator())
         menu.addItem(updateItem)
         menu.addItem(NSMenuItem(title: "Quit", action: #selector(NSApplication.terminate(_:)), keyEquivalent: "q"))
@@ -87,6 +90,19 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
             guard let self else { return }
             self.toast.show(text, under: self.statusItem.button, seconds: 4)
         }
+        let ai = AIState.shared
+        ai.configURL = paths.config
+        ai.toast = { [weak self] text in
+            guard let self else { return }
+            self.toast.show(text, under: self.statusItem.button, seconds: 8)
+        }
+        ai.onSaved = { [weak self] in
+            guard let self else { return }
+            self.main.library.reload()
+            self.main.refreshStats()
+        }
+        ai.onChange = { [weak self] in self?.refresh() }
+        ai.refresh()
         recorder.onNeedsScreenRecording = { [weak self] in self?.askScreenRecording() }
         recorder.onAlreadyShared = { [weak self] in
             guard let self else { return }
@@ -117,7 +133,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
             switch cmd.kind {
             case .start: self?.recorder.start()
             case .stop:
-                if self?.recorder.isRecording == true { AppLog.shared.write("stop: control file (Claude / MCP)") }
+                if self?.recorder.isRecording == true { AppLog.shared.write("stop: control file (your AI / MCP)") }
                 self?.recorder.stop()
             case .note: if let text = cmd.text { self?.recorder.addTypedNote(text, at: cmd.at) }
             case .project: self?.recorder.pinProject(cmd.project == "auto" ? nil : cmd.project)
@@ -207,16 +223,19 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
 
 
 
-    /// Opens the Claude app with "Make my capsules for today." typed in; stop recording first if it's on.
+    /// Make today's capsules with your AI (Claude with the request typed in, another app with it on the clipboard,
+    /// or Copy my day); stop recording first if it's on.
     @objc private func makeCapsules() {
         if recorder.isRecording && !recorder.listening {
             AppLog.shared.write("stop: make today's capsules")
             recorder.stop()
         }
-        Claude.makeTodaysCapsules()
+        AIState.shared.makeTodaysCapsules()
     }
 
-    /// A capsule someone sent, opened with Context Capsule (Finder → Open With): Claude carries on from it.
+    @objc private func saveFromClipboard() { AIState.shared.saveFromClipboard() }
+
+    /// A capsule someone sent, opened with Context Capsule (Finder → Open With): your AI carries on from it.
     /// At launch this can come before applicationDidFinishLaunching, so it waits a turn.
     func application(_ application: NSApplication, open urls: [URL]) {
         let files = urls.filter(\.isFileURL)
@@ -267,6 +286,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         toggleItem.title = recording ? "Stop contextualizing" : recorder.isPicking ? "Cancel" : "Start contextualizing"
         axItem.state = AXReader.trusted ? .on : .off
         updateItem.title = updater.readyVersion != nil ? "Restart to Update" : "Check for Updates"
+        saveReplyItem.isHidden = !AIState.shared.kind.usesCopy
     }
 
     /// What the window shows (it updates live while open).
@@ -387,7 +407,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     }
 
     /// "What are you working on?": pick a project or type a new name (prefilled from the window); the window's
-    /// clue is remembered so it's found automatically next time. "Not sure" leaves it for Claude to sort.
+    /// clue is remembered so it's found automatically next time. "Not sure" leaves it for your AI to sort.
     private func askProject(_ window: (title: String, location: String, app: String)) {
         guard recorder.isRecording, !recorder.listening else { return }
         let clue = Projects.clue(title: window.title, location: window.location)

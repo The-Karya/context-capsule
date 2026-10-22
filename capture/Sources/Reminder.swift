@@ -1,4 +1,4 @@
-// context-capsule — capture: the evening "Make today's capsules?" box (one click opens Claude with the request
+// context-capsule — capture: the evening "Make today's capsules?" box (one click does it with your AI: opens it with the request
 // typed in) and the clean-up of old raw recordings. Capsules are never deleted.
 
 import AppKit

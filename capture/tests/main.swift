@@ -946,5 +946,77 @@ check(clash.record != clash.voice, "never the same twice", "\(clash)")
 check(Shortcut.load(from: URL(fileURLWithPath: "/nonexistent/none.json")) == (Shortcut.defaultRecord, Shortcut.defaultVoice), "defaults")
 try? FileManager.default.removeItem(at: keysURL)
 
+// MARK: any AI (context-capsule-mcp answers, Your AI)
+
+let clientsJSON = Data(#"""
+[{"id":"claude","name":"Claude","installed":true,"connected":false,"how":"extension"},
+ {"id":"cursor","name":"Cursor","installed":true,"connected":true,"how":"config","extra":1},
+ {"id":"windsurf","name":"Windsurf","installed":false,"connected":false,"how":"config"},
+ {"id":"vscode","name":"VS Code","installed":true,"connected":false,"how":"config"},
+ {"name":"no id"}]
+"""#.utf8)
+let clients = (try? AIAnswer.clients(clientsJSON)) ?? []
+check(clients.count == 4, "clients: entries without an id are skipped", "\(clients.count)")
+check(clients.first == AIClient(id: "claude", name: "Claude", installed: true, connected: false, how: "extension"), "clients: fields read")
+check(AIAnswer.sorted(clients).map(\.id) == ["claude", "cursor", "vscode", "windsurf"], "installed first, Claude first, then by name",
+      "\(AIAnswer.sorted(clients).map(\.id))")
+check((try? AIAnswer.clients(Data("note: starting\n[{\"id\":\"x\"}]\n".utf8)))?.first?.name == "x",
+      "a line before the JSON is skipped; a missing name is the id")
+check((try? AIAnswer.clients(Data("oops".utf8))) == nil, "not JSON is an error")
+check((try? AIAnswer.clients(Data(#"{"ok":true}"#.utf8))) == nil, "clients must be a list")
+
+check((try? AIAnswer.connect(Data(#"{"ok":true,"message":"Connected. Restart Cursor."}"#.utf8)))
+      == AIAnswer.Connect(ok: true, message: "Connected. Restart Cursor.", how: nil), "connect answer")
+check((try? AIAnswer.connect(Data(#"{"ok":false,"how":"extension"}"#.utf8)))?.how == "extension", "connect claude: extension")
+check((try? AIAnswer.connect(Data(#"{"message":"x"}"#.utf8))) == nil, "connect without ok is an error")
+
+check((try? AIAnswer.day(Data(#"{"text":"hello","chars":5}"#.utf8))) == AIAnswer.Day(text: "hello", chars: 5), "day answer")
+check((try? AIAnswer.day(Data(#"{"chars":5}"#.utf8))) == nil, "day without text is an error")
+
+let saveJSON = Data(#"""
+{"saved":[{"title":"Pricing page","path":"/x/a.capsule.md"}],"refused":[{"title":"Hiring","why":"missing ## Next steps"},{"why":"not a capsule"}]}
+"""#.utf8)
+let saved = try? AIAnswer.save(saveJSON)
+check(saved?.saved == [AIAnswer.Saved(title: "Pricing page", path: "/x/a.capsule.md")], "save: saved")
+check(saved?.refused == [AIAnswer.Refused(title: "Hiring", why: "missing ## Next steps"), AIAnswer.Refused(title: "Untitled", why: "not a capsule")],
+      "save: refused, with reasons")
+let sum = YourAI.summary(saved!)
+check(sum.title == "Saved 1 capsule" && sum.detail.contains("✓ Pricing page") && sum.detail.contains("Hiring: missing ## Next steps"),
+      "save summary", sum.detail)
+check(YourAI.summary(AIAnswer.Save(saved: [], refused: [])).title == "No capsules found", "nothing in the clipboard")
+check(YourAI.summary(AIAnswer.Save(saved: [], refused: [AIAnswer.Refused(title: "A", why: "b")])).title == "Nothing was saved",
+      "all refused")
+check((try? AIAnswer.save(Data(#"{"ok":true}"#.utf8))) == nil, "save without saved/refused is an error")
+
+check(YourAI.resolve(saved: nil, clients: clients) == "cursor", "default: the first connected app when Claude isn't")
+var claudeOn = clients; claudeOn[0].connected = true
+check(YourAI.resolve(saved: nil, clients: claudeOn) == "claude", "default: Claude when connected")
+check(YourAI.resolve(saved: nil, clients: clients.map { var c = $0; c.connected = false; return c }) == "any", "default: any")
+check(YourAI.resolve(saved: nil, clients: []) == "any", "no list: any")
+check(YourAI.resolve(saved: "vscode", clients: clients) == "vscode", "saved choice kept")
+check(YourAI.resolve(saved: "gemini-web", clients: clients) == "gemini-web", "a website")
+check(YourAI.resolve(saved: "gone", clients: clients) == "cursor", "an app no longer listed falls back")
+check(YourAI.resolve(saved: "gone", clients: []) == "gone", "with no list yet, the saved one is kept")
+check(YourAI.of("claude") == .claude && YourAI.of("any") == .other && YourAI.of("cursor") == .app("cursor"), "kinds")
+check(YourAI.of("chatgpt-web") == .website("chatgpt-web", URL(string: "https://chatgpt.com")!), "ChatGPT website")
+check(YourAI.of("gemini-web").usesCopy && YourAI.of("any").usesCopy && !YourAI.of("claude").usesCopy && !YourAI.of("cursor").usesCopy,
+      "Copy my day for websites and any")
+let aiCfg = FileManager.default.temporaryDirectory.appendingPathComponent("cc-ai-\(getpid()).json")
+try! #"{"ai": "gemini-web"}"#.write(to: aiCfg, atomically: true, encoding: .utf8)
+check(YourAI.saved(in: aiCfg) == "gemini-web", "config.json ai")
+try! #"{"ai": " "}"#.write(to: aiCfg, atomically: true, encoding: .utf8)
+check(YourAI.saved(in: aiCfg) == nil, "empty ai = not set")
+try? FileManager.default.removeItem(at: aiCfg)
+
+let have: Set<String> = ["/repo/mcp/dist-bin/context-capsule-mcp-macos", "/repo/mcp/dist/index.js", "/R/context-capsule-mcp"]
+check(AIProgram.find(resources: "/R", repos: ["/repo"], exists: have.contains) == .binary("/R/context-capsule-mcp"), "inside the app first")
+check(AIProgram.find(resources: "/none", repos: ["/x", "/repo"], exists: have.contains)
+      == .binary("/repo/mcp/dist-bin/context-capsule-mcp-macos"), "then the built binary")
+check(AIProgram.find(resources: nil, repos: ["/repo"], exists: { $0.hasSuffix(".js") }) == .node(script: "/repo/mcp/dist/index.js"),
+      "then node")
+check(AIProgram.find(resources: nil, repos: ["/repo"], exists: { _ in false }) == nil, "none")
+let roots = AIProgram.repoCandidates(appPath: "/r/capture/build/Context Capsule.app", cwd: "/r")
+check(roots.prefix(3) == ["/r/capture/build", "/r/capture", "/r"] && Set(roots).count == roots.count, "repo roots", "\(roots)")
+
 print("\(passes) passed, \(failures) failed")
 exit(failures == 0 ? 0 : 1)

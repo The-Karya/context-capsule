@@ -1,6 +1,7 @@
 // context-capsule — capture: the Context Capsule window — one place for everything: Home (start/stop, speak a note,
-// add a screen, project, make today's capsules), Capsules (search, Ask Claude, open a capsule someone sent), Projects,
-// Settings (setup and preferences) and Help. Capsule files dropped on the window are opened in Claude.
+// add a screen, project, make today's capsules), Capsules (search, Ask your AI, open a capsule someone sent, Copy my day /
+// Save from clipboard), Projects, Settings (setup, Connect your AI, Your AI, preferences) and Help. Capsule files
+// dropped on the window are opened in your AI.
 // Plain native look with a sidebar, like System Settings.
 
 import AppKit
@@ -88,6 +89,7 @@ struct MainView: View {
     @ObservedObject var nav: Navigation
     @ObservedObject var setup: SetupStatus
     @ObservedObject var prefs: Preferences
+    @ObservedObject var ai = AIState.shared
 
     var body: some View {
         NavigationSplitView {
@@ -107,11 +109,11 @@ struct MainView: View {
                 ScrollView {
                     VStack(alignment: .leading, spacing: nav.section == .home ? 24 : 8) {
                         switch nav.section ?? .home {
-                        case .home: HomeView(app: app, nav: nav, wide: geo.size.width > 900)
-                        case .capsules: CapsulesView(library: library, app: app)
+                        case .home: HomeView(app: app, nav: nav, ai: ai, wide: geo.size.width > 900)
+                        case .capsules: CapsulesView(library: library, app: app, ai: ai)
                         case .projects: ProjectsView(library: library)
-                        case .settings: SettingsView(status: setup, prefs: prefs, app: app)
-                        case .help: HelpView(app: app)
+                        case .settings: SettingsView(status: setup, prefs: prefs, app: app, ai: ai)
+                        case .help: HelpView(app: app, ai: ai)
                         }
                     }
                     .environment(\.captionGap, nav.section == .home ? 0 : 16)
@@ -128,7 +130,7 @@ struct MainView: View {
         }
         .frame(minWidth: 760, minHeight: 540)
         .onAppear { library.reload() }
-        // A capsule someone sent, dropped on the window: Claude carries on from it.
+        // A capsule someone sent, dropped on the window: your AI carries on from it.
         .dropDestination(for: URL.self) { urls, _ in
             guard let url = urls.first(where: \.isFileURL) else { return false }
             DispatchQueue.main.async { Claude.continueFrom(url) }
@@ -236,6 +238,7 @@ private struct Stat: View {
 private struct HomeView: View {
     @ObservedObject var app: AppModel
     @ObservedObject var nav: Navigation
+    @ObservedObject var ai: AIState
     var wide = false
 
     private var greeting: String {
@@ -395,10 +398,29 @@ private struct HomeView: View {
         Panel {
             VStack(alignment: .leading, spacing: 10) {
                 Text("Make today's capsules").font(.system(size: 14, weight: .semibold))
-                Text("Claude opens with the request typed in. Press Return.").font(.system(size: 12)).foregroundStyle(.secondary)
-                Button(action: app.makeCapsules) { Text("Make capsules").frame(maxWidth: .infinity) }
-                    .controlSize(.large)
-                    .buttonStyle(.borderedProminent)
+                if ai.kind.usesCopy {
+                    Text(ai.dayLine ?? "Copy your day, paste it into \(ai.choiceName), then save its reply here.")
+                        .font(.system(size: 12)).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
+                    Button(action: app.makeCapsules) { Text("Copy my day").frame(maxWidth: .infinity) }
+                        .controlSize(.large)
+                        .buttonStyle(.borderedProminent)
+                        .disabled(ai.working)
+                    Button(action: ai.saveFromClipboard) { Text("Save from clipboard").frame(maxWidth: .infinity) }
+                        .controlSize(.large)
+                        .disabled(ai.working)
+                } else {
+                    Text(ai.kind == .claude ? "Claude opens with the request typed in. Press Return."
+                                            : "\(ai.choiceName) opens. Paste the request in a new chat.")
+                        .font(.system(size: 12)).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
+                    Button(action: app.makeCapsules) { Text("Make capsules").frame(maxWidth: .infinity) }
+                        .controlSize(.large)
+                        .buttonStyle(.borderedProminent)
+                }
+                HStack(spacing: 4) {
+                    Text("Your AI: \(ai.kind == .other ? "any AI" : ai.choiceName)")
+                    Button("Change") { nav.section = .settings }.buttonStyle(.link)
+                }
+                .font(.system(size: 12)).foregroundStyle(.secondary)
             }
             .padding(16)
         }
@@ -425,6 +447,7 @@ private struct HomeView: View {
 private struct CapsulesView: View {
     @ObservedObject var library: LibraryModel
     @ObservedObject var app: AppModel
+    @ObservedObject var ai: AIState
 
     private var empty: Bool { library.query.trimmingCharacters(in: .whitespaces).isEmpty }
 
@@ -433,21 +456,30 @@ private struct CapsulesView: View {
             Title(text: "Capsules")
             Spacer()
             Button("Open a capsule…", action: Claude.pickCapsule)
-                .help("Open a capsule someone sent you. Claude carries on from it.")
+                .help("Open a capsule someone sent you. Your AI carries on from it.")
             Button("Make today's capsules", action: app.makeCapsules)
         }
         HStack(spacing: 8) {
             SearchField(text: $library.query, prompt: "Search your capsules")
-            Button("Ask Claude") { Claude.ask(library.query) }
+            Button(ai.kind == .claude ? "Ask Claude" : "Ask your AI") { Claude.ask(library.query) }
                 .disabled(empty)
-                .help("Claude searches all your capsules for this.")
+                .help("Your AI searches all your capsules for this.")
+        }
+        HStack(spacing: 8) {
+            Text(ai.dayLine ?? "Using an AI on the web, or any other AI?")
+                .font(.system(size: 12)).foregroundStyle(.secondary).lineLimit(2)
+            Spacer()
+            Button("Copy my day", action: ai.copyMyDay).disabled(ai.working)
+                .help("Copies today's work as one message to paste into any AI.")
+            Button("Save from clipboard", action: ai.saveFromClipboard).disabled(ai.working)
+                .help("Saves the capsules in your AI's reply. Copy its whole reply first.")
         }
         .padding(.bottom, 4)
         if library.capsules.isEmpty {
             Text("No capsules yet. Start contextualizing (\(app.recordKey)), then make today's capsules.")
                 .font(.system(size: 13)).foregroundStyle(.secondary)
         } else if library.groups.isEmpty {
-            Text("No titles match. Ask Claude to look inside every capsule.")
+            Text("No titles match. Ask your AI to look inside every capsule.")
                 .font(.system(size: 13)).foregroundStyle(.secondary)
         } else {
             ForEach(library.groups, id: \.title) { group in
@@ -506,7 +538,7 @@ private struct ProjectsView: View {
         Text("Work is sorted into these by itself, from words in window names and web addresses.")
             .font(.system(size: 13)).foregroundStyle(.secondary)
         if library.projects.isEmpty {
-            Text("No projects yet. Claude makes them when it sorts your day.")
+            Text("No projects yet. Your AI makes them when it sorts your day.")
                 .font(.system(size: 13)).foregroundStyle(.secondary)
         } else {
             Panel {
@@ -643,6 +675,7 @@ private struct SettingsView: View {
     @ObservedObject var status: SetupStatus
     @ObservedObject var prefs: Preferences
     @ObservedObject var app: AppModel
+    @ObservedObject var ai: AIState
 
     private func row<Content: View>(_ title: String, @ViewBuilder _ control: () -> Content) -> some View {
         HStack {
@@ -683,14 +716,33 @@ private struct SettingsView: View {
                     help: "Apple needs it for voice notes. Scroll down to Dictation and switch it on.",
                     button: "Turn On") { Setup.openSettings(Setup.keyboardPane) }
             Divider().padding(.leading, 48)
-            StepRow(icon: "link", done: status.claude, title: "Connect Claude",
-                    help: "Lets Claude start contextualizing and write your capsules.",
-                    button: "Connect") { ClaudeConnect.connect() }
+            ConnectAIRows(ai: ai, done: status.ai)
             Divider().padding(.leading, 48)
             StepRow(icon: "power", done: status.atLogin, title: "Open at login",
                     help: "Always ready in the menu bar.",
                     button: "Turn On") { Setup.setLaunchAtLogin(true); status.refresh() }
         }
+
+        Caption(text: "Your AI")
+        Panel {
+            row("Make today's capsules with") {
+                Picker("", selection: Binding(get: { ai.choice }, set: { ai.setChoice($0) })) {
+                    ForEach(ai.clients.filter { $0.installed || $0.id == ai.choice }, id: \.id) { c in
+                        Text(c.connected ? c.name : "\(c.name) (not connected)").tag(c.id)
+                    }
+                    if !ai.clients.contains(where: { $0.id == ai.choice }) && YourAI.of(ai.choice) == .app(ai.choice) {
+                        Text(ai.choice).tag(ai.choice)
+                    }
+                    Divider()
+                    ForEach(YourAI.websites, id: \.id) { w in Text(w.name).tag(w.id) }
+                    Text("Any other AI").tag(YourAI.anyID)
+                }
+                .labelsHidden().frame(width: 240)
+            }
+        }
+        Text(ai.kind.usesCopy ? "Make today's capsules copies your day to paste into \(ai.choiceName), then you save its reply."
+                              : "Make today's capsules opens \(ai.choiceName) with the request.")
+            .font(.system(size: 12)).foregroundStyle(.secondary).padding(.leading, 4)
 
         Caption(text: "Shortcuts")
         Panel {
@@ -869,6 +921,7 @@ private struct ShortcutRow: View {
 
 private struct HelpView: View {
     @ObservedObject var app: AppModel
+    @ObservedObject var ai: AIState
 
     private func line(_ keys: String, _ text: String) -> some View {
         HStack {
@@ -888,14 +941,15 @@ private struct HelpView: View {
             Divider().padding(.leading, 14)
             line(app.voiceKey, "Speak a note, then again when done")
             Divider().padding(.leading, 14)
-            line("in Claude", "Make my capsules for today")
+            line(ai.kind.usesCopy ? "Copy my day" : "in your AI", "Make my capsules for today")
         }
         Caption(text: "How it works")
         Panel {
             VStack(alignment: .leading, spacing: 8) {
                 Text("While you work, Context Capsule saves the text of the screen you picked, and what you say in voice notes.")
-                Text("At the end of the day, Claude sorts it into projects and writes a capsule for each: what you did, what you decided and why, and what's next.")
-                Text("Send a capsule to anyone. Their Claude reads it and can carry on your work.")
+                Text("At the end of the day, your AI sorts it into projects and writes a capsule for each: what you did, what you decided and why, and what's next.")
+                Text("Any AI works. Apps like Claude or Cursor connect in Settings. For any other AI, such as a website: Copy my day, paste it in, then Save from clipboard.")
+                Text("Send a capsule to anyone. Their AI reads it and can carry on your work.")
             }
             .font(.system(size: 13))
             .padding(14)
@@ -906,7 +960,7 @@ private struct HelpView: View {
                 Text("Recordings stay on this Mac. No account, no cloud.")
                 Text("Only text is saved: no screenshots, no audio.")
                 Text("Password managers, WhatsApp, Signal and password fields are never recorded.")
-                Text("Text goes to Claude only when you ask Claude to make or read a capsule.")
+                Text("Text goes to your AI only when you ask it to make or read a capsule, or paste your day into it yourself.")
             }
             .font(.system(size: 13))
             .padding(14)
