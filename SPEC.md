@@ -376,3 +376,17 @@ with import_capsule / continue_from_capsule). Not a capsule: a short message, no
 The Capsules page has a search field (filters titles and "In short" as you type) and **Ask Claude**, which
 opens Claude with: `Use Context Capsule to search my capsules: <question>`. Claude uses the `search_capsules`
 tool (mcp/), which ranks every saved capsule section by the question's words and cites capsule, date and section.
+
+## Your own shortcuts (all recorders)
+
+config.json `"hotkeys": {"record": "Alt+C", "voice": "Alt+V"}` (missing = these defaults). A shortcut is
+modifiers then one key, joined by `+`: modifiers `Ctrl`, `Alt` (Option on a Mac), `Shift`, `Cmd` (Mac only);
+the key is `A`–`Z`, `0`–`9` or `F1`–`F12`. It needs at least one of Ctrl / Alt / Cmd (F-keys may stand alone).
+Written in this order: Ctrl, Alt, Shift, Cmd. The Mac shows them as ⌃ ⌥ ⇧ ⌘ (e.g. `⌥C`), Windows and Linux as
+written (`Alt+C`).
+
+Settings → **Shortcuts**: "Start or stop" and "Speak a note", each a button showing the shortcut. Click it, press
+the new keys (Esc cancels), and it's saved and used at once. Refused, with a short line under the row: the same
+keys as the other shortcut ("Already used for Speak a note"), keys without Ctrl/Alt/Cmd ("Add Ctrl, Alt or ⌘"),
+or keys another app already has ("Another app uses these keys") — then the old shortcut stays. "Reset" puts back
+the defaults. Every place that names a shortcut (Home, Help, the menu / tray, messages) shows the current one.
