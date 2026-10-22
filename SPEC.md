@@ -388,7 +388,7 @@ written (`Alt+C`).
 
 Settings → **Shortcuts**: "Start or stop" and "Speak a note", each a button showing the shortcut. Click it, press
 the new keys (Esc cancels), and it's saved and used at once. Refused, with a short line under the row: the same
-keys as the other shortcut ("Already used for Speak a note"), keys without Ctrl/Alt/Cmd ("Add Ctrl, Alt or ⌘"),
+keys as the other shortcut ("Already used for Speak a note"), keys without Ctrl/Alt/Cmd ("Add Ctrl, Alt or ⌘"; Windows and Linux: "Add Ctrl or Alt"),
 or keys another app already has ("Another app uses these keys") — then the old shortcut stays. "Reset" puts back
 the defaults. Every place that names a shortcut (Home, Help, the menu / tray, messages) shows the current one.
 
