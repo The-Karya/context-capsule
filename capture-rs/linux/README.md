@@ -2,7 +2,8 @@
 
 A tray app for GNOME and KDE (Wayland first, X11 too). Press **Alt+C**: the
 desktop's screen-sharing dialog opens. Pick a window or a screen and recording starts;
-close the dialog to cancel. Press Alt+C again to stop.
+close the dialog to cancel. Press Alt+C again to stop. (Alt+C and Alt+V are the default shortcuts; you can
+pick your own in Settings → Shortcuts, see [Hotkeys](#hotkeys).)
 
 **All my screens** (Settings → Every day → When you start, `"share_screens": "all"` in config.json):
 Alt+C asks the ScreenCast portal for monitors only, several at once (`SelectSources` with
@@ -56,7 +57,7 @@ system accent color.
   contextualizing / Stop / Cancel, and while recording Speak a note and Add a screen, with the running
   time; when idle, *Pick the screen or window you work on. Only that is read.* or, with All my screens,
   *Shares all your screens. Private apps are never read.*); today's time per project; the three newest capsules. On the side (under it when the window is
-  narrow): the shortcuts, **Working on** (Find by itself, each project, New project), and
+  narrow): the shortcuts (the current ones), **Working on** (Find by itself, each project, New project), and
   **Make today's capsules** (opens Claude with the request typed in).
 - **Capsules** — by project; Open, and Copy file / Copy text / Save a copy… / Show in folder. A search
   box filters by title and *In short* as you type; **Ask Claude** (or Enter; off while the box is
@@ -73,10 +74,11 @@ system accent color.
 - **Settings** — your name; Set up (Voice notes: the speech model, downloaded only after you say
   yes; Connect Claude; Open at login), each with a check mark when done; Every day (When you start:
   *Pick a screen or window* or *All my screens*, `share_screens`; reminder and its time, deleting old
-  recordings, sounds); the voice notes' language; Never record (apps, picked from the
+  recordings, sounds); **Shortcuts** (*Start or stop* and *Speak a note*, each a button with its keys,
+  and Reset; see [Hotkeys](#hotkeys)); the voice notes' language; Never record (apps, picked from the
   installed ones; stored as their desktop id, e.g. `org.gnome.Calculator`); Appearance (System, Light,
   Dark); Updates (Update automatically, the version, Check for updates). Every change is saved at once.
-- **Help** — shortcuts, how it works, privacy.
+- **Help** — shortcuts (the current ones), how it works, privacy.
 
 Raw recordings are never shown: only time per project, counts and capsules.
 
@@ -201,12 +203,32 @@ Data lives in `$XDG_DATA_HOME/context-capsule` when `XDG_DATA_HOME` is set, else
 - **Alt+C** — start (opens the dialog) / cancel the dialog / stop.
 - **Alt+V** — start / finish a voice note (only while recording).
 
-The same keys as the Mac's ⌥C / ⌥V.
+The same keys as the Mac's ⌥C / ⌥V. These are the defaults.
 
-Wayland: through the GlobalShortcuts portal (GNOME 48+, KDE Plasma 6); the desktop may ask
-you once to confirm them, and you can change them in its keyboard settings. X11: grabbed
-directly. If neither works the log says so; if another app holds a key, a message says so
-once. Either way the tray menu still works.
+**Your own shortcuts**: Settings → Shortcuts has *Start or stop* and *Speak a note*, each a button with
+its keys. Click one, press the new keys (Esc cancels); it's saved to config.json (`"hotkeys": {"record":
+"Alt+C", "voice": "Alt+V"}`) and used at once. A shortcut is Ctrl / Alt / Shift then a letter, a digit or
+F1–F12, and needs Ctrl or Alt (F-keys may stand alone). Refused, with a short line under the row, and the
+old keys stay: the other shortcut's keys (*Already used for Speak a note*), no Ctrl or Alt (*Add Ctrl or
+Alt*), keys another app already has (*Another app uses these keys*). **Reset** puts back Alt+C and Alt+V.
+The tray menu and hover text, Home, Help and the messages name the current keys.
+
+Wayland: through the GlobalShortcuts portal (GNOME 48+, KDE Plasma 6), with your keys as the preferred
+triggers (`ALT+c`, `CTRL+SHIFT+r`…). The desktop may ask you once to confirm them, and you can change
+them in its keyboard settings. A change in Settings closes the portal session and binds again in a new one
+with the new keys; the desktop has the last word: it may ask again, or keep the keys it already has for
+Context Capsule (GNOME and KDE remember them per app). So on Wayland the app can't tell that another app has
+the keys; instead, when what the desktop reports differs, the row says *Your desktop uses …* (or *Your
+desktop didn't set these keys*), and one line under the rows says *Your desktop may ask you to confirm, or
+keep its own keys.* Untested on real GNOME / KDE so far.
+
+X11: grabbed directly (XGrabKey on the root window, also with Caps Lock / Num Lock on). A change lets go
+of the old keys and grabs the new ones at once; if another X client holds them (BadAccess) it's refused
+and the old keys are grabbed again. While Settings listens for new keys the old ones are let go, so the
+window sees them.
+
+If neither works the log says so; if another app holds a key at start, a message says so once. Either
+way the tray menu still works.
 
 ## Wayland and X11
 
@@ -224,7 +246,7 @@ once. Either way the tray menu still works.
 
 ## Voice notes
 
-While recording press Alt+V, talk, press it again. The microphone opens only
+While recording press Alt+V (or your own shortcut), talk, press it again. The microphone opens only
 between the presses; the audio stays in memory, is turned into text on this computer by
 whisper.cpp (multilingual "base" model) and is never written anywhere. The first time,
 Context Capsule asks before downloading the model (about 150 MB, from Hugging Face) into

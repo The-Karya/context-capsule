@@ -31,7 +31,7 @@ mod voice;
 mod window;
 mod x11;
 
-use context_capsule_core::{claude, Engine, Msg, Options, Paths, PlatformText, VoiceEngine};
+use context_capsule_core::{claude, Engine, Hotkeys, Msg, Options, Paths, PlatformText, VoiceEngine};
 use desktop::{Overview, SessionKind};
 use link::WindowLink;
 use std::sync::{mpsc, Arc, Mutex};
@@ -61,6 +61,9 @@ fn main() {
     let args: Vec<String> = std::env::args().collect();
     let session = SessionKind::detect(&env);
     let locale = os_locale(&env);
+    // Your own shortcuts (config.json "hotkeys"): every place that names them reads these.
+    let keys = Hotkeys::load(&paths.config());
+    hotkeys::set_current(keys);
     #[cfg(feature = "window")]
     if let Some(section) = ui::window_only_arg(&args) {
         std::process::exit(window::run_alone(paths, section, locale));
@@ -126,7 +129,7 @@ fn main() {
         open_without_window(&path, &notifier);
     }
     if !probe && !tray.is_shown() {
-        notifier.toast("Context Capsule is running, but this desktop shows no tray icon (on GNOME, install the AppIndicator extension). Use the hotkeys: Alt+C to start contextualizing.");
+        notifier.toast(&no_tray_message(&keys));
     }
     // The window opens by itself on the first launch (on Settings), and when there is no tray to open it from.
     #[cfg(feature = "window")]
@@ -138,8 +141,13 @@ fn main() {
     };
     #[cfg(feature = "window")]
     let ui_paths = paths.clone();
+    let control = if probe {
+        hotkeys::Control::none()
+    } else {
+        let poke = tray.poke();
+        hotkeys::start(&handle, session, keys, tx.clone(), changed.clone(), scrolled.clone(), notifier.clone(), poke)
+    };
     if !probe {
-        hotkeys::start(&handle, session, tx.clone(), changed.clone(), scrolled.clone(), notifier.clone());
         update::start(&paths, notifier.clone(), tx.clone());
         let (root, n) = (paths.root.clone(), notifier.clone());
         std::thread::spawn(move || appimage::offer_once(&root, &n));
@@ -201,7 +209,7 @@ fn main() {
     });
 
     let opts =
-        Options { own_app_id: Some("context-capsule".into()), text: PlatformText::LINUX, locale: locale.clone() };
+        Options { own_app_id: Some("context-capsule".into()), text: PlatformText::LINUX.with_shortcuts(&keys), locale: locale.clone() };
     let wake = tx.clone();
     let root = paths.root.clone();
     let engine_rt = handle.clone();
@@ -225,8 +233,10 @@ fn main() {
     // The window: GTK's loop runs here until the engine stops (Quit, Ctrl+C). Closing the window only hides it.
     #[cfg(feature = "window")]
     if let (Some(gtk), true) = (gtk, engine.is_ok()) {
-        gtk.run(window::Setup { paths: ui_paths, tx: tx.clone(), open: open_at_start, locale: ui_locale });
+        gtk.run(window::Setup { paths: ui_paths, tx: tx.clone(), open: open_at_start, locale: ui_locale, hotkeys: control });
     }
+    #[cfg(not(feature = "window"))]
+    drop(control);
     drop(tx);
     match engine {
         Ok(t) => {
@@ -253,9 +263,17 @@ fn open_without_window(path: &std::path::Path, notifier: &notify::Notifier) {
     }
 }
 
+/// Said once when the desktop shows no tray icon.
+fn no_tray_message(keys: &Hotkeys) -> String {
+    format!(
+        "Context Capsule is running, but this desktop shows no tray icon (on GNOME, install the AppIndicator extension). Use the hotkeys: {} to start contextualizing.",
+        keys.record
+    )
+}
+
 #[cfg(feature = "voice")]
 fn make_voice(root: std::path::PathBuf, notifier: notify::Notifier) -> Box<dyn VoiceEngine> {
-    Box::new(voice::WhisperVoice::new(root, notifier, tray::VOICE_KEY))
+    Box::new(voice::WhisperVoice::new(root, notifier))
 }
 
 #[cfg(not(feature = "voice"))]
@@ -277,5 +295,12 @@ mod tests {
         assert_eq!(os_locale(&env(&[("LANG", "C.UTF-8")])), "en-US");
         assert_eq!(os_locale(&env(&[("LC_ALL", ""), ("LANG", "pt_BR")])), "pt-BR");
         assert_eq!(os_locale(&env(&[])), "en-US");
+    }
+
+    #[test]
+    fn no_tray_names_the_current_shortcut() {
+        assert!(no_tray_message(&Hotkeys::DEFAULT).ends_with("Use the hotkeys: Alt+C to start contextualizing."));
+        let mine = Hotkeys { record: context_capsule_core::Shortcut::parse("Ctrl+F2").unwrap(), ..Hotkeys::DEFAULT };
+        assert!(no_tray_message(&mine).contains("Ctrl+F2 to start"));
     }
 }

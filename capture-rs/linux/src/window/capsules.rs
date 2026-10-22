@@ -93,7 +93,7 @@ impl Capsules {
         widgets::clear(&self.list);
         let (all, projects) = &*self.all.borrow();
         if all.is_empty() {
-            self.list.append(&label(&words::no_capsules(&self.ctx.keys), &["dim-label"]));
+            self.list.append(&label(&words::no_capsules(&self.ctx.keys()), &["dim-label"]));
             return;
         }
         let shown = search(all, &self.search.text());

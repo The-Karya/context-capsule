@@ -124,7 +124,6 @@ mod whisper {
     pub struct WhisperVoice {
         root: PathBuf,
         notifier: Notifier,
-        voice_key: &'static str,
         ctx: Arc<Mutex<Option<Arc<WhisperContext>>>>,
         lang: String,
         download: Arc<Mutex<Download>>,
@@ -132,12 +131,11 @@ mod whisper {
     }
 
     impl WhisperVoice {
-        pub fn new(root: PathBuf, notifier: Notifier, voice_key: &'static str) -> WhisperVoice {
+        pub fn new(root: PathBuf, notifier: Notifier) -> WhisperVoice {
             whisper_rs::install_logging_hooks(); // keep whisper.cpp quiet
             WhisperVoice {
                 root,
                 notifier,
-                voice_key,
                 ctx: Arc::default(),
                 lang: "en".into(),
                 download: Arc::new(Mutex::new(Download::Idle)),
@@ -158,8 +156,7 @@ mod whisper {
                 }
                 *d = Download::Asking;
             }
-            let (download, notifier, path, voice_key) =
-                (self.download.clone(), self.notifier.clone(), self.model_path(), self.voice_key);
+            let (download, notifier, path) = (self.download.clone(), self.notifier.clone(), self.model_path());
             std::thread::spawn(move || {
                 let body = format!(
                     "Voice notes are turned into text on this computer by whisper.cpp. That needs a one-time download of \
@@ -182,7 +179,10 @@ mod whisper {
                 });
                 *download.lock().unwrap() = Download::Idle;
                 match result {
-                    Ok(()) => notifier.toast(&format!("Voice notes are ready. Press {voice_key} while contextualizing.")),
+                    Ok(()) => {
+                        let voice_key = crate::hotkeys::current().voice.label();
+                        notifier.toast(&format!("Voice notes are ready. Press {voice_key} while contextualizing."))
+                    }
                     Err(e) => notifier.toast(&format!("Speech model: {e}")),
                 }
             });

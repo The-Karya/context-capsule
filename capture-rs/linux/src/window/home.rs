@@ -35,6 +35,9 @@ pub struct Home {
     see_all: gtk::Button,
     chips: gtk::ListBox,
     chips_shown: RefCell<Option<Vec<Chip>>>,
+    /// The shortcuts card (the current ones: Settings → Shortcuts can change them).
+    keys_list: gtk::ListBox,
+    make_hint: gtk::Label,
 }
 
 impl Home {
@@ -126,11 +129,6 @@ impl Home {
         let keys_box = vbox(8);
         keys_box.append(&heading(words::SHORTCUTS));
         let keys_list = boxed_list();
-        for (keys, what) in words::home_shortcuts(&ctx.keys) {
-            let r = row(what, "");
-            r.add_suffix(&keycap(keys));
-            keys_list.append(&r);
-        }
         keys_box.append(&keys_list);
         side.append(&keys_box);
 
@@ -143,7 +141,7 @@ impl Home {
         let make_box = vbox(8);
         make_box.append(&heading(words::MAKE_TITLE));
         let make_inner = hbox(12);
-        let make_hint = label(&words::make_hint(&ctx.keys), &["dim-label", "caption"]);
+        let make_hint = label("", &["dim-label", "caption"]);
         make_hint.set_hexpand(true);
         let make = gtk::Button::with_label(words::MAKE_BUTTON);
         make.add_css_class("suggested-action");
@@ -179,7 +177,10 @@ impl Home {
             see_all,
             chips,
             chips_shown: RefCell::new(None),
+            keys_list,
+            make_hint,
         });
+        home.set_keys();
 
         let c = ctx.clone();
         home.toggle.connect_clicked(move |_| c.send(Msg::ToggleRecord));
@@ -208,8 +209,21 @@ impl Home {
     }
 
     pub fn refresh(&self) {
+        self.set_keys();
         self.set_numbers();
         self.set_status();
+    }
+
+    /// The shortcuts card, with the current shortcuts.
+    fn set_keys(&self) {
+        let keys = self.ctx.keys();
+        widgets::clear_list(&self.keys_list);
+        for (k, what) in words::home_shortcuts(&keys) {
+            let r = row(what, "");
+            r.add_suffix(&keycap(&k));
+            self.keys_list.append(&r);
+        }
+        self.make_hint.set_text(&words::make_hint(&keys));
     }
 
     /// Hello, the three numbers, today's bars and the newest capsules.
@@ -296,7 +310,7 @@ impl Home {
             self.dot.add_css_class("idle-dot");
         }
         let share = if s.recording { ShareScreens::Pick } else { ShareScreens::load(&self.ctx.paths.config()) };
-        self.status_detail.set_text(&words::status_detail(&s, &self.ctx.keys, share));
+        self.status_detail.set_text(&words::status_detail(&s, &self.ctx.keys(), share));
         let now = words::now_line(&s);
         self.now_line.set_visible(now.is_some());
         self.now_line.set_text(now.as_deref().unwrap_or(""));

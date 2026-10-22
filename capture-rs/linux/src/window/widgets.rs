@@ -158,6 +158,13 @@ pub fn page(content: &impl IsA<gtk::Widget>) -> (gtk::ScrolledWindow, adw::Clamp
 }
 
 /// Remove every child of a box.
+/// Empty a list (GTK 4.8 has no `remove_all`).
+pub fn clear_list(l: &gtk::ListBox) {
+    while let Some(c) = l.first_child() {
+        l.remove(&c);
+    }
+}
+
 pub fn clear(b: &gtk::Box) {
     while let Some(c) = b.first_child() {
         b.remove(&c);

@@ -1,6 +1,6 @@
 // context-capsule — linux: Settings — your name; set up (voice notes, Connect Claude, open at login), each a
-// check mark when done; every day (reminder, its time, deleting old recordings, sounds); the voice notes'
-// language; apps never recorded; light or dark. Every change is saved at once (config.json, one key at a time).
+// check mark when done; every day (reminder, its time, deleting old recordings, sounds); your own shortcuts;
+// the voice notes' language; apps never recorded; light or dark. Every change is saved at once (config.json, one key at a time).
 
 use super::widgets::{self, label, row, vbox};
 use super::Ctx;
@@ -36,6 +36,8 @@ pub struct Settings {
     /// The never-record rows (inside their group).
     never: RefCell<gtk::Box>,
     me: RefCell<Weak<Settings>>,
+    /// Shortcuts (kept across refreshes: it may be listening for keys).
+    keys: Rc<super::shortcuts::Shortcuts>,
     #[cfg(feature = "voice")]
     download: voice::Download,
 }
@@ -53,6 +55,7 @@ impl Settings {
             setup: RefCell::new(vec![]),
             never: RefCell::new(vbox(0)),
             me: RefCell::new(Weak::new()),
+            keys: super::shortcuts::Shortcuts::new(ctx),
             #[cfg(feature = "voice")]
             download: voice::Download::default(),
         });
@@ -68,6 +71,8 @@ impl Settings {
         self.body.append(&self.you(&config));
         self.body.append(&self.set_up());
         self.body.append(&self.every_day(&config));
+        self.keys.refresh();
+        self.body.append(&self.keys.root);
         #[cfg(feature = "voice")]
         self.body.append(&self.language(&config));
         let never = adw::PreferencesGroup::new();
@@ -81,6 +86,11 @@ impl Settings {
         self.body.append(&self.appearance());
         self.body.append(&self.updates());
         self.refresh_setup();
+    }
+
+    /// Another section shows: stop listening for new shortcut keys.
+    pub fn leave(&self) {
+        self.keys.leave();
     }
 
     /// Check marks or buttons (every second while Settings shows).

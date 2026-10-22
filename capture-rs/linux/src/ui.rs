@@ -5,6 +5,7 @@
 
 use context_capsule_core::capsules::{project_name, CapsuleSummary};
 use context_capsule_core::window::{content_width, Section, MAX_CONTENT, MAX_CONTENT_WIDE};
+use context_capsule_core::shortcuts::{self, Key, Pressed};
 use context_capsule_core::Project;
 use std::path::Path;
 
@@ -89,12 +90,26 @@ pub fn excluded_name(entry: &str, installed: &[(String, String)]) -> String {
     installed.iter().find(|(id, _)| id.eq_ignore_ascii_case(entry)).map_or_else(|| entry.to_string(), |(_, name)| name.clone())
 }
 
-/// "Alt+C" → "<Alt>c", for a GTK keycap.
+/// "Alt+C" → "<Alt>c", "Ctrl+F5" → "<Ctrl>F5", for a GTK keycap (GDK key names: lower-case letters, "F5").
 pub fn accelerator(keys: &str) -> String {
     let parts: Vec<&str> = keys.split('+').map(str::trim).collect();
     let Some((key, mods)) = parts.split_last() else { return String::new() };
     let mods: String = mods.iter().map(|m| format!("<{m}>")).collect();
-    format!("{mods}{}", key.to_lowercase())
+    let key = if key.chars().count() == 1 { key.to_lowercase() } else { key.to_string() };
+    format!("{mods}{key}")
+}
+
+/// A GDK key name ("c", "C", "7", "F5", "KP_7") as a shortcut's key. None: not one a shortcut can use (modifiers,
+/// Esc, punctuation…).
+pub fn key_from_name(name: &str) -> Option<Key> {
+    let name = name.strip_prefix("KP_").filter(|n| n.len() == 1 && n.chars().all(|c| c.is_ascii_digit())).unwrap_or(name);
+    Key::parse(name)
+}
+
+/// One key press while Settings → Shortcuts listens: `name` is the key's GDK name (the unshifted one when
+/// Shift is held, e.g. "1" rather than "exclam"); `ctrl` / `alt` / `shift` / `logo`: the modifiers held.
+pub fn shortcut_press(name: &str, ctrl: bool, alt: bool, shift: bool, logo: bool) -> Pressed {
+    shortcuts::pressed(ctrl, alt, shift, logo, key_from_name(name), name == "Escape")
 }
 
 /// "Tuesday 20 October".
@@ -226,6 +241,9 @@ mod tests {
     fn small_words() {
         assert_eq!(accelerator("Alt+C"), "<Alt>c");
         assert_eq!(accelerator("Ctrl+Shift+V"), "<Ctrl><Shift>v");
+        assert_eq!(accelerator("Ctrl+F5"), "<Ctrl>F5");
+        assert_eq!(accelerator("F12"), "F12");
+        assert_eq!(accelerator("Alt+7"), "<Alt>7");
         assert_eq!(date_line(chrono::NaiveDate::from_ymd_opt(2026, 10, 20).unwrap()), "Tuesday 20 October");
         assert_eq!(layout(500.0), (760, false));
         assert_eq!(layout(860.0), (760, false));
@@ -239,6 +257,28 @@ mod tests {
         assert_eq!(download_line(50, 200), "Downloading… 25%");
         assert_eq!(download_line(5, 0), "Downloading… 0%");
         assert!(cant_open_claude_body("Hi").ends_with("\n\nHi"));
+    }
+
+    #[test]
+    fn shortcut_keys() {
+        use context_capsule_core::Shortcut;
+        assert_eq!(key_from_name("c"), Some(Key::Letter('C')));
+        assert_eq!(key_from_name("C"), Some(Key::Letter('C')), "with Shift held GDK names the capital");
+        assert_eq!(key_from_name("7"), Some(Key::Digit(7)));
+        assert_eq!(key_from_name("KP_7"), Some(Key::Digit(7)), "the number pad too");
+        assert_eq!(key_from_name("F1"), Some(Key::F(1)));
+        assert_eq!(key_from_name("F12"), Some(Key::F(12)));
+        for no in ["F13", "Alt_L", "Control_R", "Shift_L", "Super_L", "ISO_Level3_Shift", "Escape", "exclam", "space", "Tab", "KP_Enter", "KP_10"] {
+            assert_eq!(key_from_name(no), None, "{no}");
+        }
+        let s = |t: &str| Shortcut::parse(t).unwrap();
+        assert_eq!(shortcut_press("Escape", false, false, false, false), Pressed::Cancel);
+        assert_eq!(shortcut_press("Alt_L", false, false, false, false), Pressed::Wait, "a modifier alone: keep listening");
+        assert_eq!(shortcut_press("Control_L", false, true, false, false), Pressed::Wait);
+        assert_eq!(shortcut_press("r", true, false, true, false), Pressed::Done(s("Ctrl+Shift+R")));
+        assert_eq!(shortcut_press("c", false, true, false, false), Pressed::Done(Shortcut::RECORD));
+        assert_eq!(shortcut_press("F9", false, false, false, false), Pressed::Done(s("F9")));
+        assert_eq!(shortcut_press("k", false, false, false, true), Pressed::Done(s("Cmd+K")), "Super: refused later (Add Ctrl or Alt)");
     }
 
     #[test]

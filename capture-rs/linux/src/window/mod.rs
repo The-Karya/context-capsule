@@ -12,6 +12,7 @@ mod home;
 mod projects;
 mod settings;
 mod share;
+mod shortcuts;
 mod widgets;
 
 use crate::link::{UiMsg, WindowLink};
@@ -21,7 +22,7 @@ use context_capsule_core::claude::{self, new_chat_url, Opened};
 use context_capsule_core::reminder::{CLAUDE_NEW_CHAT, DAY_PROMPT};
 use context_capsule_core::settings::{Appearance, ConfigFile};
 use context_capsule_core::stats::sunday_first;
-use context_capsule_core::window::{self as words, HomeNumbers, Keys, Section, LINUX_KEYS};
+use context_capsule_core::window::{self as words, HomeNumbers, Keys, Section};
 use context_capsule_core::{Msg, Paths, Projects, Status};
 use gtk::{gdk, gio, glib};
 use std::cell::{Cell, RefCell};
@@ -44,6 +45,8 @@ pub struct Setup {
     /// Open the window at once, on this section (the first launch; no tray).
     pub open: Option<Section>,
     pub locale: String,
+    /// Changes the hotkeys (Settings → Shortcuts).
+    pub hotkeys: crate::hotkeys::Control,
 }
 
 thread_local! {
@@ -139,7 +142,8 @@ pub fn run_alone(paths: Paths, section: Section, locale: String) -> i32 {
         .build();
     let (tx, rx) = std::sync::mpsc::channel::<Msg>();
     let status = Status { projects: Projects::load(&paths.projects()), ..Default::default() };
-    let setup = Rc::new(RefCell::new(Some((Setup { paths, tx, open: Some(section), locale }, status))));
+    let hotkeys = crate::hotkeys::Control::none();
+    let setup = Rc::new(RefCell::new(Some((Setup { paths, tx, open: Some(section), locale, hotkeys }, status))));
     app.connect_activate(move |app| {
         if let Some((setup, status)) = setup.borrow_mut().take() {
             let ui = Ui::new(app, setup);
@@ -163,6 +167,7 @@ struct Ui {
     paths: Paths,
     tx: Sender<Msg>,
     locale: String,
+    hotkeys: crate::hotkeys::Control,
     status: RefCell<Status>,
     window: RefCell<Option<Rc<Window>>>,
 }
@@ -176,6 +181,7 @@ impl Ui {
             paths: setup.paths,
             tx: setup.tx,
             locale: setup.locale,
+            hotkeys: setup.hotkeys,
             status: RefCell::new(Status::default()),
             window: RefCell::new(None),
         })
@@ -199,7 +205,7 @@ impl Ui {
     fn window(self: &Rc<Self>) -> Rc<Window> {
         let existing = self.window.borrow().clone();
         existing.unwrap_or_else(|| {
-            let w = Window::build(&self.app, &self.paths, &self.tx, &self.locale, self.status.borrow().clone());
+            let w = Window::build(&self.app, &self.paths, &self.tx, &self.locale, &self.hotkeys, self.status.borrow().clone());
             *self.window.borrow_mut() = Some(w.clone());
             w
         })
@@ -232,7 +238,9 @@ pub struct Ctx {
     pub paths: Paths,
     tx: Sender<Msg>,
     pub locale: String,
-    pub keys: Keys,
+    /// The words that name the current shortcuts.
+    keys: RefCell<Keys>,
+    pub hotkeys: crate::hotkeys::Control,
     pub status: RefCell<Status>,
     pub numbers: RefCell<HomeNumbers>,
     pub win: adw::ApplicationWindow,
@@ -241,6 +249,16 @@ pub struct Ctx {
 }
 
 impl Ctx {
+    /// The words that name the shortcuts (the current ones).
+    pub fn keys(&self) -> Keys {
+        self.keys.borrow().clone()
+    }
+
+    /// The shortcuts changed: name the new ones (Home and Help show them the next time they show).
+    pub fn set_keys(&self, h: &context_capsule_core::Hotkeys) {
+        *self.keys.borrow_mut() = Keys::linux(h);
+    }
+
     /// Tell the engine (does nothing in `--window-only`).
     pub fn send(&self, msg: Msg) {
         let _ = self.tx.send(msg);
@@ -321,13 +339,21 @@ pub struct Window {
     capsules: Rc<capsules::Capsules>,
     projects: Rc<projects::ProjectsPage>,
     settings: Rc<settings::Settings>,
+    help: help::Help,
     clamps: Vec<adw::Clamp>,
     section: Cell<Section>,
     wide: Cell<Option<bool>>,
 }
 
 impl Window {
-    fn build(app: &adw::Application, paths: &Paths, tx: &Sender<Msg>, locale: &str, status: Status) -> Rc<Window> {
+    fn build(
+        app: &adw::Application,
+        paths: &Paths,
+        tx: &Sender<Msg>,
+        locale: &str,
+        hotkeys: &crate::hotkeys::Control,
+        status: Status,
+    ) -> Rc<Window> {
         let win = adw::ApplicationWindow::builder()
             .application(app)
             .title(words::APP_NAME)
@@ -345,7 +371,8 @@ impl Window {
             paths: paths.clone(),
             tx: tx.clone(),
             locale: locale.to_string(),
-            keys: LINUX_KEYS,
+            keys: RefCell::new(Keys::linux(&crate::hotkeys::current())),
+            hotkeys: hotkeys.clone(),
             status: RefCell::new(status),
             numbers: RefCell::new(HomeNumbers::default()),
             win: win.clone(),
@@ -392,7 +419,7 @@ impl Window {
         let capsules = capsules::Capsules::new(&ctx);
         let projects = projects::ProjectsPage::new(&ctx);
         let settings = settings::Settings::new(&ctx);
-        let help = help::page(&ctx);
+        let help = help::Help::new(&ctx);
         let stack = gtk::Stack::new();
         stack.set_transition_type(gtk::StackTransitionType::None);
         let mut clamps = vec![];
@@ -401,7 +428,7 @@ impl Window {
             (Section::Capsules, capsules.root.clone().upcast()),
             (Section::Projects, projects.root.clone().upcast()),
             (Section::Settings, settings.root.clone().upcast()),
-            (Section::Help, help.upcast()),
+            (Section::Help, help.root.clone().upcast()),
         ] {
             let (scroll, clamp) = widgets::page(&content);
             clamps.push(clamp);
@@ -429,6 +456,7 @@ impl Window {
             capsules,
             projects,
             settings,
+            help,
             clamps,
             section: Cell::new(Section::Home),
             wide: Cell::new(None),
@@ -471,12 +499,15 @@ impl Window {
                 self.sidebar.select_row(Some(&row));
             }
         }
+        if section != Section::Settings {
+            self.settings.leave();
+        }
         match section {
             Section::Home => self.home.refresh(),
             Section::Capsules => self.capsules.refresh(),
             Section::Projects => self.projects.refresh(),
             Section::Settings => self.settings.refresh(),
-            Section::Help => {}
+            Section::Help => self.help.refresh(&self.ctx),
         }
     }
 

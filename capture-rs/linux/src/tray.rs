@@ -6,7 +6,7 @@ use crate::link::WindowLink;
 use crate::notify::Notifier;
 use context_capsule_core::look::{self, LEVEL_FRAMES};
 use context_capsule_core::window::OPEN_WINDOW;
-use context_capsule_core::{Indicator, Msg, ProjectItem, Status, Voice};
+use context_capsule_core::{Hotkeys, Indicator, Msg, ProjectItem, Shortcut, Status, Voice};
 use ksni::menu::{CheckmarkItem, StandardItem, SubMenu};
 use ksni::{MenuItem, TrayMethods};
 use std::sync::mpsc::Sender;
@@ -16,9 +16,6 @@ use tokio::runtime::Handle;
 
 /// While recording or listening, the time and the voice bars are refreshed this often.
 const LOOK_EVERY: Duration = Duration::from_millis(125);
-
-pub const RECORD_KEY: &str = "Alt+C";
-pub const VOICE_KEY: &str = "Alt+V";
 
 pub struct CapsuleTray {
     tx: Sender<Msg>,
@@ -62,16 +59,28 @@ pub fn title_text(status: &Status, now: SystemTime) -> String {
     }
 }
 
-/// The hover text, as of `now`.
-pub fn tooltip_text(indicator: Indicator, status: &Status, now: SystemTime) -> String {
+/// The hover text, as of `now`, naming the current shortcuts `h`.
+pub fn tooltip_text(indicator: Indicator, status: &Status, now: SystemTime, h: &Hotkeys) -> String {
+    let (record, voice) = (h.record.label(), h.voice.label());
     match indicator {
-        Indicator::Listening => format!("Listening — press {VOICE_KEY} to finish the voice note"),
+        Indicator::Listening => format!("Listening — press {voice} to finish the voice note"),
         Indicator::Recording => {
             let time = look::elapsed(status, now).unwrap_or_default();
-            format!("● Contextualizing {time} — {RECORD_KEY} to stop, {VOICE_KEY} to talk")
+            format!("● Contextualizing {time} — {record} to stop, {voice} to talk")
         }
-        _ => format!("Context Capsule ({RECORD_KEY} to start contextualizing)"),
+        _ => format!("Context Capsule ({record} to start contextualizing)"),
     }
+}
+
+/// A shortcut as the tray menu shows it (dbusmenu: "Control", "Alt", "Shift", "Super", then the key).
+pub fn menu_shortcut(s: &Shortcut) -> Vec<Vec<String>> {
+    let mut keys: Vec<String> = [(s.ctrl, "Control"), (s.alt, "Alt"), (s.shift, "Shift"), (s.cmd, "Super")]
+        .iter()
+        .filter(|(on, _)| *on)
+        .map(|(_, m)| m.to_string())
+        .collect();
+    keys.push(s.key.to_string());
+    vec![keys]
 }
 
 /// Menu labels treat "_" as an access-key marker: double it so names show as typed.
@@ -100,7 +109,8 @@ impl ksni::Tray for CapsuleTray {
         [22, 44].iter().map(|s| icon(self.indicator, self.level, *s)).collect()
     }
     fn tool_tip(&self) -> ksni::ToolTip {
-        ksni::ToolTip { title: tooltip_text(self.indicator, &self.status, SystemTime::now()), ..Default::default() }
+        let h = crate::hotkeys::current();
+        ksni::ToolTip { title: tooltip_text(self.indicator, &self.status, SystemTime::now(), &h), ..Default::default() }
     }
     fn status(&self) -> ksni::Status {
         ksni::Status::Active
@@ -110,6 +120,7 @@ impl ksni::Tray for CapsuleTray {
         let send =
             |msg: Msg| Box::new(move |t: &mut Self| drop(t.tx.send(msg.clone()))) as Box<dyn Fn(&mut Self) + Send>;
         let skip = self.status.skip.filter(|_| self.status.recording);
+        let h = crate::hotkeys::current();
         let mut items: Vec<MenuItem<Self>> = vec![];
         if self.window.is_on() {
             items.push(
@@ -135,14 +146,14 @@ impl ksni::Tray for CapsuleTray {
             MenuItem::Separator,
             StandardItem {
                 label: toggle_label(&self.status).into(),
-                shortcut: vec![keys("C")],
+                shortcut: menu_shortcut(&h.record),
                 activate: send(Msg::ToggleRecord),
                 ..Default::default()
             }
             .into(),
             StandardItem {
                 label: if self.status.listening { "Done speaking" } else { "Speak a note" }.into(),
-                shortcut: vec![keys("V")],
+                shortcut: menu_shortcut(&h.voice),
                 activate: send(Msg::ToggleVoice),
                 ..Default::default()
             }
@@ -216,10 +227,6 @@ impl CapsuleTray {
     }
 }
 
-fn keys(key: &str) -> Vec<String> {
-    ["Control", "Alt", "Shift", key].iter().map(|s| s.to_string()).collect()
-}
-
 /// What the refresh task needs to know: recording or listening, and what it last showed.
 #[derive(Default)]
 struct Look {
@@ -270,6 +277,18 @@ impl Tray {
 
     pub fn is_shown(&self) -> bool {
         self.handle.is_some()
+    }
+
+    /// Show the menu and hover text again (the shortcuts changed). Usable from any thread.
+    pub fn poke(&self) -> Arc<dyn Fn() + Send + Sync> {
+        let (rt, handle) = (self.rt.clone(), self.handle.clone());
+        Arc::new(move || {
+            if let Some(h) = handle.clone() {
+                rt.spawn(async move {
+                    h.update(|_| {}).await;
+                });
+            }
+        })
     }
 
     pub fn set_status(&self, status: &Status) {
@@ -410,11 +429,21 @@ mod tests {
         assert_eq!(info_line(&s, later, &t), "● Contextualizing 12:34 — since 10:01 — 1 moment");
         assert_eq!(toggle_label(&s), "Stop contextualizing");
         assert_eq!(title_text(&s, later), "Context Capsule ● 12:34");
+        let h = Hotkeys::DEFAULT;
         assert_eq!(
-            tooltip_text(Indicator::Recording, &s, later),
+            tooltip_text(Indicator::Recording, &s, later, &h),
             "● Contextualizing 12:34 — Alt+C to stop, Alt+V to talk"
         );
-        assert!(tooltip_text(Indicator::Listening, &s, later).starts_with("Listening"));
+        assert!(tooltip_text(Indicator::Listening, &s, later, &h).starts_with("Listening"));
+        let mine = Hotkeys { record: Shortcut::parse("Ctrl+Shift+R").unwrap(), voice: Shortcut::parse("F9").unwrap() };
+        assert_eq!(tooltip_text(Indicator::Listening, &s, later, &mine), "Listening — press F9 to finish the voice note");
+        assert_eq!(tooltip_text(Indicator::Idle, &s, later, &mine), "Context Capsule (Ctrl+Shift+R to start contextualizing)");
+    }
+
+    #[test]
+    fn menu_shortcuts() {
+        assert_eq!(menu_shortcut(&Shortcut::RECORD), [["Alt", "C"]]);
+        assert_eq!(menu_shortcut(&Shortcut::parse("Ctrl+Shift+F5").unwrap()), [["Control", "Shift", "F5"]]);
     }
 
     #[test]
