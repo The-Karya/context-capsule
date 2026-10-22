@@ -426,3 +426,26 @@ Settings) is what **Make today's capsules** opens: an MCP app with the request t
 for any other AI — **Copy my day** (runs `day`, copies `text`, opens the AI's website if chosen) and then
 **Save from clipboard** (runs `save` on the clipboard). Words say "your AI", not "Claude", wherever any AI works.
 Nothing goes to the internet except what the person pastes into their AI themselves.
+
+## Timeline (all recorders)
+
+A **Timeline** page (sidebar, under Your work) shows everything recorded, raw, for one day (Today, Yesterday,
+or a date picker). Nothing leaves the computer.
+
+- **Blocks:** one per session that overlaps the day: "10:02 – 11:30 · 2 screens · Website" (start–end from the
+  first/last event or the session id; projects = the most-used one). Time between sessions shows as "Off".
+- **Moments**, in time order: time (start–end), app icon, title, `where` (address/file), project, and the text
+  folded to its first 3 lines with **Show all**. `focus:"pointer"` moments are marked "Looked at". Voice notes
+  (`kind` voice/note) are speech bubbles with the full words.
+- **Gaps:** recorders now write `gaps.jsonl` in the session folder, one line per stretch that wasn't read:
+  `{"t":"…","end":"…","why":"private_app|not_shared|no_text|system|locked"}` (the same skip reasons the menu
+  shows; consecutive skips with the same reason extend one line, like events; under 5 s isn't written). The
+  timeline shows them as "Not read 10:40–10:55: a private app was in front" ("this window wasn't shared",
+  "nothing readable", "system screen", "the screen was locked").
+- **Search** (the day): filters moments whose title, where, app or text contains the words.
+- **Delete** a moment (removes that line from events.jsonl, matched by its `t` and exact line) or a whole block
+  (the session folder), after a confirm. Not while that session is still recording ("Stop first"). Permanent.
+- **Make a capsule from this** (per block): opens Your AI with
+  `Use Context Capsule to make a capsule from my session <session id>.` (the AI uses get_session_activity).
+The Claude side (`get_day_activity`, `get_session_activity`) also lists gaps in one short line each, so the AI
+knows what wasn't seen.
