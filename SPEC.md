@@ -432,7 +432,7 @@ Nothing goes to the internet except what the person pastes into their AI themsel
 A **Timeline** page (sidebar, under Your work) shows everything recorded, raw, for one day (Today, Yesterday,
 or a date picker). Nothing leaves the computer.
 
-- **Blocks:** one per session that overlaps the day: "10:02 – 11:30 · 2 screens · Website" (start–end from the
+- **Blocks:** one per session that overlaps the day: "10:02 – 11:30 · 12 moments · Website" (start–end from the
   first/last event or the session id; projects = the most-used one). Time between sessions shows as "Off".
 - **Moments**, in time order: time (start–end), app icon, title, `where` (address/file), project, and the text
   folded to its first 3 lines with **Show all**. `focus:"pointer"` moments are marked "Looked at". Voice notes
