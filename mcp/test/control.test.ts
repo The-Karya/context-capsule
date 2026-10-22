@@ -222,7 +222,7 @@ describe("tools", () => {
     expect(msg.text).toContain("## Decisions");
     expect(msg.text).not.toContain("## Summary");
     expect(msg.text).toContain("## For Claude");
-    expect(msg.text).toContain("context for another Claude");
+    expect(msg.text).toContain("context for another AI");
     expect(msg.text).toContain("are the user's own words: the primary source for decisions, reasons and intent");
 
     await call("save_capsule", { title: "Res test", markdown: VALID_BODY });

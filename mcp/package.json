@@ -1,8 +1,19 @@
 {
   "name": "context-capsule-mcp",
   "version": "0.1.1",
-  "description": "MCP server for Context Capsule: turn what you worked on into a shareable capsule with your own Claude.",
+  "mcpName": "io.github.The-Karya/context-capsule",
+  "description": "MCP server for Context Capsule: turn what you worked on into capsules any AI can continue from. Stays on your computer.",
   "license": "MIT",
+  "author": "Karya",
+  "homepage": "https://github.com/The-Karya/context-capsule#readme",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/The-Karya/context-capsule.git",
+    "directory": "mcp"
+  },
+  "bugs": {
+    "url": "https://github.com/The-Karya/context-capsule/issues"
+  },
   "type": "module",
   "bin": {
     "context-capsule-mcp": "dist/index.js"
@@ -10,20 +21,25 @@
   "main": "dist/index.js",
   "files": [
     "dist",
-    "README.md"
+    "README.md",
+    "server.json"
   ],
   "engines": {
     "node": ">=18"
   },
   "scripts": {
     "build": "tsc -p tsconfig.json && chmod +x dist/index.js",
+    "build:binary": "sh build-binary.sh",
     "dev": "bun run src/index.ts",
     "test": "bun run build && bun test",
-    "typecheck": "tsc -p tsconfig.json --noEmit"
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "prepack": "npm run build"
   },
-  "keywords": ["mcp", "claude", "capsule", "screen", "context"],
+  "keywords": ["mcp", "model-context-protocol", "mcp-server", "claude", "chatgpt", "cursor", "capsule", "context", "handoff"],
   "dependencies": {
     "@modelcontextprotocol/sdk": "^1.32.1",
+    "jsonc-parser": "^3.3.1",
+    "smol-toml": "^1.9.1",
     "zod": "^4.0.0"
   },
   "devDependencies": {

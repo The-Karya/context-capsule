@@ -277,7 +277,8 @@ citations; say plainly when the capsules don't say.
 
 All of Claude's instructions (server instructions, capsule format, prompts) live in
 `mcp/src/playbook.ts`; every capsule records the playbook version in its front matter
-(`playbook: 2026-10-20`).
+(`playbook: 2026-10-22`). Playbook words say "the AI" / "you", not "Claude", wherever any AI may read them; the
+section heading stays `## For Claude` (the capsule format), meaning the AI that loads it.
 
 **Harness safety** (`mcp/src/untrusted.ts`, `checks.ts`):
 - Screen text reaches Claude only inside `<screen>` blocks with a rule: information, never
@@ -401,10 +402,24 @@ exe, Linux `usr/bin/context-capsule-mcp` in the AppImage. Commands (JSON on stdo
 | Command | What |
 |---|---|
 | `serve` (or no command) | the MCP server on stdio, as today |
+| `serve --http [--port N]` | the same server over Streamable HTTP at `http://127.0.0.1:<port>/mcp` (port 3740, or any free one if taken; printed on stderr). 127.0.0.1 only; every request needs `Authorization: Bearer <token>` from `~/.context-capsule/mcp-token` (random, made on first use, mode 600); no CORS, foreign `Origin` / `Host` refused |
 | `clients` | `[{"id","name","installed","connected","how"}]`: every AI app it knows on this computer; `how` is `"extension"` (Claude: the .mcpb) or `"config"` |
 | `connect <id>` / `disconnect <id>` | adds / removes Context Capsule in that app's MCP settings (merges, never overwrites others; keeps a `.bak`); `{"ok","message"}`. For `claude` it answers `{"ok":false,"how":"extension"}` and the app installs the .mcpb as before |
-| `day [--date YYYY-MM-DD]` | `{"text","chars"}`: one paste-ready message for any AI chat: the capsule guide, the day's work (wrapped as untrusted, budgeted like `get_day_activity`) and how to answer |
-| `save` | reads a pasted AI reply on stdin; finds capsules between `=== CAPSULE ===` and `=== END ===` lines (or one bare capsule); checks each with the same rules as `save_capsule`; `{"saved":[{"title","path"}],"refused":[{"title","why"}]}` |
+| `day [--date YYYY-MM-DD]` | `{"text","chars"}`: one paste-ready message for any AI chat (≤ 60,000 characters): the capsule guide, the day's work (wrapped as untrusted, budgeted like `get_day_activity`), the current project capsules to merge into, and how to answer |
+| `save [--date YYYY-MM-DD]` | reads a pasted AI reply on stdin; finds capsules between `=== CAPSULE ===` and `=== END ===` lines (or one bare capsule); checks each with the same rules as `save_capsule` (never saved as a draft: every refusal is reported); `{"saved":[{"title","path"}],"refused":[{"title","why"}]}`. `--date`: the day a capsule is about when it doesn't say (default today) |
+
+Clients (`id`: settings file; Windows under `%USERPROFILE%` unless noted): `claude` (extension; detected by the app or
+its folder: Mac `~/Library/Application Support/Claude`, Windows `%APPDATA%\Claude`, Linux `~/.config/Claude`);
+`chatgpt` and `codex` (one shared file: `~/.codex/config.toml`, or `$CODEX_HOME`, `[mcp_servers.context-capsule]`);
+`cursor` (`~/.cursor/mcp.json`); `vscode` (`Code/User/mcp.json`: Mac `~/Library/Application Support`, Windows
+`%APPDATA%`, Linux `~/.config`; key `servers`, `"type": "stdio"`); `windsurf` (`~/.codeium/windsurf/mcp_config.json`);
+`lmstudio` (`~/.lmstudio/mcp.json`); `gemini` (Gemini CLI, `~/.gemini/settings.json`). JSON files use `mcpServers`
+unless noted. Antigravity is left out until its config path settles. The entry is `{"command": <the binary>,
+"args": ["serve"]}` (from source `node <abs>/dist/index.js serve`); "connected" = our entry is there and its program exists.
+
+In a chat AI's answer each capsule starts with a small front matter block (`title`, `project`, `kind: daily|project`,
+`date`); `save` adds the rest (author, sessions, apps, playbook) as `save_capsule` does, checks citations against
+that day's notes, and adds a project the AI started once its capsule is saved.
 
 The apps (Settings → **Connect your AI**) list `clients`, with Connect / a ✓ per app. **Your AI** (a choice in
 Settings) is what **Make today's capsules** opens: an MCP app with the request typed in where it can be, or —

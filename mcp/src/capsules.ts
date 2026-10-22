@@ -293,6 +293,8 @@ export function saveCapsule(input: {
   project?: string;
   kind?: CapsuleKind;
   date?: string;
+  /** Never save as a draft: every refusal is reported (the pasted-reply `save` command; nobody retries there). */
+  noDraft?: boolean;
 }): SaveResult {
   const title = input.title.replace(/\s+/g, " ").trim();
   if (!title) throw new Error("Give the capsule a title.");
@@ -324,7 +326,7 @@ export function saveCapsule(input: {
     }
   }
 
-  // Every capsule another Claude loads must be complete and true to its sources: refuse with numbered fixes,
+  // Every capsule another AI loads must be complete and true to its sources: refuse with numbered fixes,
   // so Claude fixes and retries. After MAX_TRIES refusals it is saved as a draft, with what's left to fix.
   const check: CheckResult = checkCapsule(body);
   if (notes.length || screen.length) {
@@ -337,7 +339,8 @@ export function saveCapsule(input: {
   if (check.errors.length) {
     const tries = (attempts.get(attemptKey) ?? 0) + 1;
     attempts.set(attemptKey, tries);
-    if (tries < MAX_TRIES) {
+    if (tries < MAX_TRIES || input.noDraft) {
+      if (input.noDraft) attempts.delete(attemptKey);
       logLine(`capsule not saved yet (try ${tries}): ${check.errors.map((e) => e.split(/[:.]/)[0]!.slice(0, 60)).join("; ")}`);
       throw new NotSavedYet(
         `Not saved yet (try ${tries} of ${MAX_TRIES}). Fix these, then call save_capsule again with the whole capsule. ` +

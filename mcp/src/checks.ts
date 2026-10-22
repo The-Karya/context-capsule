@@ -1,5 +1,5 @@
-// context-capsule — mcp: checks a capsule before it is saved, so every capsule another Claude loads is
-// complete. Problems come back as precise "fix this" lines; Claude fixes them and saves again.
+// context-capsule — mcp: checks a capsule before it is saved, so every capsule another AI loads is
+// complete. Problems come back as precise "fix this" lines; the AI fixes them and saves again.
 import { REQUIRED_SECTIONS } from "./capsules.js";
 import { formatClock } from "./sessions.js";
 
@@ -103,7 +103,7 @@ export function checkCapsule(markdown: string): CheckResult {
   const forClaude = get("For Claude");
   if (forClaude !== undefined && forClaude.length < 120)
     errors.push(
-      `"## For Claude" is too short. Speak to the Claude that will load this: whose work it is, what it is, ` +
+      `"## For Claude" is too short. Speak to the AI that will load this: whose work it is, what it is, ` +
         `that the decisions are settled, and to carry on from Next steps.`,
     );
 

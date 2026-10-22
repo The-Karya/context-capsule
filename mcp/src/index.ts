@@ -1,16 +1,8 @@
 #!/usr/bin/env node
-// context-capsule — mcp: entry point, serves the MCP server over stdio
-import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
-import { createServer } from "./server.js";
+// context-capsule — mcp: entry point of context-capsule-mcp: the MCP server (stdio by default) and the app commands
+import { main } from "./cli.js";
 
-async function main(): Promise<void> {
-  const server = createServer();
-  await server.connect(new StdioServerTransport());
-  // stdout is the protocol channel; logs go to stderr
-  console.error("context-capsule MCP server running on stdio");
-}
-
-main().catch((e) => {
-  console.error("context-capsule MCP server failed to start:", e);
+main(process.argv.slice(2)).catch((e) => {
+  console.error("context-capsule-mcp failed:", e instanceof Error ? e.message : e);
   process.exit(1);
 });

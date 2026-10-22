@@ -1,14 +1,15 @@
 # context-capsule-mcp
 
-The MCP server for **Context Capsule**. It lets your own Claude (Desktop or Code) turn a
-recorded work session into a **capsule**: one Markdown file with what you worked on,
-the decisions you made and why. Send the file to anyone; their Claude loads it and
-knows the project.
+The MCP server for **Context Capsule**. It lets your own AI (Claude, ChatGPT, Codex, Cursor,
+VS Code, Windsurf, LM Studio, Gemini CLI, or any MCP client) turn a recorded work session into
+a **capsule**: one Markdown file with what you worked on, the decisions you made and why.
+Send the file to anyone; their AI loads it and knows the project. An AI without tools works
+too: paste your day into any chat and paste its answer back (`day` / `save` below).
 
 The Context Capsule menu-bar app (in `../capture`) does the recording. This server reads what
 it wrote, starts and stops it, and saves, imports and exports capsules. No account, no
-cloud, no API key: files stay on your computer, and text reaches Claude only when your
-Claude reads it through these tools (see ../PRIVACY.md).
+cloud, no API key: files stay on your computer, and text reaches your AI only when it
+reads it through these tools, or when you paste it yourself (see ../PRIVACY.md).
 
 ## Install
 
@@ -22,7 +23,71 @@ bun install && bun run build     # or: npm install && npm run build
 This makes `mcp/dist/index.js`. Find its absolute path with `realpath dist/index.js`,
 and your node with `which node`.
 
-## Connect
+The apps ship it as one self-contained program, `context-capsule-mcp` (no Node needed). Build it
+with `./build-binary.sh` (bun): `dist-bin/context-capsule-mcp-macos` (universal),
+`-windows-x64.exe`, `-linux-x64`, `-linux-arm64`. Or run it from npm: `npx context-capsule-mcp`.
+
+## Commands
+
+| command | does |
+|---|---|
+| `serve` (or nothing) | the MCP server on stdio |
+| `serve --http [--port N]` | the MCP server over Streamable HTTP at `http://127.0.0.1:3740/mcp` (another free port if 3740 is taken; the address is printed on stderr). Only this computer can reach it; every request needs `Authorization: Bearer <token>`, the token being in `~/.context-capsule/mcp-token` (made on first use, readable by you only). No CORS: requests from web pages are refused |
+| `clients` | JSON: `[{"id","name","installed","connected","how"}]` for every AI app it knows |
+| `connect <id>` / `disconnect <id>` | adds / removes Context Capsule in that app's own MCP settings file; merges (other servers, settings and comments stay), keeps a `.bak`, never touches a file it can't read. `{"ok","message"}` |
+| `day [--date YYYY-MM-DD]` | JSON `{"text","chars"}`: one message (up to ~60,000 characters) to paste into any AI chat: the capsule guide, your day (screen text wrapped as information) and how to answer: each capsule between `=== CAPSULE ===` and `=== END ===` lines |
+| `save [--date YYYY-MM-DD]` | reads that AI's answer on stdin, checks each capsule like `save_capsule` (every section, citations that match real notes, secrets removed) and saves the good ones. JSON `{"saved":[{"title","path"}],"refused":[{"title","why"}]}` |
+
+### The apps `connect` knows
+
+| id | app | settings file (Mac / Linux; Windows under `%USERPROFILE%` unless noted) |
+|---|---|---|
+| `claude` | Claude desktop | none: Claude uses the extension (`extension/`, `context-capsule.mcpb`) |
+| `chatgpt`, `codex` | ChatGPT desktop app, Codex (they share one file) | `~/.codex/config.toml` (`$CODEX_HOME` if set), `[mcp_servers.context-capsule]` |
+| `cursor` | Cursor | `~/.cursor/mcp.json`, `mcpServers` |
+| `vscode` | VS Code | Mac `~/Library/Application Support/Code/User/mcp.json`, Linux `~/.config/Code/User/mcp.json`, Windows `%APPDATA%\Code\User\mcp.json`; `servers`, `"type": "stdio"` |
+| `windsurf` | Windsurf | `~/.codeium/windsurf/mcp_config.json`, `mcpServers` |
+| `lmstudio` | LM Studio | `~/.lmstudio/mcp.json`, `mcpServers` |
+| `gemini` | Gemini CLI | `~/.gemini/settings.json`, `mcpServers` |
+
+The entry runs the program itself with `serve` (from source: `node <abs>/dist/index.js serve`).
+"Connected" means the entry is there and points at a program that exists.
+
+## Use it with any MCP client
+
+Over stdio (most clients). With the app installed, point at the program inside it; from npm, use `npx`:
+
+```json
+{
+  "mcpServers": {
+    "context-capsule": {
+      "command": "npx",
+      "args": ["-y", "context-capsule-mcp", "serve"]
+    }
+  }
+}
+```
+
+Over HTTP, for clients that only take a URL. Start `context-capsule-mcp serve --http`, then:
+
+```json
+{
+  "mcpServers": {
+    "context-capsule": {
+      "url": "http://127.0.0.1:3740/mcp",
+      "headers": { "Authorization": "Bearer <the text in ~/.context-capsule/mcp-token>" }
+    }
+  }
+}
+```
+
+Every tool says what it may do (`readOnlyHint`, `destructiveHint`, `idempotentHint`; nothing reaches the
+internet, so `openWorldHint` is false), and `list_capsules`, `list_sessions` and `recording_status` also
+return structured data (`outputSchema`). Check it with the MCP Inspector:
+`npx @modelcontextprotocol/inspector --cli node dist/index.js serve --method tools/list`.
+`server.json` describes the npm package for the MCP Registry.
+
+## Connect by hand
 
 ### Claude Desktop
 
@@ -133,29 +198,35 @@ author: Saachi
 created: 2026-10-19T11:30:00Z
 sessions: [20261019-100103]
 apps: [Figma, Google Chrome, Linear]
+playbook: 2026-10-22
 ---
 
-## Summary
-## What I worked on
+## In short
+## For Claude
+## Where things stand
+## What was done
 ## Decisions
-- **Decision** — why. *(seen in Linear, 10:14)*
+- **Decision** — why. *(you said, 10:14)*
 ## Open questions
 ## Next steps
-## Sources
+## People, links and files
 ```
 
-Any person or AI can read it. `save_capsule` adds the header for you and warns (but still
-saves) if a section is missing. A second capsule with the same title is saved as
-`-2`, `-3`, never over the first.
+Any person or AI can read it ("For Claude" is the section for whichever AI loads it).
+`save_capsule` adds the header for you and refuses, with a numbered list of fixes, a capsule
+with a missing section or a citation that matches no note. A second capsule with the same
+title is saved as `-2`, `-3`, never over the first.
 
 ## Privacy
 
-- All data stays in `~/.context-capsule` on your Mac. This server makes no network calls.
+- All data stays in `~/.context-capsule` on your computer. This server makes no network calls;
+  `serve --http` listens on 127.0.0.1 only, behind a token. `connect` only edits the AI app's
+  own settings file on this computer.
 - The app keeps text only, never images, and skips password managers and private chat
   apps (plus any app you list in `config.json` → `exclude_apps`).
 - Keys, tokens and `password:` lines are redacted by the app, and again by `save_capsule`.
-- Claude only sees a session when you ask it to read one. What Claude does with it
-  follows your Claude settings.
+- Your AI only sees a session when you ask it to read one (or paste it yourself). What it
+  does with it follows that AI's own settings.
 - Before you send a capsule, read it. It is your work; share what you want to share.
 
 ## Develop

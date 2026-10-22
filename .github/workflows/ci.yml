@@ -25,6 +25,38 @@ jobs:
       - run: bun run test
       - run: bun run build
 
+  # context-capsule-mcp as one self-contained file per platform (bun build --compile), shipped inside each app.
+  # The Mac one (universal) is built on a Mac: mcp/build-binary.sh.
+  mcp-binary:
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: windows-latest
+            targets: windows-x64
+          - os: ubuntu-latest
+            targets: linux-x64 linux-arm64
+    defaults:
+      run:
+        working-directory: mcp
+        shell: bash
+    steps:
+      - uses: actions/checkout@v4
+      - uses: oven-sh/setup-bun@v2
+      - run: bun install --frozen-lockfile
+      - run: sh build-binary.sh ${{ matrix.targets }}
+      - name: Runs
+        if: runner.os == 'Linux'
+        run: ./dist-bin/context-capsule-mcp-linux-x64 --version && ./dist-bin/context-capsule-mcp-linux-x64 clients
+      - name: Runs
+        if: runner.os == 'Windows'
+        run: ./dist-bin/context-capsule-mcp-windows-x64.exe --version && ./dist-bin/context-capsule-mcp-windows-x64.exe clients
+      - uses: actions/upload-artifact@v4
+        with:
+          name: context-capsule-mcp-${{ runner.os }}
+          path: mcp/dist-bin/*
+
   core:
     runs-on: ${{ matrix.os }}
     strategy:
