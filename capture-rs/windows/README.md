@@ -106,7 +106,7 @@ Projects) and *Context Capsule* (Settings, Help); the page title and a small sta
   you work on. Only that is read.* or, with All my screens, *Shares all your screens. Private apps
   are never read.*); Today's time per project as bars;
   Recent capsules (the 3 newest, See all). Beside it when wide (below when narrow): Shortcuts
-  (Alt+C, Alt+V), Working on (Find by itself, your projects, New project), and Make today's
+  (the current ones, Alt+C and Alt+V unless changed), Working on (Find by itself, your projects, New project), and Make today's
   capsules.
 - **Capsules**: by project, the growing *Whole project* capsule first, then days, newest first.
   Open, and ⋯ → Copy file (paste it into a chat, an email or a folder), Copy text, Save a copy…,
@@ -121,11 +121,11 @@ Projects) and *Context Capsule* (Settings, Help); the page title and a small sta
   Plain rules, no AI, the same as the Mac's (core `share_check`, cases in `spec/share-check.json`).
 - **Projects**: rename, change the words they're found by, delete (asks first).
 - **Settings**: your name (config.json `author`; it goes on your capsules), Set up (Voice notes:
-  microphone allowed? **Allow** opens the Windows microphone settings; Connect Claude: opens
-  `context-capsule.mcpb`, written next to the exe from inside it, with the Claude app, which asks to install
-  it, or offers the download page; Open at login: a `Run` entry under HKCU — each row shows a
+  microphone allowed? **Allow** opens the Windows microphone settings; Connect Claude: see
+  *Finding Claude* below; Open at login: a `Run` entry under HKCU — each row shows a
   check mark when done), Every day (When you start: *Pick a screen or window* or *All my screens*,
-  `share_screens`; evening reminder and its time, when to delete old recordings, sounds), Voice notes language, Appearance (System / Light / Dark, `appearance`),
+  `share_screens`; evening reminder and its time, when to delete old recordings, sounds), Shortcuts
+  (see *Shortcuts* below), Voice notes language, Appearance (System / Light / Dark, `appearance`),
   Never record (pick an open app, or find its .exe), Updates (Update automatically, the version,
   Check for updates). Every change is saved at once.
 - **Help**: shortcuts, how it works, privacy.
@@ -137,7 +137,11 @@ has a `context-capsule` server.
 
 Look: drawn in code with Windows 11's colors and the system accent, Segoe UI Variable (Segoe
 UI on Windows 10), light or dark following Windows (or the Appearance setting), a dark title
-bar and dark menus in dark mode. Text boxes are real edit controls; choices are standard
+bar and dark menus in dark mode. The palette (`src/palette.rs`) is plain values, tested on any OS
+(light is light, dark is dark, text is readable on every surface). The whole window is filled with
+the page color first, with plain GDI (an earlier build drew it as a GDI+ path with zero-size corner
+arcs, which GDI+ refuses: the page stayed black, and only dark mode looked right). Switching Windows
+between light and dark, the accent, or the Appearance setting repaints everything at once. Text boxes are real edit controls; choices are standard
 popup menus. Keyboard: Tab / Shift+Tab, Enter or Space, arrows and Page Up / Down scroll.
 
 ## Hotkeys
@@ -147,8 +151,44 @@ popup menus. Keyboard: Tab / Shift+Tab, Enter or Space, arrows and Page Up / Dow
 | Alt+C | start (opens the picker, or shares all your screens) / cancel the picker / stop recording (waits while a voice note listens) |
 | Alt+V | start / finish a voice note (only while recording) |
 
-The same keys as the Mac's ⌥C / ⌥V. If another app already uses one of them, Context Capsule
-logs it, says so once at launch, and the tray menu still works.
+The same keys as the Mac's ⌥C / ⌥V, unless you change them. If another app already uses one at
+launch, Context Capsule logs it, says so once, and the tray menu still works.
+
+**Shortcuts** (Settings → Shortcuts, config.json `"hotkeys": {"record": "Alt+C", "voice": "Alt+V"}`,
+core `shortcuts`): "Start or stop" and "Speak a note", each a button showing its keys. Click it
+(it says *Press keys…*; the shortcuts in use are off meanwhile), press the new keys: Ctrl / Alt /
+Shift and a letter, a digit or F1–F12 (Esc cancels; clicking elsewhere or leaving the window
+too). It's checked, registered with RegisterHotKey and saved at once. Refused, with a line under
+the row, and the old one stays: the other shortcut's keys (*Already used for Speak a note*), no
+Ctrl or Alt (*Add Ctrl or Alt*; F-keys may stand alone), or keys another app has registered
+(*Another app uses these keys*). **Reset** puts back Alt+C and Alt+V. The Win key is not offered
+(Windows keeps it). Every place that names a shortcut (Home, Help, the tray menu and tooltip,
+messages) shows the current one.
+
+## Finding Claude
+
+Claude may be a classic install, a packaged (MSIX / Store) app, or only reachable through its
+`claude:` link or app alias, so Connect Claude, Make today's capsules, Ask Claude and opening a
+received capsule look for every sign of it (`connect::find`), and write what they found to
+`app.log` (a line starting with `claude app:`):
+
+- `.mcpb` files open with Claude (the file association: exe, app name, ProgID or packaged app id);
+- the `claude:` link is registered (HKCU or HKLM `Software\Classes\claude`);
+- `claude.exe`: `%LOCALAPPDATA%\AnthropicClaude`, `%LOCALAPPDATA%\Programs\Claude`, `%ProgramFiles%\Claude`,
+  App Paths, or an *Add or remove programs* entry by Anthropic (its icon or folder);
+- the app alias `%LOCALAPPDATA%\Microsoft\WindowsApps\claude.exe`;
+- a packaged app named like Claude (HKCU `…\AppModel\Repository\Packages`, or a folder in
+  `%LOCALAPPDATA%\Packages`), started through `shell:AppsFolder\<family>!<app>`;
+- Claude's data folder (it has run here).
+
+**Connect**: `.mcpb` opens with Claude → open it (Claude asks to install). Else `claude.exe` found →
+run it with the file. Else Claude found another way → open Claude (link, alias or package), show
+`context-capsule.mcpb` selected in File Explorer, and say: *In Claude: Settings → Extensions →
+Advanced settings → Install Extension…, then pick context-capsule.mcpb* (Claude Desktop's own menu
+path). Nothing found → it doesn't assume Claude is missing: *Is the Claude app installed?* Yes → the
+same steps; No → the download page. The other requests open Claude on a new chat with the request
+typed in (the link), else start the app with the request on the clipboard; nothing found → the same
+question (Yes: the request is copied, paste it in Claude).
 
 ## The yellow border
 
@@ -207,7 +247,8 @@ if set, else `%USERPROFILE%\.context-capsule` (the same rule as the MCP server).
 
 The pure rules (which window or screen was picked, UI Automation roles, window classes for
 toasts and overviews, 16 kHz resampling, model checks, menu text, toast placement, the window's
-layout at any size, Check before sharing and the Open with registry values) run on any OS. What
+layout at any size, the light and dark palettes, finding Claude, shortcut keys, Check before sharing and the Open with
+registry values) run on any OS. What
 "Check before sharing" finds, and the Claude links, are tested in core (`cargo test -p
 context-capsule-core`, including every case in `spec/share-check.json`):
 
@@ -226,9 +267,10 @@ cd capture-rs && cargo test -p context-capsule-windows
 | `src/app.rs` | the UI thread: hidden owner window, tray menu, cues, alerts; starts the engine thread |
 | `src/main_window.rs` | the Context Capsule window: messages, scrolling, keyboard, actions, text boxes |
 | `src/layout.rs` | what goes where in the window (pure, tested on any OS) |
-| `src/paint.rs` | drawing: Windows 11 colors, fonts, GDI text and GDI+ shapes |
+| `src/palette.rs` | the window's light and dark colors and shape outlines (pure, tested on any OS) |
+| `src/paint.rs` | drawing: fonts, GDI text and fills, GDI+ shapes |
 | `src/setup.rs` | setting up: voice notes, Connect Claude, open at login (the Settings rows) |
-| `src/connect.rs` | Connect Claude: the extension next to the exe, connected or not |
+| `src/connect.rs` | finding the Claude app, Connect Claude: the extension next to the exe, connected or not |
 | `src/platform.rs` | the core's `Platform` for Windows |
 | `src/picker.rs` | `GraphicsCapturePicker`, which item was picked, every monitor at once (All my screens), the captures and their latest frames |
 | `src/windows_list.rs` | front app, on-screen windows (EnumWindows + DWM), monitors, toast / overview rules |
@@ -238,7 +280,7 @@ cd capture-rs && cargo test -p context-capsule-windows
 | `src/model.rs` | the speech model: path, SHA-256 check, consented download |
 | `src/tray.rs` | tray icon (drawn in code) and menu text |
 | `src/toast.rs` | fading messages near the tray |
-| `src/hotkeys.rs` | global hotkeys |
+| `src/hotkeys.rs` | global shortcuts: registered, changed live, off while new keys are recorded |
 | `src/pointer.rs` | the mouse while recording: position and last move or scroll |
 | `src/changes.rs` | when the front app or virtual desktop last changed |
 | `src/win.rs` | small Win32 helpers |

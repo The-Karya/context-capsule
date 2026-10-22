@@ -11,9 +11,10 @@ use crate::app::{Ui, UiCmd};
 use crate::layout::{self, Action, Data, Field, Node, ShareHow, ShareView, View, HEADER, SIDEBAR};
 use crate::paint::{self, Faces, Feel, Fonts, GdiMeasure, Theme};
 use crate::setup::{self, Done};
-use crate::{input, reminder, tray, win, windows_list};
+use crate::{hotkeys, input, reminder, tray, win, windows_list};
 use context_capsule_core::settings::{self, Appearance, ConfigFile, ShareScreens};
-use context_capsule_core::window::{self as w, HomeNumbers, Section, WINDOWS_KEYS};
+use context_capsule_core::shortcuts::{self as shortcuts, Hotkeys, Pressed, Which};
+use context_capsule_core::window::{self as w, HomeNumbers, Keys, Section};
 use context_capsule_core::claude::search_prompt;
 use context_capsule_core::{AppLog, CapsuleSummary, Config, Msg, Paths, Projects, Status, WorkStats};
 use std::cell::RefCell;
@@ -32,8 +33,8 @@ use windows::Win32::Graphics::Gdi::{
 use windows::Win32::System::LibraryLoader::{GetModuleHandleW, GetProcAddress, LoadLibraryW};
 use windows::Win32::UI::HiDpi::{GetDpiForSystem, GetDpiForWindow};
 use windows::Win32::UI::Input::KeyboardAndMouse::{
-    GetFocus, GetKeyState, ReleaseCapture, SetCapture, SetFocus, TrackMouseEvent, TME_LEAVE, TRACKMOUSEEVENT, VK_DOWN, VK_END, VK_ESCAPE, VK_HOME,
-    VK_NEXT, VK_PRIOR, VK_RETURN, VK_SHIFT, VK_SPACE, VK_TAB, VK_UP,
+    GetFocus, GetKeyState, ReleaseCapture, SetCapture, SetFocus, TrackMouseEvent, TME_LEAVE, TRACKMOUSEEVENT, VK_CONTROL, VK_DOWN, VK_END, VK_ESCAPE,
+    VK_HOME, VK_LWIN, VK_MENU, VK_NEXT, VK_PRIOR, VK_RETURN, VK_RWIN, VK_SHIFT, VK_SPACE, VK_TAB, VK_UP,
 };
 use windows::Win32::UI::Controls::WM_MOUSELEAVE;
 use windows::Win32::UI::Shell::{DefSubclassProc, SetWindowSubclass};
@@ -44,11 +45,14 @@ use windows::Win32::UI::WindowsAndMessaging::{
     ICON_BIG, ICON_SMALL, IDC_ARROW, MF_CHECKED, MF_SEPARATOR, MF_STRING, MINMAXINFO, SPI_GETWORKAREA, SWP_NOACTIVATE, SWP_NOZORDER,
     SW_HIDE, SW_RESTORE, SW_SHOW, SW_SHOWNOACTIVATE, SYSTEM_PARAMETERS_INFO_UPDATE_FLAGS, TPM_LEFTALIGN, TPM_RETURNCMD, TPM_TOPALIGN,
     WINDOW_EX_STYLE, WINDOW_STYLE, WM_ACTIVATE, WM_APP, WM_CHAR, WM_CLOSE, WM_COMMAND, WM_CTLCOLOREDIT, WM_DESTROY, WM_DPICHANGED,
-    WM_ERASEBKGND, WM_GETMINMAXINFO, WM_KEYDOWN, WM_LBUTTONDOWN, WM_LBUTTONUP, WM_MOUSEMOVE, WM_MOUSEWHEEL, WM_PAINT,
+    WM_ERASEBKGND, WM_GETMINMAXINFO, WM_KEYDOWN, WM_SYSCHAR, WM_SYSKEYDOWN, WM_SYSKEYUP, WM_LBUTTONDOWN, WM_LBUTTONUP, WM_MOUSEMOVE, WM_MOUSEWHEEL, WM_PAINT,
     WM_SETFONT, WM_SETICON, WM_SETTINGCHANGE, WM_SIZE, WM_TIMER, WNDCLASSW, WS_CHILD, WS_CLIPCHILDREN, WS_OVERLAPPEDWINDOW,
 };
 
 const CLASS: &str = "ContextCapsuleWindow";
+const WM_THEMECHANGED: u32 = 0x031A;
+const WM_SYSCOLORCHANGE: u32 = 0x0015;
+const WM_DWMCOLORIZATIONCOLORCHANGED: u32 = 0x0320;
 const TICK: usize = 1;
 const STATS: usize = 2;
 /// Home's numbers are read again this often while the window is open.
@@ -123,6 +127,10 @@ struct Win {
     /// The client area in DIPs.
     size: (f64, f64),
     icons: Vec<HICON>,
+    /// Settings → Shortcuts: waiting for new keys for this one (the global shortcuts are off meanwhile).
+    recording_keys: Option<Which>,
+    /// Why the last new keys were refused, under that row.
+    keys_note: Option<(Which, String)>,
 }
 
 thread_local! {
@@ -196,6 +204,8 @@ pub fn show(section: Option<Section>, ctx: Ctx, status: &Status) {
         scale,
         size: (0.0, 0.0),
         icons: vec![],
+        recording_keys: None,
+        keys_note: None,
         ctx,
     };
     state.apply_theme();
@@ -277,8 +287,9 @@ pub fn apply_menu_mode(paths: &Paths) {
     }
 }
 
+/// Read every time (never cached): Windows may switch while the window is open.
 fn system_dark() -> bool {
-    win::reg_dword(r"Software\Microsoft\Windows\CurrentVersion\Themes\Personalize", "AppsUseLightTheme") == Some(0)
+    crate::palette::system_dark_from(win::reg_dword(r"Software\Microsoft\Windows\CurrentVersion\Themes\Personalize", "AppsUseLightTheme"))
 }
 
 /// The accent for this mode, from Windows (AccentDark1 on light, AccentLight2 on dark, as Windows' own buttons).
@@ -290,8 +301,7 @@ fn accent(dark: bool) -> Option<u32> {
 }
 
 fn theme_for(appearance: Appearance) -> Theme {
-    let dark = appearance.is_dark(system_dark());
-    Theme::new(dark, accent(dark))
+    Theme::for_appearance(appearance, system_dark(), accent)
 }
 
 fn create() -> Option<HWND> {
@@ -381,7 +391,66 @@ impl Win {
         }
     }
 
+    /// Stop waiting for new keys (the shortcuts in use work again).
+    fn stop_recording_keys(&mut self) {
+        if self.recording_keys.take().is_some() {
+            hotkeys::resume(self.ctx.ui.hwnd());
+            self.rebuild();
+        }
+    }
+
+    /// One key press while waiting for new keys: Esc cancels; a whole shortcut is checked, then used and saved,
+    /// or refused with a short line (the old one stays).
+    fn record_key(&mut self, vk: u32) {
+        let Some(which) = self.recording_keys else { return };
+        // SAFETY: reads the keyboard state.
+        let down = |k: u16| unsafe { GetKeyState(k as i32) } < 0;
+        if down(VK_LWIN.0) || down(VK_RWIN.0) {
+            return; // the Windows key is Windows' own
+        }
+        let pressed = shortcuts::pressed(down(VK_CONTROL.0), down(VK_MENU.0), down(VK_SHIFT.0), false, hotkeys::key_of_vk(vk), vk == VK_ESCAPE.0 as u32);
+        let to = match pressed {
+            Pressed::Wait => return,
+            Pressed::Cancel => return self.stop_recording_keys(),
+            Pressed::Done(s) => s,
+        };
+        self.recording_keys = None;
+        self.change_shortcuts(Some(which), hotkeys::current().check(which, to, false));
+    }
+
+    /// Use new shortcuts (`which`: the row that asked; None: Reset), or say why not.
+    fn change_shortcuts(&mut self, which: Option<Which>, checked: Result<Hotkeys, shortcuts::Refusal>) {
+        let tray = self.ctx.ui.hwnd();
+        let row = which.unwrap_or(Which::Record);
+        let result = checked.map_err(|refusal| (row, refusal)).and_then(|new| {
+            if new == hotkeys::current() {
+                hotkeys::resume(tray);
+                return Ok(new);
+            }
+            hotkeys::apply(tray, new).map(|()| new).map_err(|taken| {
+                self.ctx.log.write(&format!("shortcuts: {} is taken by another app", new.get(taken)));
+                (which.unwrap_or(taken), shortcuts::Refusal::Taken)
+            })
+        });
+        match result {
+            Ok(new) => {
+                self.keys_note = None;
+                if let Err(e) = new.save(&self.ctx.paths.config()) {
+                    self.ctx.log.write(&format!("cannot save the shortcuts: {e}"));
+                }
+                self.data.config.hotkeys = new;
+                crate::app::shortcuts_changed(new);
+            }
+            Err((row, refusal)) => {
+                hotkeys::resume(tray);
+                self.keys_note = Some((row, refusal.message(false)));
+            }
+        }
+        self.rebuild();
+    }
+
     fn go(&mut self, s: Section) {
+        self.stop_recording_keys();
         if self.share.take().is_some() {
             self.scroll = 0.0;
         }
@@ -433,6 +502,7 @@ impl Win {
         let focused = self.focus.and_then(|i| self.placed.get(i)).and_then(|(n, _)| n.action().cloned());
         let date = win::long_date_today();
         let now = SystemTime::now();
+        let keys = Keys::windows(&hotkeys::current());
         let view = View {
             section: self.section,
             status: &self.status,
@@ -446,9 +516,11 @@ impl Win {
             several_screens: self.several,
             voice: cfg!(feature = "voice"),
             auto_update: Some(crate::update::auto_update()),
-            keys: &WINDOWS_KEYS,
+            keys: &keys,
             search: &self.search,
             share: self.share.as_ref(),
+            recording_keys: self.recording_keys,
+            keys_note: self.keys_note.as_ref().map(|(which, text)| (*which, text.as_str())),
         };
         // SAFETY: the screen DC, only for measuring text; released below.
         let dc = unsafe { GetDC(Some(self.hwnd)) };
@@ -648,7 +720,8 @@ impl Win {
             let bmp = CreateCompatibleBitmap(screen, cw.max(1), ch.max(1));
             let old = SelectObject(mem, bmp.into());
             let t = self.theme;
-            paint::Shapes::on(mem).fill([0.0, 0.0, cw as f32, ch as f32], 0.0, t.bg);
+            // The whole window (sidebar, header and page) in the theme's page color: the new bitmap starts black.
+            paint::fill_rect(mem, RECT { left: 0, top: 0, right: cw.max(1), bottom: ch.max(1) }, t.bg);
 
             // The page, scrolled, under the header.
             let saved = SaveDC(mem);
@@ -1024,6 +1097,27 @@ fn perform(action: Action, at: POINT) {
             ctx.log.write(&format!("share: {removed} of {} item(s) removed", share.items.len()));
             share_now(hwnd, share.how, &share.path, Some(&share.shared_text()));
         }
+        Action::Shortcut(which) => {
+            with_win(|w| {
+                if w.recording_keys == Some(which) {
+                    return w.stop_recording_keys();
+                }
+                w.keys_note = None;
+                w.recording_keys = Some(which);
+                hotkeys::suspend(w.ctx.ui.hwnd());
+                // SAFETY: our own window takes the keys (off any text box).
+                unsafe {
+                    let _ = SetFocus(Some(w.hwnd));
+                }
+                w.rebuild();
+            });
+        }
+        Action::ResetShortcuts => {
+            with_win(|w| {
+                w.recording_keys = None;
+                w.change_shortcuts(None, Ok(Hotkeys::DEFAULT));
+            });
+        }
         Action::ShareCancel => {
             with_win(|w| {
                 w.share = None;
@@ -1058,7 +1152,7 @@ const BROWSE: &str = "Find an app…";
 /// Copy file, Copy text, Save a copy…, Show in folder. Sharing first shows "Check before sharing" when
 /// something in the capsule might be private.
 fn more(hwnd: HWND, path: &Path, at: POINT) {
-    let items = [w::COPY_FILE, w::COPY_TEXT, w::SAVE_COPY, WINDOWS_KEYS.show_in_folder].map(String::from);
+    let items = [w::COPY_FILE, w::COPY_TEXT, w::SAVE_COPY, w::SHOW_IN_FOLDER].map(String::from);
     let how = match menu(hwnd, &items, None, at) {
         Some(0) => ShareHow::CopyFile,
         Some(1) => ShareHow::CopyText,
@@ -1265,6 +1359,10 @@ extern "system" fn proc(hwnd: HWND, msg: u32, wp: WPARAM, lp: LPARAM) -> LRESULT
             let (x, y) = point(lp);
             with_win(|w| {
                 let (x, y) = (x as f64 / w.scale, y as f64 / w.scale);
+                // A click anywhere but a shortcut's button stops waiting for keys.
+                if w.recording_keys.is_some() && !w.hit(x, y).is_some_and(|i| matches!(w.placed[i].0.action(), Some(Action::Shortcut(_)))) {
+                    w.stop_recording_keys();
+                }
                 w.keyboard = false;
                 // SAFETY: our own window takes the focus (off any text box) and the mouse.
                 unsafe {
@@ -1315,6 +1413,11 @@ extern "system" fn proc(hwnd: HWND, msg: u32, wp: WPARAM, lp: LPARAM) -> LRESULT
             let notches = wheel_delta(wp) / 120.0;
             with_win(|w| w.scroll_to(w.scroll - notches * STEP));
         }
+        // Waiting for new keys (Settings → Shortcuts): every key goes there, Alt combinations too.
+        WM_KEYDOWN | WM_SYSKEYDOWN if with_win(|w| w.recording_keys.is_some()) == Some(true) => {
+            with_win(|w| w.record_key(wp.0 as u32));
+        }
+        WM_CHAR | WM_SYSCHAR | WM_SYSKEYUP if with_win(|w| w.recording_keys.is_some()) == Some(true) => {}
         WM_KEYDOWN => {
             let key = wp.0 as u16;
             let act = with_win(|w| {
@@ -1442,6 +1545,12 @@ extern "system" fn proc(hwnd: HWND, msg: u32, wp: WPARAM, lp: LPARAM) -> LRESULT
         WM_TIMER if wp.0 == STATS => {
             with_win(|w| w.request_load());
         }
+        // Switched to another window while waiting for keys: stop waiting.
+        WM_ACTIVATE if wp.0 & 0xFFFF == 0 => {
+            with_win(|w| w.stop_recording_keys());
+            // SAFETY: default handling too.
+            return unsafe { DefWindowProcW(hwnd, msg, wp, lp) };
+        }
         WM_ACTIVATE if wp.0 & 0xFFFF != 0 => {
             with_win(|w| {
                 if w.loaded {
@@ -1449,9 +1558,11 @@ extern "system" fn proc(hwnd: HWND, msg: u32, wp: WPARAM, lp: LPARAM) -> LRESULT
                 }
             });
         }
-        WM_SETTINGCHANGE => {
-            // Light / dark or the accent changed in Windows.
+        WM_SETTINGCHANGE | WM_THEMECHANGED | WM_SYSCOLORCHANGE | WM_DWMCOLORIZATIONCOLORCHANGED => {
+            // Light / dark or the accent changed in Windows: the theme is read again and everything repainted.
             with_win(|w| w.retheme());
+            // SAFETY: default handling too (it passes these on as Windows expects).
+            return unsafe { DefWindowProcW(hwnd, msg, wp, lp) };
         }
         WM_CLOSE => {
             // SAFETY: our own window.
@@ -1466,6 +1577,9 @@ extern "system" fn proc(hwnd: HWND, msg: u32, wp: WPARAM, lp: LPARAM) -> LRESULT
                 let _ = KillTimer(Some(hwnd), STATS);
             }
             if let Some(w) = WIN.with(|s| s.try_borrow_mut().ok().and_then(|mut s| s.take())) {
+                if w.recording_keys.is_some() {
+                    hotkeys::resume(w.ctx.ui.hwnd());
+                }
                 w.ctx.log.write("window: closed");
                 // SAFETY: the brush and icons we made; the window is going away.
                 unsafe {

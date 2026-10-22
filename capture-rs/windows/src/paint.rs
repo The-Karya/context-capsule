@@ -2,121 +2,36 @@
 // accent), Segoe UI Variable (Segoe UI on Windows 10) through GDI with ClearType, and smooth rounded shapes
 // through GDI+. Everything is drawn into an off-screen bitmap, then copied in one go (no flicker).
 
-use crate::layout::{Align, Font, Ink, Measure, Node, Style};
+use crate::layout::{Align, Font, Measure, Node, Style};
 use std::collections::HashMap;
 use windows::core::HSTRING;
 use windows::Win32::Foundation::{COLORREF, LPARAM, RECT};
 use windows::Win32::Graphics::Gdi::{
-    CreateFontW, DeleteObject, DrawTextW, EnumFontFamiliesExW, GetDC, ReleaseDC, SelectObject, SetBkMode, SetTextColor, DEFAULT_CHARSET,
+    CreateFontW, CreateSolidBrush, DeleteObject, DrawTextW, EnumFontFamiliesExW, FillRect, GetDC, ReleaseDC, SelectObject, SetBkMode, SetTextColor, DEFAULT_CHARSET,
     DRAW_TEXT_FORMAT, DT_CALCRECT, DT_CENTER, DT_EDITCONTROL, DT_END_ELLIPSIS, DT_LEFT, DT_NOPREFIX, DT_RIGHT, DT_SINGLELINE, DT_VCENTER,
     DT_WORDBREAK, FONT_QUALITY, HDC, HFONT, LOGFONTW, TEXTMETRICW, TRANSPARENT,
 };
 use windows::Win32::Graphics::GdiPlus::{
-    GdipAddPathArc, GdipClosePathFigure, GdipCreateFromHDC, GdipCreatePath, GdipCreatePen1, GdipCreateSolidFill, GdipDeleteBrush,
+    GdipAddPathArc, GdipAddPathRectangle, GdipClosePathFigure, GdipCreateFromHDC, GdipCreatePath, GdipCreatePen1, GdipCreateSolidFill, GdipDeleteBrush,
     GdipDeleteGraphics, GdipDeletePath, GdipDeletePen, GdipDrawPath, GdipFillPath, GdipSetPixelOffsetMode, GdipSetSmoothingMode,
     GdiplusStartup, GdiplusStartupInput, GpBrush, GpGraphics, GpPath, FillModeAlternate, PixelOffsetModeHalf, SmoothingModeAntiAlias,
     UnitPixel,
 };
 
-/// ARGB.
-pub type Argb = u32;
+pub use crate::palette::{mix, Argb, Theme};
+use crate::palette::Outline;
 
 pub fn colorref(c: Argb) -> COLORREF {
     COLORREF(((c & 0xFF) << 16) | (c & 0xFF00) | ((c >> 16) & 0xFF))
 }
 
-/// `a` over `b`, `t` of the way (0 = b, 1 = a).
-pub fn mix(a: Argb, b: Argb, t: f64) -> Argb {
-    let ch = |c: Argb, s: u32| ((c >> s) & 0xFF) as f64;
-    let m = |s| (ch(a, s) * t + ch(b, s) * (1.0 - t)).round() as u32;
-    0xFF00_0000 | (m(16) << 16) | (m(8) << 8) | m(0)
-}
-
-/// Windows 11's colors for one mode, and the user's accent.
-#[derive(Clone, Copy, Debug)]
-pub struct Theme {
-    pub dark: bool,
-    pub bg: Argb,
-    pub card: Argb,
-    pub card_border: Argb,
-    pub divider: Argb,
-    pub text: Argb,
-    pub text2: Argb,
-    pub text3: Argb,
-    pub accent: Argb,
-    pub on_accent: Argb,
-    pub subtle_hover: Argb,
-    pub subtle_selected: Argb,
-    pub control: Argb,
-    pub control_hover: Argb,
-    pub control_pressed: Argb,
-    pub control_border: Argb,
-    pub control_bottom: Argb,
-    pub field: Argb,
-    pub track: Argb,
-    pub red: Argb,
-    pub key: Argb,
-}
-
-impl Theme {
-    /// `accent`: the system accent for this mode (dark text on light accents in dark mode, like Windows).
-    pub fn new(dark: bool, accent: Option<Argb>) -> Theme {
-        if dark {
-            Theme {
-                dark,
-                bg: 0xFF20_2020,
-                card: 0xFF2B_2B2B,
-                card_border: 0xFF1C_1C1C,
-                divider: 0xFF3A_3A3A,
-                text: 0xFFFF_FFFF,
-                text2: 0xFFC8_C8C8,
-                text3: 0xFF9A_9A9A,
-                accent: accent.unwrap_or(0xFF60_CDFF),
-                on_accent: 0xFF00_0000,
-                subtle_hover: 0xFF2D_2D2D,
-                subtle_selected: 0xFF33_3333,
-                control: 0xFF2D_2D2D,
-                control_hover: 0xFF32_3232,
-                control_pressed: 0xFF27_2727,
-                control_border: 0xFF3A_3A3A,
-                control_bottom: 0xFF30_3030,
-                field: 0xFF2D_2D2D,
-                track: 0xFF3D_3D3D,
-                red: 0xFFFF_99A4,
-                key: 0xFF32_3232,
-            }
-        } else {
-            Theme {
-                dark,
-                bg: 0xFFF3_F3F3,
-                card: 0xFFFB_FBFB,
-                card_border: 0xFFE5_E5E5,
-                divider: 0xFFEA_EAEA,
-                text: 0xFF1B_1B1B,
-                text2: 0xFF5D_5D5D,
-                text3: 0xFF8A_8A8A,
-                accent: accent.unwrap_or(0xFF00_5FB8),
-                on_accent: 0xFFFF_FFFF,
-                subtle_hover: 0xFFEA_EAEA,
-                subtle_selected: 0xFFE6_E6E6,
-                control: 0xFFFB_FBFB,
-                control_hover: 0xFFF6_F6F6,
-                control_pressed: 0xFFF2_F2F2,
-                control_border: 0xFFE5_E5E5,
-                control_bottom: 0xFFCC_CCCC,
-                field: 0xFFFF_FFFF,
-                track: 0xFFE6_E6E6,
-                red: 0xFFC4_2B1C,
-                key: 0xFFF3_F3F3,
-            }
-        }
-    }
-
-    pub fn ink(&self, ink: Ink) -> Argb {
-        match ink {
-            Ink::Primary => self.text,
-            Ink::Secondary => self.text2,
-        }
+/// Fill a rectangle (pixels) with plain GDI: exact edges, no GDI+ involved. Used for the page background.
+pub fn fill_rect(dc: HDC, r: RECT, color: Argb) {
+    // SAFETY: a brush we make and delete here, on a valid DC.
+    unsafe {
+        let brush = CreateSolidBrush(colorref(color));
+        FillRect(dc, &r, brush);
+        let _ = DeleteObject(brush.into());
     }
 }
 
@@ -155,26 +70,25 @@ impl Shapes {
 
     fn path(x: f32, y: f32, w: f32, h: f32, r: f32) -> *mut GpPath {
         let mut p = std::ptr::null_mut();
-        let r = r.min(w / 2.0).min(h / 2.0).max(0.0);
-        let d = r * 2.0;
         // SAFETY: a path we own; deleted by the caller.
         unsafe {
             let _ = GdipCreatePath(FillModeAlternate, &mut p);
             if p.is_null() {
                 return p;
             }
-            if d < 0.5 {
-                let _ = GdipAddPathArc(p, x, y, 0.0, 0.0, 180.0, 90.0);
-                let _ = GdipAddPathArc(p, x + w, y, 0.0, 0.0, 270.0, 90.0);
-                let _ = GdipAddPathArc(p, x + w, y + h, 0.0, 0.0, 0.0, 90.0);
-                let _ = GdipAddPathArc(p, x, y + h, 0.0, 0.0, 90.0, 90.0);
-            } else {
-                let _ = GdipAddPathArc(p, x, y, d, d, 180.0, 90.0);
-                let _ = GdipAddPathArc(p, x + w - d, y, d, d, 270.0, 90.0);
-                let _ = GdipAddPathArc(p, x + w - d, y + h - d, d, d, 0.0, 90.0);
-                let _ = GdipAddPathArc(p, x, y + h - d, d, d, 90.0, 90.0);
+            match Outline::of(w, h, r) {
+                // Square corners: a rectangle (GDI+ refuses zero-size arcs, which left the path empty).
+                Outline::Rect => {
+                    let _ = GdipAddPathRectangle(p, x, y, w, h);
+                }
+                Outline::Rounded(d) => {
+                    let _ = GdipAddPathArc(p, x, y, d, d, 180.0, 90.0);
+                    let _ = GdipAddPathArc(p, x + w - d, y, d, d, 270.0, 90.0);
+                    let _ = GdipAddPathArc(p, x + w - d, y + h - d, d, d, 0.0, 90.0);
+                    let _ = GdipAddPathArc(p, x, y + h - d, d, d, 90.0, 90.0);
+                    let _ = GdipClosePathFigure(p);
+                }
             }
-            let _ = GdipClosePathFigure(p);
         }
         p
     }

@@ -148,15 +148,14 @@ mod builder {
     /// The voice engine for this build.
     pub fn engine(
         root: &Path,
-        voice_hotkey: &'static str,
         notify: Notify,
         log: context_capsule_core::AppLog,
     ) -> Box<dyn context_capsule_core::VoiceEngine> {
         #[cfg(feature = "voice")]
-        return Box::new(super::whisper::WhisperVoice::new(root, voice_hotkey, notify, log));
+        return Box::new(super::whisper::WhisperVoice::new(root, notify, log));
         #[cfg(not(feature = "voice"))]
         {
-            let _ = (root, voice_hotkey, notify, log);
+            let _ = (root, notify, log);
             Box::new(NoVoice)
         }
     }
@@ -220,9 +219,13 @@ mod whisper {
         error: Option<String>,
     }
 
+    /// The voice shortcut in use now ("Alt+V", or your own).
+    fn voice_key() -> String {
+        crate::hotkeys::current().voice.label()
+    }
+
     pub struct WhisperVoice {
         root: PathBuf,
-        voice_hotkey: &'static str,
         notify: Notify,
         model: Arc<Mutex<ModelState>>,
         lang: String,
@@ -232,11 +235,10 @@ mod whisper {
     }
 
     impl WhisperVoice {
-        pub fn new(root: &Path, voice_hotkey: &'static str, notify: Notify, log: AppLog) -> WhisperVoice {
+        pub fn new(root: &Path, notify: Notify, log: AppLog) -> WhisperVoice {
             whisper_rs::install_logging_hooks(); // whisper.cpp prints nothing (and never the words)
             WhisperVoice {
                 root: root.to_path_buf(),
-                voice_hotkey,
                 notify,
                 model: Arc::new(Mutex::new(ModelState::Missing)),
                 lang: "en".into(),
@@ -263,7 +265,7 @@ mod whisper {
                 }
                 ModelState::Missing if model::path(&self.root).is_file() => {
                     *state = ModelState::Loading;
-                    let (shared, path, hotkey) = (self.model.clone(), model::path(&self.root), self.voice_hotkey);
+                    let (shared, path, hotkey) = (self.model.clone(), model::path(&self.root), voice_key());
                     std::thread::spawn(move || {
                         let loaded = load(&path);
                         let mut state = shared.lock().unwrap_or_else(|e| e.into_inner());
@@ -282,8 +284,8 @@ mod whisper {
                 ModelState::Missing => {
                     *state = ModelState::Asking;
                     let (shared, root, dir, hotkey, notify) =
-                        (self.model.clone(), self.root.clone(), self.models_dir(), self.voice_hotkey, self.notify.clone());
-                    std::thread::spawn(move || ask_and_download(shared, &root, &dir, hotkey, notify, reply));
+                        (self.model.clone(), self.root.clone(), self.models_dir(), voice_key(), self.notify.clone());
+                    std::thread::spawn(move || ask_and_download(shared, &root, &dir, &hotkey, notify, reply));
                 }
             }
         }

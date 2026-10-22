@@ -3,7 +3,7 @@
 // thread and relays messages. Start / stop cues (a short message and a soft sound) come from status changes;
 // while recording or listening a timer keeps the tray's time and voice bars moving.
 
-use crate::hotkeys::{self, RECORD_LABEL, VOICE_LABEL};
+use crate::hotkeys;
 use crate::picker::Capture;
 use crate::platform::WinPlatform;
 use crate::toast::Toast;
@@ -59,9 +59,10 @@ const MAX_PROJECTS: usize = 500;
 const LOOK_TIMER: usize = 7;
 const LOOK_EVERY_MS: u32 = 125;
 
-/// User-facing words for Windows: Alt+C and Alt+V, like the Mac's ⌥C and ⌥V.
-pub const TEXT: PlatformText =
-    PlatformText { record_hotkey: RECORD_LABEL, voice_hotkey: VOICE_LABEL, mic_privacy: voice::MIC_SETTINGS, ..PlatformText::WINDOWS };
+/// User-facing words for Windows, with the shortcuts in use (Alt+C and Alt+V unless changed).
+pub fn text() -> PlatformText {
+    PlatformText { mic_privacy: voice::MIC_SETTINGS, ..PlatformText::WINDOWS }.with_shortcuts(&hotkeys::current())
+}
 
 /// What the engine thread asks the UI thread to do.
 pub enum UiCmd {
@@ -131,7 +132,8 @@ impl Ui {
 }
 
 impl Ui {
-    fn hwnd(&self) -> HWND {
+    /// The UI thread's hidden window (it owns the tray and the global shortcuts).
+    pub fn hwnd(&self) -> HWND {
         HWND(self.hwnd as *mut core::ffi::c_void)
     }
 
@@ -219,10 +221,10 @@ pub fn run() {
     let capture = Capture::new(tx.clone());
     let ui = Ui::of(hwnd);
 
+    let taken = hotkeys::register(hwnd, context_capsule_core::Hotkeys::load(&paths.config()));
     let mut tray = Tray::new(hwnd, WM_TRAY);
-    tray.set_tip(tray::tooltip(&Status::default(), SystemTime::now()));
+    tray.set_tip(tray::tooltip(&Status::default(), SystemTime::now(), &hotkeys::current()));
     tray.add();
-    let taken = hotkeys::register(hwnd);
     changes::install();
     let engine = spawn_engine(paths.clone(), ui, capture.clone(), tx.clone(), rx, log.clone());
     setup::open_at_login_once(&log);
@@ -253,6 +255,7 @@ pub fn run() {
     if !taken.is_empty() {
         // Once, at launch: the keys don't work, the tray menu does.
         with_app(|a| a.log.write(&format!("hotkeys taken by another app: {}", taken.join(", "))));
+        let taken: Vec<&str> = taken.iter().map(String::as_str).collect();
         Ui::of(hwnd).post(UiCmd::Toast(hotkeys_taken_message(&taken)));
     }
 
@@ -311,8 +314,8 @@ fn spawn_engine(
             win::init_com(false);
             let toast_ui = ui.clone();
             let notify: voice::Notify = Arc::new(move |text: String| toast_ui.post(UiCmd::Toast(text)));
-            let voice = voice::engine(&paths.root, TEXT.voice_hotkey, notify, log);
-            let opts = Options { own_app_id: own_app_id(), text: TEXT, locale: user_locale() };
+            let voice = voice::engine(&paths.root, notify, log);
+            let opts = Options { own_app_id: own_app_id(), text: text(), locale: user_locale() };
             let mut engine = Engine::new(paths, WinPlatform::new(ui.clone(), capture), voice, opts);
             engine.set_voice_wake(Arc::new(move || {
                 let _ = tx.send(Msg::VoiceReady);
@@ -410,7 +413,7 @@ fn handle(hwnd: HWND, cmd: UiCmd) {
         }
         UiCmd::Status(s) => {
             with_app(|a| {
-                a.tray.set_tip(tray::tooltip(&s, SystemTime::now()));
+                a.tray.set_tip(tray::tooltip(&s, SystemTime::now(), &hotkeys::current()));
                 crate::update::set_busy(s.recording || s.listening); // no update check meanwhile
                 cues(a, &s);
                 a.status = *s;
@@ -484,7 +487,7 @@ fn look_tick(hwnd: HWND, a: &mut App) {
     if a.status.listening {
         a.tray.set_level(look::level_frame(Voice::level()));
     }
-    a.tray.set_tip(tray::tooltip(&a.status, SystemTime::now()));
+    a.tray.set_tip(tray::tooltip(&a.status, SystemTime::now(), &hotkeys::current()));
     if busy != a.look_timer {
         a.look_timer = busy;
         // SAFETY: a timer on our own window.
@@ -511,7 +514,7 @@ fn show_menu(hwnd: HWND) {
     let Some((model, status)) = with_app(|a| {
         // Clicking the tray puts the taskbar in front; this finds the app the user works in.
         a.menu_front = front_now(a);
-        (tray::menu_model(&a.status, SystemTime::now(), &short_time), a.status.clone())
+        (tray::menu_model(&a.status, SystemTime::now(), &short_time, &hotkeys::current()), a.status.clone())
     }) else {
         return;
     };
@@ -624,6 +627,15 @@ fn new_project(hwnd: HWND, status: &Status) {
     if let Some(name) = input::ask(hwnd, "New project", &shown.new_project_prompt(), &initial) {
         send(Msg::NewProject { name, clue });
     }
+}
+
+/// The shortcuts changed (Settings → Shortcuts): the engine's messages and the tray name the new ones.
+pub fn shortcuts_changed(h: context_capsule_core::Hotkeys) {
+    with_app(|a| {
+        a.log.write(&format!("shortcuts: {} and {}", h.record, h.voice));
+        let _ = a.tx.send(Msg::Shortcuts(h));
+        a.tray.set_tip(tray::tooltip(&a.status, SystemTime::now(), &h));
+    });
 }
 
 /// Open the Context Capsule window (on `section`, when given), or bring it to the front.

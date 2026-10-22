@@ -15,6 +15,7 @@ mod layout;
 mod model;
 mod net;
 mod ocr;
+mod palette;
 mod picker;
 mod pointer;
 mod reminder;

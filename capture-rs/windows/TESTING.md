@@ -1,6 +1,6 @@
 # Context Capsule for Windows: test checklist
 
-Thank you for testing! This takes about 45–55 minutes. You need Windows 10 (1903 or
+Thank you for testing! This takes about 50–60 minutes. You need Windows 10 (1903 or
 later) or Windows 11, a microphone for part 8, the **Claude app** for Windows (signed
 in) for parts 1, 9 and 10, and a second monitor for part 5 if you have one.
 
@@ -33,10 +33,16 @@ and shows a ✓ instead once that step is done.
 1. **Voice notes**: if it shows **Allow**, click it. Windows Settings opens on the
    Microphone page. Turn on *Microphone access* and *Let desktop apps access your
    microphone*. ✅ Back in Context Capsule, the row shows a ✓ within a second or two.
-2. **Connect Claude**: click **Connect**. ✅ The Claude app opens and asks to install
-   Context Capsule. Click **Install** in Claude. ✅ The row shows a ✓.
-   - No Claude app yet? It offers to open the download page. Install Claude, sign in,
-     then click **Connect** again.
+2. **Connect Claude**: click **Connect**. ✅ One of these happens:
+   - The Claude app opens and asks to install Context Capsule. Click **Install** in Claude.
+   - Or Claude opens, a folder opens with `context-capsule.mcpb` selected, and a box says
+     *In Claude: Settings → Extensions → Advanced settings → Install Extension…, then pick
+     context-capsule.mcpb*. Do that in Claude.
+   - Or a box asks *Is the Claude app installed?* (it couldn't find it). **Yes** shows the
+     folder and the steps above; **No** opens the download page.
+   ✅ Once installed in Claude, the row shows a ✓. With Claude installed it must **not** say
+   Claude is missing. Either way, please send us the line starting with *claude app:* from
+   `app.log` (part 11): it says how Context Capsule found Claude.
 3. **Open at login**: click **Turn On**. ✅ The row shows a ✓. (To undo later:
    Settings → Apps → Startup.)
 4. **Your name**: type your first name. ✅ Go to **Home**: it says *Good morning,
@@ -45,12 +51,30 @@ and shows a ✓ instead once that step is done.
    (**Updates** shows the version; **Check for updates** says what it found):
    ✅ every change sticks after you close and reopen the window. **Appearance → Dark**
    turns the window dark at once; set it back to **System**.
-6. Close the window (✕). Right-click the tray icon → **Open Context Capsule**
+6. **Light and dark**: set **Appearance → Light**. ✅ The whole window is light: a light grey
+   background (behind the sidebar and the page too, never black), white cards, dark text that
+   is easy to read in the sidebar (Home, Capsules, Projects, Settings, Help) and in the page
+   title. Set **Appearance → System**, then switch Windows itself between light and dark
+   (Settings → Personalization → Colors → *Choose your mode*) with the window open
+   ✅ the window follows at once, everywhere (sidebar, page, text boxes, title bar).
+   Please send a screenshot of the window in light mode.
+7. **Shortcuts** (Settings → **Shortcuts**): click the button next to **Start or stop** (it
+   says *Alt+C*). ✅ It says *Press keys…*. Press **Ctrl + Shift + R**. ✅ The button now says
+   *Ctrl+Shift+R*; Home's **Shortcuts** card, **Help** and the tray menu say so too. Press
+   **Ctrl + Shift + R** anywhere ✅ the picker opens (close it). **Alt + C** does nothing now.
+   - Click **Speak a note**, press **Ctrl + Shift + R** ✅ refused: *Already used for Start or
+     stop*, and it keeps *Alt+V*.
+   - Click it again and press just **V** ✅ refused: *Add Ctrl or Alt*.
+   - Click it, then press **Esc** ✅ nothing changes.
+   - Click it and press keys another app uses (e.g. **Win** shortcuts don't count; try a key
+     your other apps use, if you know one) ✅ *Another app uses these keys*, the old one stays.
+   - Click **Reset** ✅ back to *Alt+C* and *Alt+V*, and they work again.
+8. Close the window (✕). Right-click the tray icon → **Open Context Capsule**
    ✅ The window opens again, on Home. Make it very narrow, then very wide:
    ✅ nothing overlaps or gets cut off; when wide, **Shortcuts**, **Working on** and
    **Make today's capsules** sit on the right.
-7. Press **Tab** a few times ✅ a ring moves from button to button; **Enter** presses it.
-8. **Help** shows the shortcuts (Alt+C, Alt+V), how it works and privacy.
+9. Press **Tab** a few times ✅ a ring moves from button to button; **Enter** presses it.
+10. **Help** shows the shortcuts (Alt+C, Alt+V), how it works and privacy.
 
 ## 2. Start and cancel
 

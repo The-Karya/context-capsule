@@ -3,7 +3,7 @@
 // of its menu and tooltip. The tray can't show text next to its icon, so the running time is in the tooltip
 // and the menu's first line. Nothing on screen.
 
-use crate::hotkeys::{RECORD_LABEL, VOICE_LABEL};
+use context_capsule_core::Hotkeys;
 use context_capsule_core::look::{self, LEVEL_FRAMES};
 use context_capsule_core::{Indicator, Status};
 use std::time::SystemTime;
@@ -94,7 +94,9 @@ pub struct MenuModel {
 }
 
 /// The menu as of `now` (the running time).
-pub fn menu_model(s: &Status, now: SystemTime, short_time: &dyn Fn(SystemTime) -> String) -> MenuModel {
+/// `keys`: the shortcuts in use now.
+pub fn menu_model(s: &Status, now: SystemTime, short_time: &dyn Fn(SystemTime) -> String, keys: &Hotkeys) -> MenuModel {
+    let (record, voice) = (keys.record.label(), keys.voice.label());
     let info = match (&s.session_id, s.started_at) {
         (Some(_), Some(at)) if s.recording => {
             let n = s.events;
@@ -106,13 +108,13 @@ pub fn menu_model(s: &Status, now: SystemTime, short_time: &dyn Fn(SystemTime) -
     };
     let skip = s.skip.filter(|_| s.recording).map(|k| format!("Skipping: {}", k.message()));
     let toggle = if s.recording {
-        format!("Stop contextualizing\t{RECORD_LABEL}")
+        format!("Stop contextualizing\t{record}")
     } else if s.picking {
-        format!("Cancel\t{RECORD_LABEL}")
+        format!("Cancel\t{record}")
     } else {
-        format!("Start contextualizing\t{RECORD_LABEL}")
+        format!("Start contextualizing\t{record}")
     };
-    let voice = if s.listening { format!("Done speaking\t{VOICE_LABEL}") } else { format!("Speak a note\t{VOICE_LABEL}") };
+    let voice = if s.listening { format!("Done speaking\t{voice}") } else { format!("Speak a note\t{voice}") };
     let add_screen = s.recording.then(|| (s.add_screen_label(), s.can_add_screen()));
     MenuModel { info, skip, toggle, voice, add_screen, project: menu_text(&s.project_title()) }
 }
@@ -123,13 +125,14 @@ pub fn menu_text(s: &str) -> String {
 }
 
 /// The hover text as of `now` (at most 127 characters, the tray's limit). While recording it shows the time.
-pub fn tooltip(s: &Status, now: SystemTime) -> String {
+pub fn tooltip(s: &Status, now: SystemTime, keys: &Hotkeys) -> String {
+    let (record, voice) = (keys.record.label(), keys.voice.label());
     let t = if s.listening {
-        format!("Listening — press {VOICE_LABEL} to finish the voice note")
+        format!("Listening — press {voice} to finish the voice note")
     } else if let Some(time) = look::elapsed(s, now) {
-        format!("● Contextualizing {time} — {RECORD_LABEL} to stop, {VOICE_LABEL} to talk")
+        format!("● Contextualizing {time} — {record} to stop, {voice} to talk")
     } else {
-        format!("Context Capsule ({RECORD_LABEL} to start contextualizing)")
+        format!("Context Capsule ({record} to start contextualizing)")
     };
     t.chars().take(127).collect()
 }
@@ -361,15 +364,15 @@ mod tests {
     fn menu_lines() {
         let t = |_: SystemTime| "14:57".to_string();
         let now = SystemTime::UNIX_EPOCH + Duration::from_secs(755);
-        let idle = menu_model(&Status::default(), now, &t);
+        let idle = menu_model(&Status::default(), now, &t, &Hotkeys::DEFAULT);
         assert_eq!(idle.info, "Not contextualizing");
         assert_eq!(idle.toggle, "Start contextualizing\tAlt+C");
         assert_eq!(idle.voice, "Speak a note\tAlt+V");
         assert_eq!(idle.skip, None);
 
         let picking = Status { picking: true, ..Default::default() };
-        assert_eq!(menu_model(&picking, now, &t).info, "Pick a window or screen…");
-        assert!(menu_model(&picking, now, &t).toggle.starts_with("Cancel"));
+        assert_eq!(menu_model(&picking, now, &t, &Hotkeys::DEFAULT).info, "Pick a window or screen…");
+        assert!(menu_model(&picking, now, &t, &Hotkeys::DEFAULT).toggle.starts_with("Cancel"));
         assert_eq!(idle.add_screen, None, "hidden when not recording");
 
         let rec = Status {
@@ -382,28 +385,28 @@ mod tests {
             sources: 1,
             ..Default::default()
         };
-        let m = menu_model(&rec, now, &t);
+        let m = menu_model(&rec, now, &t, &Hotkeys::DEFAULT);
         assert_eq!(m.info, "● Contextualizing 12:34 — since 14:57 — 12 moments");
         assert_eq!(m.add_screen, Some(("Add a screen".to_string(), true)));
         assert_eq!(m.skip.as_deref(), Some("Skipping: the front window is not in what you picked"));
         assert!(m.toggle.starts_with("Stop contextualizing"));
         assert!(m.voice.starts_with("Done speaking"));
         let one = Status { events: 1, skip: None, sources: 4, ..rec };
-        assert_eq!(menu_model(&one, now, &t).info, "● Contextualizing 12:34 — since 14:57 — 1 moment");
-        assert_eq!(menu_model(&one, now, &t).skip, None);
-        assert_eq!(menu_model(&one, now, &t).add_screen, Some(("Add a screen (4 shared)".to_string(), false)), "4 at most");
+        assert_eq!(menu_model(&one, now, &t, &Hotkeys::DEFAULT).info, "● Contextualizing 12:34 — since 14:57 — 1 moment");
+        assert_eq!(menu_model(&one, now, &t, &Hotkeys::DEFAULT).skip, None);
+        assert_eq!(menu_model(&one, now, &t, &Hotkeys::DEFAULT).add_screen, Some(("Add a screen (4 shared)".to_string(), false)), "4 at most");
 
         assert_eq!(idle.project, "Project: Auto-detect");
 
         let stale = Status { skip: Some(Skip::Overlay), ..Default::default() };
-        assert_eq!(menu_model(&stale, now, &t).skip, None, "skip line only while recording");
+        assert_eq!(menu_model(&stale, now, &t, &Hotkeys::DEFAULT).skip, None, "skip line only while recording");
     }
 
     #[test]
     fn project_menu_text() {
         let p = context_capsule_core::Project { id: "rd".into(), name: "R&D".into(), clues: vec![] };
         let s = Status { projects: vec![p], pinned: Some("rd".into()), project: Some("rd".into()), ..Default::default() };
-        assert_eq!(menu_model(&s, SystemTime::now(), &|_| String::new()).project, "Project: R&&D");
+        assert_eq!(menu_model(&s, SystemTime::now(), &|_| String::new(), &Hotkeys::DEFAULT).project, "Project: R&&D");
         assert_eq!(menu_text("a && b"), "a &&&& b");
     }
 
@@ -412,12 +415,15 @@ mod tests {
         let start = SystemTime::UNIX_EPOCH;
         let rec = Status { recording: true, started_at: Some(start), ..Default::default() };
         for s in [Status::default(), rec.clone(), Status { listening: true, ..Default::default() }] {
-            let tip = tooltip(&s, start + Duration::from_secs(36_000));
+            let tip = tooltip(&s, start + Duration::from_secs(36_000), &Hotkeys::DEFAULT);
             assert!(tip.chars().count() <= 127 && tip.contains("Alt+"), "{tip}");
         }
         assert_eq!(
-            tooltip(&rec, start + Duration::from_secs(754)),
+            tooltip(&rec, start + Duration::from_secs(754), &Hotkeys::DEFAULT),
             "● Contextualizing 12:34 — Alt+C to stop, Alt+V to talk"
         );
+        let mine = Hotkeys::DEFAULT.with(context_capsule_core::shortcuts::Which::Voice, context_capsule_core::Shortcut::parse("Ctrl+Shift+N").unwrap());
+        assert_eq!(tooltip(&rec, start + Duration::from_secs(754), &mine), "● Contextualizing 12:34 — Alt+C to stop, Ctrl+Shift+N to talk", "your own shortcut");
+        assert_eq!(menu_model(&Status::default(), start, &|_| String::new(), &mine).voice, "Speak a note\tCtrl+Shift+N");
     }
 }

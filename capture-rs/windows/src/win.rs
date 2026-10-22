@@ -36,6 +36,36 @@ pub fn reg_string_machine(subkey: &str, value: &str) -> Option<String> {
     reg_string_in(HKEY_LOCAL_MACHINE, subkey, value)
 }
 
+/// A string value under HKEY_LOCAL_MACHINE (`machine`) or HKEY_CURRENT_USER.
+pub fn reg_string_at(machine: bool, subkey: &str, value: &str) -> Option<String> {
+    reg_string_in(if machine { HKEY_LOCAL_MACHINE } else { HKEY_CURRENT_USER }, subkey, value)
+}
+
+/// The names of a key's subkeys, under HKEY_LOCAL_MACHINE (`machine`) or HKEY_CURRENT_USER. Missing: none.
+pub fn reg_subkeys(machine: bool, subkey: &str) -> Vec<String> {
+    use windows::core::PWSTR;
+    use windows::Win32::System::Registry::{RegCloseKey, RegEnumKeyExW, RegOpenKeyExW, KEY_READ};
+    let hive = if machine { HKEY_LOCAL_MACHINE } else { HKEY_CURRENT_USER };
+    let mut key = HKEY::default();
+    let mut out = vec![];
+    // SAFETY: opens a key for reading, enumerates into our own buffer (its length passed each time), closes it.
+    unsafe {
+        if RegOpenKeyExW(hive, &HSTRING::from(subkey), None, KEY_READ, &mut key).is_err() {
+            return out;
+        }
+        for i in 0..10_000u32 {
+            let mut buf = [0u16; 256];
+            let mut len = buf.len() as u32;
+            if RegEnumKeyExW(key, i, Some(PWSTR(buf.as_mut_ptr())), &mut len, None, None, None, None).is_err() {
+                break;
+            }
+            out.push(String::from_utf16_lossy(&buf[..(len as usize).min(buf.len())]));
+        }
+        let _ = RegCloseKey(key);
+    }
+    out
+}
+
 fn reg_string_in(hive: HKEY, subkey: &str, value: &str) -> Option<String> {
     let (key, name) = (HSTRING::from(subkey), HSTRING::from(value));
     let mut buf = [0u16; 512];

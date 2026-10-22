@@ -8,6 +8,7 @@ use crate::setup::{Done, Step};
 use context_capsule_core::capsules::{self, CapsuleSummary};
 use context_capsule_core::share_check::{self, Kind};
 use context_capsule_core::settings::{self, Appearance};
+use context_capsule_core::shortcuts::{self as keys, Which};
 use context_capsule_core::window::{self as w, HomeNumbers, Keys, Section};
 use context_capsule_core::{Config, Project, Status};
 use std::path::PathBuf;
@@ -206,6 +207,9 @@ pub enum Action {
     ShareToggle(usize),
     ShareGo,
     ShareCancel,
+    /// Settings → Shortcuts: record new keys for one, or put back the defaults.
+    Shortcut(Which),
+    ResetShortcuts,
 }
 
 #[derive(Clone, Debug, PartialEq)]
@@ -328,6 +332,9 @@ pub struct View<'a> {
     pub search: &'a str,
     /// "Check before sharing", shown instead of the page while a capsule is about to be shared.
     pub share: Option<&'a ShareView>,
+    /// Settings → Shortcuts: the one waiting for new keys, and a short line under one row (why it was refused).
+    pub recording_keys: Option<Which>,
+    pub keys_note: Option<(Which, &'a str)>,
 }
 
 pub struct Layout {
@@ -738,7 +745,7 @@ fn side(col: &mut Col, v: &View) {
     col.card(|out, x, w, top, m| {
         let mut y = top + 12.0;
         for (keys, what) in shortcuts {
-            let kx = keycaps(out, m, x + CARD_PAD, y, keys);
+            let kx = keycaps(out, m, x + CARD_PAD, y, &keys);
             let th = m.text(what, Font::Body, w, 1).1;
             out.push(Node::Text { r: Rect::new(kx + 8.0, y + (24.0 - th) / 2.0, (x + w - CARD_PAD - kx - 8.0).max(20.0), th), text: what.into(), font: Font::Body, ink: Ink::Primary, align: Align::Left, lines: 1 });
             y += 32.0;
@@ -1097,6 +1104,8 @@ fn settings_page(col: &mut Col, v: &View) {
     col.para(w::KEPT, Font::Small, Ink::Secondary);
     col.x -= 4.0;
 
+    shortcuts_section(col, v);
+
     if v.voice {
         col.gap(GAP);
         col.caption(w::VOICE_NOTES);
@@ -1145,6 +1154,40 @@ fn settings_page(col: &mut Col, v: &View) {
     updates_section(col, v);
 }
 
+/// Settings → Shortcuts: "Start or stop" and "Speak a note", each a button showing its keys (click, then press
+/// the new keys; Esc cancels), a line under a row when keys were refused, and Reset.
+fn shortcuts_section(col: &mut Col, v: &View) {
+    col.gap(GAP);
+    col.caption(keys::SHORTCUTS);
+    let current = [(Which::Record, v.keys.record.clone()), (Which::Voice, v.keys.voice.clone())];
+    let (recording, note) = (v.recording_keys, v.keys_note);
+    col.card(|out, x, w, top, m| {
+        let mut y = top;
+        for (which, label) in &current {
+            let waiting = recording == Some(*which);
+            let shown = if waiting { keys::PRESS_KEYS.to_string() } else { label.clone() };
+            let help = if waiting { Some(keys::PRESS_HELP) } else { note.filter(|(n, _)| n == which).map(|(_, t)| t) };
+            let bw = button_width(m, &shown, Style::Standard).max(120.0);
+            let (bottom, h) = row(out, m, x, w, y, None, which.title(), help, bw);
+            out.push(Node::Button {
+                r: Rect::new(x + w - CARD_PAD - bw, y + (h - BUTTON_H) / 2.0, bw, BUTTON_H),
+                action: Action::Shortcut(*which),
+                label: shown,
+                icon: None,
+                style: if waiting { Style::Accent } else { Style::Standard },
+                enabled: true,
+                check: false,
+            });
+            divider(out, x, w, bottom);
+            y = bottom;
+        }
+        let bw = button_width(m, keys::RESET, Style::Standard);
+        let (bottom, h) = row(out, m, x, w, y, None, keys::SHORTCUTS_HELP, None, bw);
+        right_button(out, m, x, w, y, h, keys::RESET, Action::ResetShortcuts, Style::Standard);
+        bottom
+    });
+}
+
 /// The row label next to System / Light / Dark.
 pub const LIGHT_OR_DARK: &str = "Light or dark";
 
@@ -1174,7 +1217,7 @@ fn help_page(col: &mut Col, v: &View) {
                 keycaps(out, m, x + w - CARD_PAD - kw + 4.0, y + (h - 24.0) / 2.0, keys);
             } else {
                 let th = m.text(keys, Font::Body, kw, 1).1;
-                out.push(Node::Text { r: Rect::new(x + w - CARD_PAD - kw, y + (h - th) / 2.0, kw, th), text: (*keys).into(), font: Font::Body, ink: Ink::Secondary, align: Align::Right, lines: 1 });
+                out.push(Node::Text { r: Rect::new(x + w - CARD_PAD - kw, y + (h - th) / 2.0, kw, th), text: keys.clone(), font: Font::Body, ink: Ink::Secondary, align: Align::Right, lines: 1 });
             }
             y = bottom;
         }
@@ -1227,7 +1270,7 @@ pub fn controls(nodes: &[Node]) -> Vec<usize> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use context_capsule_core::window::WINDOWS_KEYS;
+    use context_capsule_core::window::Keys;
     use context_capsule_core::Totals;
 
     /// 7 DIPs a character, 18 a line (wrapping by width).
@@ -1289,9 +1332,11 @@ mod tests {
             several_screens: true,
             voice: true,
             auto_update: Some(true),
-            keys: &WINDOWS_KEYS,
+            keys: Box::leak(Box::new(Keys::windows(&Default::default()))),
             search: "",
             share: None,
+            recording_keys: None,
+            keys_note: None,
         }
     }
 
@@ -1468,6 +1513,29 @@ mod tests {
             assert!(t.iter().any(|x| x == word), "{word} in Settings: {t:?}");
         }
         assert!(!t.iter().any(|x| x == "Allow" || x == "Turn On"), "done rows show a check instead");
+        for word in ["Shortcuts", "Start or stop", "Speak a note", "Alt+C", "Alt+V", "Reset", "Click a shortcut, then press the new keys."] {
+            assert!(t.iter().any(|x| x == word), "{word} in Settings → Shortcuts: {t:?}");
+        }
+        // Waiting for new keys, a refusal under the other row, and your own shortcut shown everywhere.
+        let mine = context_capsule_core::Hotkeys::DEFAULT.with(Which::Record, context_capsule_core::Shortcut::parse("Ctrl+Shift+R").unwrap());
+        let keys = Keys::windows(&mine);
+        let mut v = view(Section::Settings, &status, &data);
+        v.keys = &keys;
+        v.recording_keys = Some(Which::Voice);
+        v.keys_note = Some((Which::Record, "Another app uses these keys"));
+        let l = layout(&v, 1000.0, 700.0, &Fake);
+        let t = texts(&l);
+        for word in ["Ctrl+Shift+R", "Press keys…", "Press the new keys. Esc cancels.", "Another app uses these keys"] {
+            assert!(t.iter().any(|x| x == word), "{word}: {t:?}");
+        }
+        assert!(!t.iter().any(|x| x == "Alt+V"), "the one waiting shows Press keys…");
+        let buttons: Vec<&Action> = l.content.iter().filter_map(|n| n.action()).filter(|a| matches!(a, Action::Shortcut(_) | Action::ResetShortcuts)).collect();
+        assert_eq!(buttons, [&Action::Shortcut(Which::Record), &Action::Shortcut(Which::Voice), &Action::ResetShortcuts]);
+        v.section = Section::Help;
+        assert!(texts(&layout(&v, 1000.0, 700.0, &Fake)).iter().any(|x| x == "Shift"), "Help shows the current keys");
+        v.section = Section::Home;
+        let home = texts(&layout(&v, 1000.0, 700.0, &Fake));
+        assert!(home.iter().any(|x| x == "R") && home.iter().any(|x| x.starts_with("Ctrl+Shift+R to start")), "{home:?}");
         let t = texts(&layout(&view(Section::Help, &status, &data), 1000.0, 700.0, &Fake));
         for word in ["Start or stop contextualizing", "Alt", "C", "V", "in Claude", "How it works", "Privacy"] {
             assert!(t.iter().any(|x| x == word), "{word} in Help: {t:?}");
@@ -1483,11 +1551,12 @@ mod tests {
             s.replace('&', "&amp;").replace('<', "&lt;").replace('>', "&gt;")
         }
         fn svg(l: &Layout, width: f64, height: f64, dark: bool) -> String {
-            let c = |light: &str, darkc: &str| if dark { darkc.to_string() } else { light.to_string() };
-            let (bg, card, border, text, text2, accent, track) = (
-                c("#f3f3f3", "#202020"), c("#fbfbfb", "#2b2b2b"), c("#e5e5e5", "#1c1c1c"), c("#1b1b1b", "#ffffff"),
-                c("#5d5d5d", "#c8c8c8"), c("#005fb8", "#60cdff"), c("#e6e6e6", "#3d3d3d"),
-            );
+            // The window's own palette (crate::palette), so the picture matches what Windows draws.
+            let t = crate::palette::Theme::new(dark, None);
+            let hex = |c: u32| format!("#{:06x}", c & 0xFF_FFFF);
+            let (bg, card, border, text, text2, accent, track) =
+                (hex(t.bg), hex(t.card), hex(t.card_border), hex(t.text), hex(t.text2), hex(t.accent), hex(t.track));
+            let (selected, on_accent, field, red) = (hex(t.subtle_selected), hex(t.on_accent), hex(t.field), hex(t.red));
             let mut out = format!("<svg xmlns='http://www.w3.org/2000/svg' width='{width}' height='{height}' font-family='Segoe UI, Helvetica, Arial'><rect width='100%' height='100%' fill='{bg}'/>");
             let all = l.sidebar.iter().map(|n| (n, 0.0)).chain(l.header.iter().map(|n| (n, 0.0))).chain(l.content.iter().map(|n| (n, HEADER)));
             for (n, dy) in all {
@@ -1506,8 +1575,8 @@ mod tests {
                     }
                     Node::Button { label, style, .. } => {
                         let (fill, ink) = match style {
-                            Style::Accent => (accent.clone(), c("#ffffff", "#000000")),
-                            Style::Nav { selected: true } | Style::Row { selected: true } => (c("#e6e6e6", "#333333"), text.clone()),
+                            Style::Accent => (accent.clone(), on_accent.clone()),
+                            Style::Nav { selected: true } | Style::Row { selected: true } => (selected.clone(), text.clone()),
                             Style::Nav { .. } | Style::Row { .. } => ("none".into(), text.clone()),
                             Style::Subtle => ("none".into(), accent.clone()),
                             _ => (card.clone(), text.clone()),
@@ -1523,10 +1592,10 @@ mod tests {
                         out += &format!("<rect x='{}' y='{}' width='{}' height='{}' rx='4' fill='{track}'/>", r.x, r.y, r.w, r.h);
                         out += &format!("<rect x='{}' y='{}' width='{}' height='{}' rx='4' fill='{}'/>", r.x, r.y, (r.w * fraction).max(6.0), r.h, if *muted { &text2 } else { &accent });
                     }
-                    Node::Dot { on, .. } => out += &format!("<circle cx='{}' cy='{}' r='5' fill='{}' stroke='{text2}'/>", r.x + 5.0, r.y + 5.0, if *on { "#c42b1c" } else { "none" }),
+                    Node::Dot { on, .. } => out += &format!("<circle cx='{}' cy='{}' r='5' fill='{}' stroke='{text2}'/>", r.x + 5.0, r.y + 5.0, if *on { red.as_str() } else { "none" }),
                     Node::Key { text: t, .. } => out += &format!("<rect x='{}' y='{}' width='{}' height='{}' rx='4' fill='{bg}' stroke='{border}'/><text x='{}' y='{}' font-size='12' font-weight='600' fill='{text}' text-anchor='middle'>{}</text>", r.x, r.y, r.w, r.h, r.x + r.w / 2.0, r.y + 16.0, esc(t)),
                     Node::Pill { text: t, .. } => out += &format!("<rect x='{}' y='{}' width='{}' height='{}' rx='13' fill='{card}' stroke='{border}'/><text x='{}' y='{}' font-size='12' fill='{text2}' text-anchor='middle'>{}</text>", r.x, r.y, r.w, r.h, r.x + r.w / 2.0, r.y + 17.0, esc(t)),
-                    Node::Field { .. } => out += &format!("<rect x='{}' y='{}' width='{}' height='{}' rx='4' fill='{}' stroke='{border}'/><text x='{}' y='{}' font-size='14' fill='{text}'>Saachi Badal</text>", r.x, r.y, r.w, r.h, c("#ffffff", "#2d2d2d"), r.x + 10.0, r.y + 21.0),
+                    Node::Field { .. } => out += &format!("<rect x='{}' y='{}' width='{}' height='{}' rx='4' fill='{}' stroke='{border}'/><text x='{}' y='{}' font-size='14' fill='{text}'>Saachi Badal</text>", r.x, r.y, r.w, r.h, field, r.x + 10.0, r.y + 21.0),
                 }
             }
             out + "</svg>"
