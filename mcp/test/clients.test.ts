@@ -249,7 +249,7 @@ url = "https://example.com/mcp"
     fs.writeFileSync(bin2, "");
     expect(connect("codex", { ctx, self: { command: bin2, args: ["serve"] } }).ok).toBe(true);
     expect(read(file).match(/\[mcp_servers\.context-capsule\]/g)!.length).toBe(1);
-    expect(read(file)).toContain(bin2);
+    expect((parseToml(read(file)) as any).mcp_servers["context-capsule"].command).toBe(bin2); // TOML escapes \ on Windows
 
     expect(disconnect("chatgpt", { ctx }).ok).toBe(true);
     expect(read(file)).toBe(original);

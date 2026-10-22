@@ -4,6 +4,7 @@ import { beforeEach, describe, expect, test } from "bun:test";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
+import { pathToFileURL } from "node:url";
 import { cleanCapsulePath, importCapsule, stringifyFrontMatter } from "../src/capsules.ts";
 import { continueFromCapsulePrompt, askCapsulesPrompt, SERVER_INSTRUCTIONS } from "../src/playbook.ts";
 import {
@@ -205,7 +206,7 @@ describe("opening a received capsule", () => {
     expect(r.slug).toBe("launch-plan");
     expect(path.basename(r.path)).toBe("launch-plan.capsule.md");
     expect(importCapsule(`"${file}"`).already).toBe(true);
-    expect(importCapsule(`file://${encodeURI(file)}`).already).toBe(true);
+    expect(importCapsule(pathToFileURL(file).href).already).toBe(true);
     // and it's searchable like any other
     expect(searchCapsules("pricing", 8, NOW).hits[0]!.slug).toBe("launch-plan");
   });

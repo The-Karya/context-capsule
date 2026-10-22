@@ -3,6 +3,7 @@ import { execFileSync } from "node:child_process";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
+import { fileURLToPath } from "node:url";
 import { capsulesDir, configFile, expandHome, homeDir } from "./paths.js";
 import { readJson, writeFileAtomic, writeUnique } from "./fsutil.js";
 import { checkCapsule, checkCitations, type CheckResult } from "./checks.js";
@@ -475,8 +476,7 @@ export function cleanCapsulePath(from: string): string {
   let p = from.trim().replace(/^[<`"'“‘]+|[>`"'”’]+$/g, "").trim();
   if (/^file:\/\//i.test(p)) {
     try {
-      p = decodeURIComponent(new URL(p).pathname);
-      if (/^\/[A-Za-z]:\//.test(p)) p = p.slice(1); // file:///C:/…
+      p = fileURLToPath(p); // file:///C:/… on Windows, file:///Users/… elsewhere
     } catch {
       p = p.replace(/^file:\/\//i, "");
     }
