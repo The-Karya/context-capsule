@@ -153,9 +153,8 @@ final class WebWindow: NSObject, NSWindowDelegate, WKNavigationDelegate, WKUIDel
         window.titlebarAppearsTransparent = true
         window.titlebarSeparatorStyle = .none
         // An empty unified toolbar: the traffic lights sit in the page's 52 pt toolbar band, as in the SwiftUI window.
-        let toolbar = NSToolbar(identifier: "ContextCapsuleWeb")
-        toolbar.displayMode = .iconOnly
-        window.toolbar = toolbar
+        // Not in full screen, where macOS draws a toolbar as an opaque band over the page (windowWillEnterFullScreen).
+        window.toolbar = Self.emptyToolbar()
         window.toolbarStyle = .unified
         window.contentMinSize = NSSize(width: 760, height: 540)
         window.isReleasedWhenClosed = false
@@ -177,6 +176,24 @@ final class WebWindow: NSObject, NSWindowDelegate, WKNavigationDelegate, WKUIDel
         helloDone = false
         lastState = ""
         web?.load(URLRequest(url: url))
+    }
+
+    static func emptyToolbar() -> NSToolbar {
+        let toolbar = NSToolbar(identifier: "ContextCapsuleWeb")
+        toolbar.displayMode = .iconOnly
+        return toolbar
+    }
+
+    /// Full screen: no toolbar (macOS would draw it as an opaque band hiding the page's top, the Today pill too);
+    /// the page's own band stays. Back in a window, the toolbar returns so the traffic lights sit in that band.
+    func windowWillEnterFullScreen(_ notification: Notification) {
+        (notification.object as? NSWindow)?.toolbar = nil
+    }
+
+    func windowDidExitFullScreen(_ notification: Notification) {
+        guard let window = notification.object as? NSWindow, window.toolbar == nil else { return }
+        window.toolbar = Self.emptyToolbar()
+        window.toolbarStyle = .unified
     }
 
     func windowWillClose(_ notification: Notification) {
