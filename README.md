@@ -172,6 +172,7 @@ Most people should use the download page instead. To build it yourself:
 ```sh
 git clone <this repo> context-capsule && cd context-capsule
 mcp/extension/build.sh          # the Claude extension (needs Node 18+ and bun)
+mcp/build-binary.sh macos-arm64 # Mac only: the helper behind Settings → Connect your AI (macos-x64 on Intel)
 ```
 
 - **macOS 14+** (Xcode command line tools): `capture/build.sh`, then open

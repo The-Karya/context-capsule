@@ -4,6 +4,7 @@
 # which brings its own Node.js — users need no developer tools.
 set -eu
 cd "$(dirname "$0")/.."
+[ -d node_modules ] || nice -n 19 bun install --frozen-lockfile
 nice -n 19 bun run build >/dev/null
 STAGE="$(mktemp -d)"
 trap 'rm -rf "$STAGE"' EXIT
