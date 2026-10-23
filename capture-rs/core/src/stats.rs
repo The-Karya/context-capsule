@@ -149,18 +149,9 @@ impl WorkStats {
             .unwrap_or_default()
     }
 
-    /// "1 h 05 m", "12 m", "40 s".
+    /// "1 h 5 min", "12 min", "2 h", "under 1 min": the Timeline's words (`timeline::length`), to the nearest minute.
     pub fn duration(seconds: f64) -> String {
-        let s = seconds.max(0.0) as u64;
-        if s < 60 {
-            return format!("{s} s");
-        }
-        let m = s / 60;
-        if m < 60 {
-            format!("{m} m")
-        } else {
-            format!("{} h {:02} m", m / 60, m % 60)
-        }
+        crate::timeline::length(seconds.max(0.0).round() as i64)
     }
 
     /// "Good morning" / "Good afternoon" / "Good evening".

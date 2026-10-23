@@ -845,8 +845,8 @@ fn segment_at(bar: &DayBar, x: f64, w: f64) -> Option<StretchKey> {
         .map(|s| s.key.clone())
 }
 
-/// One row's bar in "Where your time went": `share` of the width, in the project's colour.
-fn share_bar(share: f64, colour: Colour) -> gtk::DrawingArea {
+/// One row's bar in "Where your time went" (and Home's bars): `share` of the width, in the project's colour.
+pub(super) fn share_bar(share: f64, colour: Colour) -> gtk::DrawingArea {
     let area = gtk::DrawingArea::new();
     area.set_content_height(8);
     area.set_hexpand(true);

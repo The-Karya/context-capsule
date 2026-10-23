@@ -31,7 +31,7 @@ mod win {
     /// One "ready" question at a time.
     static ASKING: AtomicBool = AtomicBool::new(false);
 
-    const TITLE: &str = "Context Capsule";
+    const TITLE: &str = context_capsule_core::window::APP_NAME;
 
     /// Can we write next to the exe? (Not in Program Files without admin.)
     fn writable(dir: &std::path::Path) -> bool {

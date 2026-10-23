@@ -13,6 +13,7 @@ pub mod clock;
 pub mod engine;
 pub mod events;
 pub mod exclusion;
+pub mod formats;
 pub mod gaps;
 pub mod geometry;
 pub mod image;

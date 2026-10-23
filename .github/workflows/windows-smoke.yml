@@ -1,6 +1,7 @@
 # context-capsule — CI: Windows smoke test on a real Windows desktop, with screenshots (capture-rs/ci/windows-smoke.ps1).
 # shipped: the released exe (install, first run, a second copy, uninstall). pages: every page of the window, built
-# from this commit, light and dark, with seeded recordings. Runs only when asked: `gh workflow run windows-smoke`.
+# from this commit, light and dark, with seeded recordings. update: install the release, update it to this commit, then
+# uninstall (one Start menu shortcut, one Apps entry, the new name). Runs only when asked: `gh workflow run windows-smoke`.
 name: windows-smoke
 on:
   workflow_dispatch:
@@ -11,15 +12,15 @@ on:
       part:
         description: Which part
         type: choice
-        options: [both, shipped, pages]
-        default: both
+        options: [all, shipped, pages, update]
+        default: all
 
 permissions:
   contents: read
 
 jobs:
   shipped:
-    if: inputs.part != 'pages'
+    if: inputs.part == 'all' || inputs.part == 'shipped'
     runs-on: windows-latest
     timeout-minutes: 12
     defaults:
@@ -45,7 +46,7 @@ jobs:
           path: ${{ runner.temp }}/smoke
 
   pages:
-    if: inputs.part != 'shipped'
+    if: inputs.part == 'all' || inputs.part == 'pages'
     runs-on: windows-latest
     timeout-minutes: 30
     defaults:
@@ -69,4 +70,37 @@ jobs:
         if: always()
         with:
           name: windows-smoke-pages
+          path: ${{ runner.temp }}/smoke
+
+  update:
+    if: inputs.part == 'all' || inputs.part == 'update'
+    runs-on: windows-latest
+    timeout-minutes: 30
+    defaults:
+      run:
+        shell: pwsh
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: capture-rs
+      - name: Build
+        working-directory: capture-rs
+        run: cargo build --release -p context-capsule-windows
+      - name: Bigger screen
+        continue-on-error: true
+        run: Set-DisplayResolution -Width 1920 -Height 1080 -Force
+      - name: Download the release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh release download ${{ inputs.release }} -p "Context-Capsule-*-windows.exe" -D "$env:USERPROFILE\Downloads"
+      - name: Install the release, update to this commit, uninstall
+        run: |
+          $exe = (Get-ChildItem "$env:USERPROFILE\Downloads\Context-Capsule-*-windows.exe").FullName
+          ./capture-rs/ci/windows-smoke.ps1 -Part update -Exe $exe -New capture-rs/target/release/context-capsule.exe -Out "$env:RUNNER_TEMP\smoke"
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: windows-smoke-update
           path: ${{ runner.temp }}/smoke

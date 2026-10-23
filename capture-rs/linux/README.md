@@ -241,6 +241,7 @@ the hotkeys can be remembered:
 
 ```sh
 install -Dm644 com.thekarya.contextcapsule.desktop ~/.local/share/applications/com.thekarya.contextcapsule.desktop
+install -Dm644 com.thekarya.contextcapsule.png ~/.local/share/icons/hicolor/256x256/apps/com.thekarya.contextcapsule.png
 install -Dm755 ../target/release/context-capsule ~/.local/bin/context-capsule
 ```
 

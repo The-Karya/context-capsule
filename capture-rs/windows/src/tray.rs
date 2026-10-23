@@ -1,5 +1,6 @@
 // context-capsule — windows: the tray icon (hollow circle idle, red filled circle recording, a red mic with
-// bars that move with the voice while listening, drawn in code; idle matches the taskbar theme) and the words
+// bars that move with the voice while listening, drawn in code; idle matches the taskbar theme — not the panther:
+// at 16–24 px its brush mark is a blur, and the tray's job is to show the state at a glance) and the words
 // of its menu and tooltip. The tray can't show text next to its icon, so the running time is in the tooltip
 // and the menu's first line. Nothing on screen.
 
@@ -132,7 +133,7 @@ pub fn tooltip(s: &Status, now: SystemTime, keys: &Hotkeys) -> String {
     } else if let Some(time) = look::elapsed(s, now) {
         format!("● Contextualizing {time} — {record} to stop, {voice} to talk")
     } else {
-        format!("Context Capsule ({record} to start contextualizing)")
+        format!("{} ({record} to start contextualizing)", context_capsule_core::window::APP_NAME)
     };
     t.chars().take(127).collect()
 }
@@ -282,7 +283,7 @@ mod win {
         }
     }
 
-    /// The window's icon (title bar, taskbar, Alt+Tab): the idle ring, dark on a light taskbar.
+    /// The drawn ring as a window icon: only when the exe has no panther inside (`win::app_icon`).
     pub fn window_icon(size: usize) -> Option<HICON> {
         let light = reg_dword(THEME_KEY, "SystemUsesLightTheme") == Some(1);
         make_icon(&glyph_pixels(Glyph::Ring, size, glyph_color(Glyph::Ring, light)), size)
@@ -418,6 +419,7 @@ mod tests {
             let tip = tooltip(&s, start + Duration::from_secs(36_000), &Hotkeys::DEFAULT);
             assert!(tip.chars().count() <= 127 && tip.contains("Alt+"), "{tip}");
         }
+        assert_eq!(tooltip(&Status::default(), start, &Hotkeys::DEFAULT), "Karya Context Capsule (Alt+C to start contextualizing)");
         assert_eq!(
             tooltip(&rec, start + Duration::from_secs(754), &Hotkeys::DEFAULT),
             "● Contextualizing 12:34 — Alt+C to stop, Alt+V to talk"

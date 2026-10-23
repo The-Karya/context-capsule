@@ -17,8 +17,6 @@ const CSS: &str = "
 .status-pill { padding: 3px 10px; border-radius: 999px; background-color: alpha(currentColor, 0.08); }
 .status-pill.recording, .rec-dot { color: @error_color; }
 .idle-dot { color: alpha(currentColor, 0.45); }
-progressbar.project-bar > trough, progressbar.project-bar > trough > progress { min-height: 8px; border-radius: 4px; }
-progressbar.project-bar.muted > trough > progress { background-color: alpha(currentColor, 0.35); }
 .tag { font-size: smaller; padding: 1px 6px; border-radius: 4px; background-color: alpha(currentColor, 0.1); }
 .cc-sidebar { background-color: alpha(currentColor, 0.03); }
 .command { font-family: monospace; padding: 8px 10px; border-radius: 6px; background-color: alpha(currentColor, 0.06); }

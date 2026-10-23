@@ -112,9 +112,9 @@ pub fn shortcut_press(name: &str, ctrl: bool, alt: bool, shift: bool, logo: bool
     shortcuts::pressed(ctrl, alt, shift, logo, key_from_name(name), name == "Escape")
 }
 
-/// "Tuesday 20 October".
+/// "Tuesday 20 October" / "Tuesday, October 20": as the Timeline writes days (`formats`, set from the locale).
 pub fn date_line(day: chrono::NaiveDate) -> String {
-    day.format("%A %-d %B").to_string()
+    context_capsule_core::formats::date(day, false)
 }
 
 /// For a content area `width` pixels wide (next to the sidebar, like the Mac's detail area): the widest the page

@@ -11,10 +11,14 @@ use std::path::{Path, PathBuf};
 /// The Claude extension, inside the exe (empty when the build had no mcp/dist-ext/context-capsule.mcpb).
 pub static EXTENSION: &[u8] = include_bytes!(concat!(env!("OUT_DIR"), "/context-capsule.mcpb"));
 
+/// The install folder: never renamed (updates, open at login and the uninstall entry point into it).
 pub const DIR_NAME: &str = "Context Capsule";
 pub const EXE_NAME: &str = "context-capsule.exe";
 pub const PUBLISHER: &str = "Karya";
-pub const DISPLAY_NAME: &str = "Context Capsule";
+/// The name people see: Start menu, Settings → Apps, Open with, dialog titles.
+pub const DISPLAY_NAME: &str = context_capsule_core::window::APP_NAME;
+/// The Start menu shortcut's name up to 0.2.0: renamed to `DISPLAY_NAME` when the updated app starts.
+pub const OLD_SHORTCUT_NAME: &str = "Context Capsule";
 pub const UNINSTALL_KEY: &str = r"Software\Microsoft\Windows\CurrentVersion\Uninstall\ContextCapsule";
 /// In the open-at-login command: started at login, so don't ask to install (only when someone opens it).
 pub const LOGIN_ARG: &str = "--login";
@@ -98,9 +102,40 @@ pub fn install_dir(local_appdata: &Path) -> PathBuf {
     local_appdata.join("Programs").join(DIR_NAME)
 }
 
-/// `%APPDATA%\Microsoft\Windows\Start Menu\Programs\Context Capsule.lnk`
+/// `%APPDATA%\Microsoft\Windows\Start Menu\Programs\Karya Context Capsule.lnk`
 pub fn shortcut_path(appdata: &Path) -> PathBuf {
-    appdata.join("Microsoft").join("Windows").join("Start Menu").join("Programs").join(format!("{DISPLAY_NAME}.lnk"))
+    start_menu(appdata).join(format!("{DISPLAY_NAME}.lnk"))
+}
+
+/// `…\Start Menu\Programs\Context Capsule.lnk`: the shortcut 0.2.0 and earlier made.
+pub fn old_shortcut_path(appdata: &Path) -> PathBuf {
+    start_menu(appdata).join(format!("{OLD_SHORTCUT_NAME}.lnk"))
+}
+
+fn start_menu(appdata: &Path) -> PathBuf {
+    appdata.join("Microsoft").join("Windows").join("Start Menu").join("Programs")
+}
+
+/// After an update from 0.2.0: the old shortcut becomes the new one, so the Start menu never shows both. Makes the
+/// new one (`create`) only when the old one was there and the new one isn't yet, and removes the old one only once
+/// the new one exists (a failure keeps the old shortcut working). No old shortcut: nothing to do (if someone removed
+/// the shortcut, it stays removed). true: something changed.
+pub fn rename_shortcut(old: &Path, new: &Path, create: impl FnOnce(&Path) -> Result<(), String>) -> Result<bool, String> {
+    if !old.exists() {
+        return Ok(false);
+    }
+    if !new.exists() {
+        create(new)?;
+    }
+    if new.exists() {
+        std::fs::remove_file(old).map_err(|e| format!("remove {}: {e}", old.display()))?;
+    }
+    Ok(true)
+}
+
+/// The Start menu shortcuts uninstall removes: today's and the one older versions made.
+pub fn shortcuts_to_remove(appdata: &Path) -> [PathBuf; 2] {
+    [shortcut_path(appdata), old_shortcut_path(appdata)]
 }
 
 /// Is `exe` the installed copy (in `dir`, any letter case)?
@@ -296,8 +331,19 @@ mod win {
             std::thread::spawn(move || crate::program::ensure(&exe, &|l: &str| log.write(l)));
         }
         if installed {
-            register_uninstall(&exe); // keeps DisplayVersion right after an update
+            register_uninstall(&exe); // keeps DisplayVersion (and the name) right after an update
             register_open_with(&exe); // installed before this was added, or moved
+            if let Some(appdata) = env_dir("APPDATA") {
+                // "Context Capsule.lnk" (0.2.0) → "Karya Context Capsule.lnk": one Start menu entry, not two.
+                match rename_shortcut(&old_shortcut_path(&appdata), &shortcut_path(&appdata), |lnk| create_shortcut(&exe, lnk).map_err(|e| e.to_string())) {
+                    Ok(true) => {
+                        log.write("install: Start menu shortcut renamed");
+                        associations_changed(); // Explorer reads the icons again (the panther)
+                    }
+                    Ok(false) => {}
+                    Err(e) => log.write(&format!("install: shortcut not renamed: {e}")),
+                }
+            }
         }
         true
     }
@@ -372,6 +418,8 @@ mod win {
         if let Some(appdata) = env_dir("APPDATA") {
             if let Err(e) = create_shortcut(&target, &shortcut_path(&appdata)) {
                 log.write(&format!("install: no Start menu shortcut: {e}"));
+            } else {
+                let _ = std::fs::remove_file(old_shortcut_path(&appdata)); // installed over 0.2.0: one shortcut
             }
         }
         register_uninstall(&target);
@@ -463,7 +511,9 @@ mod win {
         close_running(log);
         let delete_data = ask_delete_data();
         if let Some(appdata) = env_dir("APPDATA") {
-            let _ = std::fs::remove_file(shortcut_path(&appdata));
+            for lnk in shortcuts_to_remove(&appdata) {
+                let _ = std::fs::remove_file(lnk);
+            }
         }
         win::delete_reg_value(RUN_KEY, RUN_VALUE);
         win::delete_reg_value(STARTUP_APPROVED_KEY, RUN_VALUE);
@@ -539,9 +589,17 @@ mod tests {
         let upper = PathBuf::from(dir.to_string_lossy().to_uppercase()).join(EXE_NAME);
         assert!(is_installed(&upper, &dir), "letter case does not matter");
         assert!(!is_installed(Path::new(r"C:\Users\s\Downloads\Context-Capsule-0.1.0-windows.exe"), &dir));
-        let lnk = shortcut_path(Path::new(r"C:\Users\s\AppData\Roaming"));
-        assert!(lnk.to_string_lossy().ends_with("Context Capsule.lnk"));
+        let roaming = Path::new(r"C:\Users\s\AppData\Roaming");
+        let lnk = shortcut_path(roaming);
+        assert!(lnk.to_string_lossy().ends_with("Karya Context Capsule.lnk"));
         assert!(lnk.to_string_lossy().contains("Start Menu"));
+        let old = old_shortcut_path(roaming);
+        assert_eq!(old.file_name().unwrap(), "Context Capsule.lnk");
+        assert_eq!(old.parent(), lnk.parent(), "the same Start menu folder");
+        assert_eq!(shortcuts_to_remove(roaming), [lnk, old], "uninstall removes both");
+        // What stays the same, so updates from 0.2.0 find everything where it was.
+        assert_eq!((DIR_NAME, EXE_NAME, UNINSTALL_KEY), ("Context Capsule", "context-capsule.exe", r"Software\Microsoft\Windows\CurrentVersion\Uninstall\ContextCapsule"));
+        assert_eq!(PROG_ID, "ContextCapsule.Capsule");
     }
 
     #[test]
@@ -577,12 +635,47 @@ mod tests {
         let exe = Path::new(r"C:\Users\s\AppData\Local\Programs\Context Capsule\context-capsule.exe");
         let v = uninstall_values(exe, "0.2.0", 2048 + 1);
         let get = |k: &str| v.iter().find(|(n, _)| *n == k).map(|(_, v)| v.clone()).unwrap();
-        assert_eq!(get("DisplayName"), RegValue::Text("Context Capsule".into()));
+        assert_eq!(get("DisplayName"), RegValue::Text("Karya Context Capsule".into()), "the same entry (key), the new name");
         assert_eq!(get("DisplayVersion"), RegValue::Text("0.2.0".into()));
         assert_eq!(get("Publisher"), RegValue::Text("Karya".into()));
         let RegValue::Text(u) = get("UninstallString") else { panic!() };
         assert!(u.starts_with('"') && u.ends_with("\" --uninstall"));
         assert_eq!(get("EstimatedSize"), RegValue::Number(3), "kilobytes, rounded up");
+    }
+
+    #[test]
+    fn shortcut_renamed_after_update() {
+        let dir = std::env::temp_dir().join(format!("cc-lnk-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        let (old, new) = (old_shortcut_path(&dir), shortcut_path(&dir));
+        std::fs::create_dir_all(old.parent().unwrap()).unwrap();
+        let make = |p: &Path| std::fs::write(p, b"lnk").map_err(|e| e.to_string());
+        let never = |_: &Path| -> Result<(), String> { panic!("must not create") };
+
+        // A fresh install of this version (or the shortcut was removed): nothing to do.
+        assert_eq!(rename_shortcut(&old, &new, never), Ok(false));
+        assert!(!new.exists());
+
+        // Updated from 0.2.0: the old one becomes the new one: one shortcut.
+        std::fs::write(&old, b"old").unwrap();
+        assert_eq!(rename_shortcut(&old, &new, make), Ok(true));
+        assert!(new.exists() && !old.exists());
+        // Next start: nothing left to do.
+        assert_eq!(rename_shortcut(&old, &new, never), Ok(false));
+
+        // Both there (an old copy ran again and made its own): the old one goes, the new one is kept.
+        std::fs::write(&old, b"old").unwrap();
+        assert_eq!(rename_shortcut(&old, &new, never), Ok(true));
+        assert!(new.exists() && !old.exists());
+        assert_eq!(std::fs::read(&new).unwrap(), b"lnk");
+
+        // Making the new one fails: the old one stays, so the Start menu still has the app.
+        std::fs::remove_file(&new).unwrap();
+        std::fs::write(&old, b"old").unwrap();
+        assert!(rename_shortcut(&old, &new, |_| Err("no".into())).is_err());
+        assert!(old.exists() && !new.exists());
+        std::fs::remove_dir_all(&dir).unwrap();
     }
 
     #[test]

@@ -363,13 +363,6 @@ pub fn node(dc: HDC, fonts: &mut Fonts, t: &Theme, n: &Node, dy: f64, feel: Feel
                 g.stroke(p, p[2] / 2.0, t.text2, 1.5 * k);
             }
         }
-        Node::Bar { r, fraction, muted } => {
-            let g = Shapes::on(dc);
-            let p = px(*r);
-            g.fill(p, p[3] / 2.0, t.track);
-            let w = (p[2] * *fraction as f32).max(6.0 * k).min(p[2]);
-            g.fill([p[0], p[1], w, p[3]], p[3] / 2.0, if *muted { t.text3 } else { t.accent });
-        }
         Node::Key { r, text: s2 } => {
             let p = px(*r);
             {

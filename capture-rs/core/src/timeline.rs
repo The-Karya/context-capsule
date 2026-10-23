@@ -11,7 +11,7 @@ use crate::json::write_atomically;
 use crate::paths::Paths;
 use crate::projects::{Project, Projects};
 use crate::stats::{parse_iso, Assignments};
-use chrono::{DateTime, FixedOffset, Local, NaiveDate, NaiveDateTime, NaiveTime, TimeZone, Utc};
+use chrono::{DateTime, FixedOffset, Local, NaiveDate, NaiveDateTime, NaiveTime, TimeZone, Timelike, Utc};
 use std::collections::HashMap;
 use std::path::Path;
 use unicode_normalization::char::is_combining_mark;
@@ -627,6 +627,14 @@ impl Day {
             .collect()
     }
 
+    /// Each project's colour on this day's Timeline (none when the day goes by app): what Home's bars use.
+    pub fn project_colours(&self) -> Vec<(String, Colour)> {
+        if self.by_app() {
+            return vec![];
+        }
+        self.colours().into_iter().map(|(k, c)| (k.to_string(), c)).collect()
+    }
+
     /// The day bar; None when there's no stretch.
     pub fn bar(&self) -> Option<DayBar> {
         let first = self.stretches().map(|s| s.start).min()?;
@@ -639,7 +647,7 @@ impl Day {
         let mut hours = vec![];
         let mut h = from;
         while h <= to {
-            hours.push((at(h), hm(h)));
+            hours.push((at(h), crate::formats::hour(h.hour())));
             h += chrono::Duration::hours(1);
         }
         let by_app = self.by_app();
@@ -692,8 +700,9 @@ fn words(query: &str) -> Vec<String> {
     searchable(query).split_whitespace().map(String::from).collect()
 }
 
+/// A time of day as this computer writes it ("04:49" / "4:49 AM": `formats`).
 fn hm(t: DateTime<FixedOffset>) -> String {
-    t.format("%H:%M").to_string()
+    crate::formats::time(t.hour(), t.minute())
 }
 
 /// "10:02 – 11:30"; within one minute: "10:02".
@@ -984,10 +993,11 @@ pub fn delete_session(paths: &Paths, session: &str) -> Result<(), Refused> {
 
 // MARK: choosing the day
 
-/// The day control's date: "Thursday 23 October"; the year too when it isn't this year ("Monday 20 October 2025").
+/// The day control's date, written like Home's: "Thursday 23 October" / "Thursday, October 23" (`formats`); the
+/// year too when it isn't this year ("Monday 20 October 2025").
 pub fn day_title(date: NaiveDate, today: NaiveDate) -> String {
     use chrono::Datelike;
-    date.format(if date.year() == today.year() { "%A %-d %B" } else { "%A %-d %B %Y" }).to_string()
+    crate::formats::date(date, date.year() != today.year())
 }
 
 /// ‹: the day before.

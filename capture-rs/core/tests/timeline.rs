@@ -191,6 +191,10 @@ fn a_day_across_recordings() {
         ]
     );
     assert_eq!(day.time_went(&p)[0].share, 1.0);
+    // Home's bars take the same colours.
+    let mut home = day.project_colours();
+    home.sort_by(|a, b| a.0.cmp(&b.0));
+    assert_eq!(home, [("app".to_string(), Colour::Blue), ("report".to_string(), Colour::Teal)]);
 
     // The day bar: the hour before the first stretch to the hour after the last.
     let bar = day.bar().unwrap();
@@ -435,6 +439,7 @@ fn recorded_time_and_where_it_went() {
     let one = One::new("apps", &events, &[], None);
     let day = one.day(&[]);
     assert!(day.by_app());
+    assert!(day.project_colours().is_empty(), "by app: Home's bars have no project colours to match");
     let went: Vec<(String, Colour)> = day.time_went(&[]).into_iter().map(|s| (s.name, s.colour)).collect();
     assert_eq!(went, [("Chrome".to_string(), Colour::Blue), ("Code".into(), Colour::Teal), ("Slack".into(), Colour::Orange)]);
     assert_eq!(day.blocks[0].names(&[]), ["Chrome", "Code"]);

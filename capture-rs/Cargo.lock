@@ -519,6 +519,7 @@ dependencies = [
  "gtk4",
  "ksni",
  "libadwaita",
+ "libc",
  "pipewire",
  "png",
  "serde_json",

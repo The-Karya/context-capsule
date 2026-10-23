@@ -165,7 +165,10 @@ mod win {
 
     unsafe extern "system" fn choice_proc(hwnd: HWND, msg: u32, wp: WPARAM, _lp: LPARAM) -> isize {
         match msg {
-            WM_INITDIALOG => 1, // focus on the default button
+            WM_INITDIALOG => {
+                crate::win::set_dialog_icon(hwnd);
+                1 // focus on the default button
+            }
             WM_COMMAND => {
                 let id = (wp.0 & 0xFFFF) as u16;
                 if id == ID_OK || id == ID_CANCEL {
@@ -259,7 +262,7 @@ mod tests {
 
     #[test]
     fn choice_layout() {
-        let t = choice_template("Context Capsule", "Make today's capsules?", "Make", "Not now");
+        let t = choice_template("Karya Context Capsule", "Make today's capsules?", "Make", "Not now");
         assert_eq!(t[4], 3, "three controls");
         let s = String::from_utf16_lossy(&t);
         assert!(s.contains("Make today's capsules?") && s.contains("Not now"));
@@ -269,7 +272,7 @@ mod tests {
         assert_eq!(t[ids[1]], ID_OK, "Make is the default (Enter)");
         assert_eq!(t[ids[2]], ID_CANCEL, "Not now is Esc");
         assert_eq!(&t[5..9], &[0, 0, 200, 54], "one line");
-        let long = choice_template("Context Capsule", "Context Capsule 0.2.0 is ready. Restart to update.", "Restart now", "Later");
+        let long = choice_template("Karya Context Capsule", "Context Capsule 0.2.0 is ready. Restart to update.", "Restart now", "Later");
         assert_eq!(&long[5..9], &[0, 0, 200, 64], "two lines for a longer question");
     }
 

@@ -61,8 +61,9 @@ The download is one file, `Context-Capsule-<version>-windows.exe`. No admin, no 
 
 - **Install**: run it from anywhere (Downloads…) and it asks *Install Context Capsule?* —
   **Install** copies it to `%LOCALAPPDATA%\Programs\Context Capsule\context-capsule.exe`, adds a
-  Start menu shortcut and an entry in Settings → Apps (under HKCU: publisher Karya, the version,
-  *Uninstall* runs `context-capsule.exe --uninstall`), points open at login at the installed copy,
+  Start menu shortcut *Karya Context Capsule* and an entry in Settings → Apps (under HKCU: the name
+  *Karya Context Capsule*, publisher Karya, the version, *Uninstall* runs
+  `context-capsule.exe --uninstall`), points open at login at the installed copy,
   then starts it. A copy that is already running is asked to quit first. **Just run it** runs it
   where it is (it asks again the next time you open that file, never at login).
 - The Claude extension (`context-capsule.mcpb`) is inside the exe and written next to it when
@@ -73,8 +74,17 @@ The download is one file, `Context-Capsule-<version>-windows.exe`. No admin, no 
   app may have open, is moved aside to `.old` first, as updates do with the main exe). The AI apps'
   settings point at that path (`%LOCALAPPDATA%\Programs\Context Capsule\context-capsule-mcp.exe` when
   installed), so it stays the same across updates.
-- **Uninstall** (Settings → Apps → Context Capsule → Uninstall): the running copy quits; the
-  shortcut, the Settings → Apps entry, open at login, our registry key and the program folder go.
+- **The name and icon**: people see *Karya Context Capsule* (window title, taskbar, Start menu,
+  Settings → Apps, dialog titles, the tray's tooltip, Task Manager) and the Karya panther (`icon.ico`,
+  made by `../icons/make-icons.mjs`; build.rs puts it and the version info in the exe through
+  `src/res.rs`). In sentences it is *Context Capsule*. The exe, install folder, registry keys, data
+  folder and release files keep their names, so updates find everything where it was. Up to 0.2.0
+  the shortcut was *Context Capsule.lnk*: the updated app renames it at its first start (a new one,
+  then the old one goes), so the Start menu never shows both; the Settings → Apps entry is the same
+  key, renamed.
+- **Uninstall** (Settings → Apps → Karya Context Capsule → Uninstall): the running copy quits; the
+  shortcut (either name), the Settings → Apps entry, open at login, our registry key and the
+  program folder go.
   Your recordings and capsules stay unless you answer **Yes** to *Also delete your recordings and
   capsules?* (No is the default).
 - **Updates**: a minute after launch and then once a day (never while contextualizing or during a
@@ -361,7 +371,8 @@ cd capture-rs && cargo test -p context-capsule-windows
 | `src/ocr.rs` | Windows.Media.Ocr |
 | `src/voice.rs` | microphone (cpal) + whisper.cpp voice notes |
 | `src/model.rs` | the speech model: path, SHA-256 check, consented download |
-| `src/tray.rs` | tray icon (drawn in code) and menu text |
+| `src/tray.rs` | tray icon (drawn in code: at 16–24 px the panther is a blur, and the tray shows the state) and menu text |
+| `src/res.rs` | the exe's icon and version info, as a .res build.rs writes (no resource compiler) |
 | `src/toast.rs` | fading messages near the tray |
 | `src/hotkeys.rs` | global shortcuts: registered, changed live, off while new keys are recorded |
 | `src/pointer.rs` | the mouse while recording: position and last move or scroll |

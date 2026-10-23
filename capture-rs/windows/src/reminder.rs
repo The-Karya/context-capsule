@@ -39,7 +39,7 @@ mod win {
     /// with Your AI.
     pub fn ask_and_make(ui: Ui, log: AppLog) {
         std::thread::spawn(move || {
-            if !input::ask_choice("Context Capsule", REMIND_QUESTION, MAKE_BUTTON, LATER_BUTTON) {
+            if !input::ask_choice(context_capsule_core::window::APP_NAME, REMIND_QUESTION, MAKE_BUTTON, LATER_BUTTON) {
                 log.write("evening reminder: not now");
                 return;
             }

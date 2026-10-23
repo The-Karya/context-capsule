@@ -100,7 +100,7 @@ fn ask_restart(s: &Shared, r: Ready) {
     if ASKING.swap(true, Ordering::SeqCst) {
         return;
     }
-    let yes = s.notifier.ask("Context Capsule", &update::ready_message(&r.version), RESTART_NOW, LATER);
+    let yes = s.notifier.ask(context_capsule_core::window::APP_NAME, &update::ready_message(&r.version), RESTART_NOW, LATER);
     ASKING.store(false, Ordering::SeqCst);
     if !yes {
         return;
@@ -115,7 +115,7 @@ fn ask_restart(s: &Shared, r: Ready) {
         }
         Err(e) => {
             s.log.write(&format!("update: cannot replace the AppImage: {e}"));
-            s.notifier.alert("Context Capsule", "Couldn't update. Try again later.");
+            s.notifier.alert(context_capsule_core::window::APP_NAME, "Couldn't update. Try again later.");
         }
     }
 }

@@ -296,7 +296,7 @@ impl Home {
         }
 
         widgets::clear(&self.bars);
-        let bars = words::bars(&n.today, &self.ctx.status.borrow().projects);
+        let bars = words::bars(&n.today, &self.ctx.status.borrow().projects, &n.colours);
         if bars.is_empty() {
             self.bars.append(&label(words::TODAY_EMPTY, &["dim-label"]));
         }
@@ -308,14 +308,8 @@ impl Home {
             let name = line(&b.name, classes);
             name.set_width_chars(12);
             name.set_max_width_chars(22);
-            let bar = gtk::ProgressBar::new();
-            bar.add_css_class("project-bar");
-            if b.muted {
-                bar.add_css_class("muted");
-            }
-            bar.set_fraction(b.fraction.max(0.02));
-            bar.set_hexpand(true);
-            bar.set_valign(gtk::Align::Center);
+            // In the project's colour, as on the Timeline.
+            let bar = super::timeline::share_bar(b.fraction, b.colour);
             let time = line(&b.time, &["dim-label", "numeric", "caption"]);
             time.set_xalign(1.0);
             time.set_width_chars(8);

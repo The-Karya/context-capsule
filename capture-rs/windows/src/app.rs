@@ -208,10 +208,11 @@ pub fn run() {
         if open.as_deref().is_some_and(forward_open) {
             return;
         }
-        win::alert(None, "Context Capsule", "Context Capsule is already running. Look for its icon in the tray.");
+        win::alert(None, context_capsule_core::window::APP_NAME, "Context Capsule is already running. Look for its icon in the tray.");
         return;
     }
     win::init_com(true);
+    win::use_system_formats();
 
     let Some(hwnd) = create_window() else {
         eprintln!("Context Capsule: cannot create the tray window");
@@ -299,7 +300,7 @@ fn create_window() -> Option<HWND> {
         CreateWindowExW(
             WINDOW_EX_STYLE(WS_EX_TOOLWINDOW.0),
             w!("ContextCapsuleTray"),
-            w!("Context Capsule"),
+            w!("Karya Context Capsule"),
             WS_POPUP,
             0,
             0,

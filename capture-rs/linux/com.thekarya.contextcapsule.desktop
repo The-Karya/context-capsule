@@ -2,10 +2,10 @@
 # offered under "Open With" for Markdown files (a capsule someone sent), never made the default app.
 [Desktop Entry]
 Type=Application
-Name=Context Capsule
+Name=Karya Context Capsule
 Comment=Record what you work on, for your own AI
 Exec=context-capsule %f
-Icon=media-record
+Icon=com.thekarya.contextcapsule
 Terminal=false
 Categories=Utility;
 MimeType=text/markdown;

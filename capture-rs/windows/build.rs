@@ -5,6 +5,12 @@
 // - the any-AI program (mcp/dist-bin/context-capsule-mcp-windows-x64.exe, built by mcp/build-binary.sh),
 //   zstd-compressed (about 87 MB → 33 MB), with its SHA-256 and size so the app can check the copy it writes.
 // Without a file the exe embeds nothing for it and expects it next to it, as before.
+// Also the app icon (icon.ico, the Karya panther) and the version info ("Karya Context Capsule"), as a .res the
+// linker takes in (src/res.rs writes it: no resource compiler needed).
+
+#[allow(dead_code)]
+#[path = "src/res.rs"]
+mod res;
 
 use sha2::{Digest, Sha256};
 use std::path::PathBuf;
@@ -24,6 +30,19 @@ fn main() {
 
     let manifest = PathBuf::from(std::env::var("CARGO_MANIFEST_DIR").expect("CARGO_MANIFEST_DIR"));
     let out_dir = PathBuf::from(std::env::var("OUT_DIR").expect("OUT_DIR"));
+
+    // The icon and version info.
+    println!("cargo:rerun-if-changed=icon.ico");
+    println!("cargo:rerun-if-changed=src/res.rs");
+    if windows_msvc {
+        let ico = std::fs::read(manifest.join("icon.ico")).expect("windows/icon.ico");
+        let images = res::parse_ico(&ico).expect("windows/icon.ico is not an icon");
+        let version = std::env::var("CARGO_PKG_VERSION").expect("CARGO_PKG_VERSION");
+        let info = res::Version { version: &version, name: "Karya Context Capsule", company: "Karya", file_name: "context-capsule.exe" };
+        let path = out_dir.join("context-capsule.res");
+        std::fs::write(&path, res::res(&images, &info)).expect("write OUT_DIR/context-capsule.res");
+        println!("cargo:rustc-link-arg-bins={}", path.display());
+    }
 
     let mcpb = manifest.join("../../mcp/dist-ext/context-capsule.mcpb");
     println!("cargo:rerun-if-changed={}", mcpb.display());

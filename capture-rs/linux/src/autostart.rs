@@ -6,10 +6,41 @@ use std::path::{Path, PathBuf};
 /// The autostart entry that starts `exe` at login.
 pub fn desktop_entry(exe: &str) -> String {
     format!(
-        "[Desktop Entry]\nType=Application\nName=Context Capsule\nComment=Turn your work into context for Claude\n\
-         Exec={}\nIcon=media-record\nX-GNOME-Autostart-enabled=true\nNoDisplay=false\n",
-        crate::appimage::exec_quote(exe)
+        "[Desktop Entry]\nType=Application\nName={}\nComment=Turn your work into context for Claude\n\
+         Exec={}\nIcon={}\nX-GNOME-Autostart-enabled=true\nNoDisplay=false\n",
+        context_capsule_core::window::APP_NAME,
+        crate::appimage::exec_quote(exe),
+        crate::appimage::ICON_NAME
     )
+}
+
+/// An entry written by 0.2.0 or earlier ("Context Capsule", the media-record icon) with today's name and icon;
+/// None when there's nothing to change. Only those two lines change: on/off and Exec stay as they are.
+pub fn renamed(old: &str) -> Option<String> {
+    let mut changed = false;
+    let lines: Vec<String> = old
+        .split('\n')
+        .map(|line| match line.trim() {
+            "Name=Context Capsule" => {
+                changed = true;
+                format!("Name={}", context_capsule_core::window::APP_NAME)
+            }
+            "Icon=media-record" => {
+                changed = true;
+                format!("Icon={}", crate::appimage::ICON_NAME)
+            }
+            _ => line.to_string(),
+        })
+        .collect();
+    changed.then(|| lines.join("\n"))
+}
+
+/// Bring an older autostart entry up to date (same file: never a second entry). Missing: nothing to do.
+pub fn refresh(env: &dyn Fn(&str) -> Option<String>) {
+    let Some(file) = autostart_dir(env).map(|d| d.join(FILE)) else { return };
+    if let Some(new) = std::fs::read_to_string(&file).ok().and_then(|old| renamed(&old)) {
+        let _ = std::fs::write(&file, new);
+    }
 }
 
 /// `$XDG_CONFIG_HOME/autostart` (else `~/.config/autostart`).
@@ -76,6 +107,7 @@ mod tests {
     fn entry_and_folder() {
         let e = desktop_entry("/opt/cc/context-capsule");
         assert!(e.contains("Exec=\"/opt/cc/context-capsule\"") && e.contains("Type=Application"));
+        assert!(e.contains("\nName=Karya Context Capsule\n") && e.contains("\nIcon=com.thekarya.contextcapsule\n"));
         let env = |k: &str| match k {
             "HOME" => Some("/home/s".to_string()),
             _ => None,
@@ -103,6 +135,30 @@ mod tests {
         assert!(!is_enabled(&env));
         enable(&env).unwrap();
         assert!(is_enabled(&env), "Turn On");
+        let _ = std::fs::remove_dir_all(&tmp);
+    }
+
+    #[test]
+    fn old_entries_renamed() {
+        let old = "[Desktop Entry]\nType=Application\nName=Context Capsule\nComment=Turn your work into context for Claude\n\
+                   Exec=\"/x\"\nIcon=media-record\nX-GNOME-Autostart-enabled=false\nNoDisplay=false\n";
+        let new = renamed(old).unwrap();
+        assert!(new.contains("\nName=Karya Context Capsule\n") && new.contains("\nIcon=com.thekarya.contextcapsule\n"));
+        assert!(new.contains("X-GNOME-Autostart-enabled=false"), "turned off stays off");
+        assert!(!entry_enabled(&new));
+        assert_eq!(renamed(&new), None, "already new");
+        assert_eq!(renamed(&desktop_entry("/x")), None);
+
+        let tmp = std::env::temp_dir().join(format!("cc-autostart-rename-{}", std::process::id()));
+        let env = |k: &str| (k == "HOME").then(|| tmp.to_string_lossy().into_owned());
+        refresh(&env); // no entry: nothing written
+        let dir = tmp.join(".config/autostart");
+        assert!(!dir.join(FILE).exists());
+        std::fs::create_dir_all(&dir).unwrap();
+        std::fs::write(dir.join(FILE), old).unwrap();
+        refresh(&env);
+        assert_eq!(std::fs::read_to_string(dir.join(FILE)).unwrap(), new);
+        assert_eq!(std::fs::read_dir(&dir).unwrap().count(), 1, "one entry, same file");
         let _ = std::fs::remove_dir_all(&tmp);
     }
 

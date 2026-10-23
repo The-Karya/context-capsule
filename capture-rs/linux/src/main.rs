@@ -56,7 +56,27 @@ pub fn os_locale(env: &dyn Fn(&str) -> Option<String>) -> String {
     }
 }
 
+/// The locale's clock (LC_TIME, else LANG): its time format (`nl_langinfo(T_FMT)`, e.g. en_US "%r", en_GB "%T")
+/// says 12- or 24-hour; the window writes times and dates to match (`formats`). Call first, before any thread.
+fn set_time_formats() {
+    // SAFETY: setlocale with an empty, NUL-terminated string (the environment's locale) for LC_TIME only, before
+    // other threads exist; nl_langinfo returns a NUL-terminated string valid until the next locale call, copied
+    // out at once.
+    let t_fmt = unsafe {
+        libc::setlocale(libc::LC_TIME, c"".as_ptr());
+        let p = libc::nl_langinfo(libc::T_FMT);
+        if p.is_null() {
+            String::new()
+        } else {
+            std::ffi::CStr::from_ptr(p).to_string_lossy().into_owned()
+        }
+    };
+    let twelve = context_capsule_core::formats::c_format_is_12_hour(&t_fmt);
+    context_capsule_core::formats::set(if twelve { context_capsule_core::formats::Formats::H12 } else { context_capsule_core::formats::Formats::H24 });
+}
+
 fn main() {
+    set_time_formats();
     let paths = Paths::standard();
     let env = |k: &str| std::env::var(k).ok();
     let args: Vec<String> = std::env::args().collect();
@@ -102,6 +122,7 @@ fn main() {
     };
 
     if !probe {
+        autostart::refresh(&env); // an entry from 0.2.0: today's name and icon
         if let Some(line) = autostart::install_once(&paths.root, &env) {
             eprintln!("Context Capsule: {line}");
         }

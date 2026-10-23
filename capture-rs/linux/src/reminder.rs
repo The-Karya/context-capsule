@@ -92,7 +92,7 @@ pub fn claude_with(notifier: &Notifier, prompt: &str) {
 /// Ask (on a thread of its own: the dialog blocks); Make: `make` (Make today's capsules, the way Your AI works).
 pub fn ask_and_make(notifier: Notifier, make: Box<dyn FnOnce() + Send>) {
     std::thread::spawn(move || {
-        if !notifier.ask("Context Capsule", REMIND_QUESTION, MAKE_BUTTON, LATER_BUTTON) {
+        if !notifier.ask(context_capsule_core::window::APP_NAME, REMIND_QUESTION, MAKE_BUTTON, LATER_BUTTON) {
             eprintln!("Context Capsule: evening reminder: not now");
             return;
         }

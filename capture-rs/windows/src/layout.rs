@@ -260,8 +260,6 @@ pub enum Node {
     Text { r: Rect, text: String, font: Font, ink: Ink, align: Align, lines: u8 },
     Button { r: Rect, action: Action, label: String, icon: Option<&'static str>, style: Style, enabled: bool, check: bool },
     Toggle { r: Rect, action: Action, on: bool },
-    /// One project's share of time.
-    Bar { r: Rect, fraction: f64, muted: bool },
     /// The status dot: red and filled while contextualizing, else an outline.
     Dot { r: Rect, on: bool },
     /// A key on the keyboard ("Alt", "C").
@@ -273,7 +271,7 @@ pub enum Node {
     Badge { r: Rect, text: String },
     /// A speech bubble (a voice or typed note on the Timeline).
     Bubble(Rect),
-    /// A rounded patch of a project's colour (the Timeline's day bar, its dots and time bars); None: the empty track.
+    /// A rounded patch of a project's colour (Home's bars, the Timeline's day bar, its dots and time bars); None: the empty track.
     Swatch { r: Rect, colour: Option<Colour> },
 }
 
@@ -288,7 +286,6 @@ impl Node {
             Node::Text { r, .. }
             | Node::Button { r, .. }
             | Node::Toggle { r, .. }
-            | Node::Bar { r, .. }
             | Node::Dot { r, .. }
             | Node::Key { r, .. }
             | Node::Pill { r, .. }
@@ -800,7 +797,7 @@ fn home(col: &mut Col, v: &View, wide: bool) {
     col.card(|out, x, w, top, m| {
         let cell = w / 3.0;
         let lh = m.text("Today", Font::Small, cell, 1).1;
-        let vh = m.text("0 m", Font::Stat, cell, 1).1;
+        let vh = m.text("0 min", Font::Stat, cell, 1).1;
         for (i, s) in stats.iter().enumerate() {
             let cx = x + cell * i as f64 + CARD_PAD;
             let iw = cell - 2.0 * CARD_PAD;
@@ -908,7 +905,7 @@ fn status_card(col: &mut Col, v: &View) {
 }
 
 fn today_card(col: &mut Col, v: &View) {
-    let bars = w::bars(&v.data.home.today, &v.data.projects);
+    let bars = w::bars(&v.data.home.today, &v.data.projects, &v.data.home.colours);
     col.card(|out, x, w, top, m| {
         if bars.is_empty() {
             let h = m.text(w::TODAY_EMPTY, Font::Body, w - 2.0 * CARD_PAD, 0).1;
@@ -924,7 +921,10 @@ fn today_card(col: &mut Col, v: &View) {
             out.push(Node::Text { r: Rect::new(x + CARD_PAD, y, name_w, lh), text: b.name.clone(), font: Font::Body, ink, align: Align::Left, lines: 1 });
             let bx = x + CARD_PAD + name_w + 12.0;
             let bw = (w - 2.0 * CARD_PAD - name_w - 12.0 - time_w - 12.0).max(20.0);
-            out.push(Node::Bar { r: Rect::new(bx, y + (lh - 8.0) / 2.0, bw, 8.0), fraction: b.fraction, muted: b.muted });
+            // In the project's Timeline colour, drawn like the Timeline's "Where your time went".
+            let by = y + (lh - 8.0) / 2.0;
+            out.push(Node::Swatch { r: Rect::new(bx, by, bw, 8.0), colour: None });
+            out.push(Node::Swatch { r: Rect::new(bx, by, (bw * b.fraction).max(6.0).min(bw), 8.0), colour: Some(b.colour) });
             out.push(Node::Text { r: Rect::new(x + w - CARD_PAD - time_w, y, time_w, lh), text: b.time.clone(), font: Font::Small, ink: Ink::Secondary, align: Align::Right, lines: 1 });
             y += lh + 10.0;
         }
@@ -2090,7 +2090,15 @@ mod tests {
         let capsules = vec![cap("web", "daily", "2026-10-20"), cap("web", "project", "2026-10-19"), cap("app", "daily", "2026-10-18")];
         let today = Totals { seconds: 2403.0, by_project: vec![("web".into(), 1803.0), ("".into(), 600.0)] };
         Data {
-            home: HomeNumbers { first_name: "Saachi".into(), today: today.clone(), week: today, week_capsules: 2, streak: 3, recent: capsules.clone() },
+            home: HomeNumbers {
+                first_name: "Saachi".into(),
+                today: today.clone(),
+                week: today,
+                week_capsules: 2,
+                streak: 3,
+                recent: capsules.clone(),
+                colours: vec![("web".into(), Colour::Teal)],
+            },
             capsules,
             projects,
             config: Config { exclude_apps: vec!["Slack.exe".into()], ..Default::default() },
@@ -2334,13 +2342,17 @@ mod tests {
         let (status, data) = (Status::default(), data());
         let l = layout(&view(Section::Home, &status, &data), 1200.0, 800.0, &Fake);
         let t = texts(&l);
-        for word in ["Your work", "Context Capsule", "Home", "Good evening, Saachi.", "Tuesday, 20 October", "Today 40 m", "Not contextualizing",
-            "Start contextualizing", "Website", "Not sorted yet", "Recent capsules", "See all", "Shortcuts", "Working on", "Find by itself",
+        for word in ["Your work", "Context Capsule", "Home", "Good evening, Saachi.", "Tuesday, 20 October", "Today 40 min", "Not contextualizing",
+            "Start contextualizing", "Website", "Not sorted", "Recent capsules", "See all", "Shortcuts", "Working on", "Find by itself",
             "New project", "Make today's capsules", "Copy my day", "Save from clipboard", "Your AI: any AI", "Change", "Streak", "3 days", "in a row", "2 capsules", "contextualized", "See today's timeline"] {
             assert!(t.iter().any(|x| x == word), "{word} on Home: {t:?}");
         }
         assert_eq!(t.iter().filter(|x| *x == "Open").count(), 3, "three recent capsules");
         assert!(!l.content.iter().any(|n| n.action() == Some(&Action::Voice)), "Speak a note: only while contextualizing");
+        // Today's bars: each project in its Timeline colour, Not sorted grey (not all accent blue).
+        let colours: Vec<Colour> = l.content.iter().filter_map(|n| if let Node::Swatch { colour: Some(c), .. } = n { Some(*c) } else { None }).collect();
+        assert_eq!(colours, [Colour::Teal, Colour::Grey]);
+        assert!(t.iter().any(|x| x == "30 min") && t.iter().any(|x| x == "10 min"), "the Timeline's words: {t:?}");
     }
 
     #[test]
@@ -2600,10 +2612,6 @@ mod tests {
                         out += &format!("<text x='{x}' y='{}' font-size='14' fill='{ink}' text-anchor='{anchor}'>{}</text>", r.y + r.h / 2.0 + 5.0, esc(&label));
                     }
                     Node::Toggle { on, .. } => out += &format!("<rect x='{}' y='{}' width='{}' height='{}' rx='10' fill='{}' stroke='{text2}'/>", r.x, r.y, r.w, r.h, if *on { &accent } else { "none" }),
-                    Node::Bar { fraction, muted, .. } => {
-                        out += &format!("<rect x='{}' y='{}' width='{}' height='{}' rx='4' fill='{track}'/>", r.x, r.y, r.w, r.h);
-                        out += &format!("<rect x='{}' y='{}' width='{}' height='{}' rx='4' fill='{}'/>", r.x, r.y, (r.w * fraction).max(6.0), r.h, if *muted { &text2 } else { &accent });
-                    }
                     Node::Dot { on, .. } => out += &format!("<circle cx='{}' cy='{}' r='5' fill='{}' stroke='{text2}'/>", r.x + 5.0, r.y + 5.0, if *on { red.as_str() } else { "none" }),
                     Node::Key { text: t, .. } => out += &format!("<rect x='{}' y='{}' width='{}' height='{}' rx='4' fill='{bg}' stroke='{border}'/><text x='{}' y='{}' font-size='12' font-weight='600' fill='{text}' text-anchor='middle'>{}</text>", r.x, r.y, r.w, r.h, r.x + r.w / 2.0, r.y + 16.0, esc(t)),
                     Node::Pill { text: t, .. } => out += &format!("<rect x='{}' y='{}' width='{}' height='{}' rx='13' fill='{card}' stroke='{border}'/><text x='{}' y='{}' font-size='12' fill='{text2}' text-anchor='middle'>{}</text>", r.x, r.y, r.w, r.h, r.x + r.w / 2.0, r.y + 17.0, esc(t)),

@@ -433,9 +433,12 @@ impl Win {
         apply_menu_mode(&self.ctx.paths);
     }
 
+    /// The title bar, taskbar and Alt+Tab icon: the panther (white on its black tile, so it shows on light and dark
+    /// title bars); the drawn ring only if the exe has no icon inside.
     fn set_icons(&mut self) {
         for (kind, size) in [(ICON_SMALL, 16.0), (ICON_BIG, 32.0)] {
-            if let Some(icon) = tray::window_icon((size * self.scale) as usize) {
+            let px = (size * self.scale).round() as i32;
+            if let Some(icon) = win::app_icon(px).or_else(|| tray::window_icon(px as usize)) {
                 // SAFETY: our own window; the icon lives until the window is destroyed.
                 unsafe {
                     SendMessageW(self.hwnd, WM_SETICON, Some(WPARAM(kind as usize)), Some(LPARAM(icon.0 as isize)));

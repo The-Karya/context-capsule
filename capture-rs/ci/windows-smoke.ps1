@@ -1,10 +1,13 @@
 # context-capsule — ci: the Windows smoke test (windows-smoke.yml) — runs the real app on a GitHub Windows runner
 # and takes screenshots. -Part shipped: the released exe (install, first run, second copy, uninstall).
 # -Part pages: every page of the window from -Exe, light and dark, with seeded data (windows-smoke-seed.py).
+# -Part update: install the released exe (-Exe, e.g. 0.2.0), update it to -New (built from this commit) the way the
+# app does, then uninstall: one Start menu shortcut and one Settings → Apps entry, both with the new name.
 param(
-    [Parameter(Mandatory)] [ValidateSet('shipped', 'pages')] [string] $Part,
+    [Parameter(Mandatory)] [ValidateSet('shipped', 'pages', 'update')] [string] $Part,
     [Parameter(Mandatory)] [string] $Exe,
-    [Parameter(Mandatory)] [string] $Out
+    [Parameter(Mandatory)] [string] $Out,
+    [string] $New
 )
 $ErrorActionPreference = 'Continue'
 New-Item -ItemType Directory -Force -Path $Out | Out-Null
@@ -104,6 +107,14 @@ function StopApp {
 $Data = Join-Path $env:USERPROFILE '.context-capsule'
 $Dir = Join-Path $env:LOCALAPPDATA 'Programs\Context Capsule'
 $Installed = Join-Path $Dir 'context-capsule.exe'
+$StartMenu = Join-Path $env:APPDATA 'Microsoft\Windows\Start Menu\Programs'
+$UninstallKey = 'HKCU:\Software\Microsoft\Windows\CurrentVersion\Uninstall\ContextCapsule'
+# Up to 0.2.0 the shortcut was "Context Capsule.lnk"; from 0.2.1 "Karya Context Capsule.lnk".
+function Shortcuts { "old $(Test-Path (Join-Path $StartMenu 'Context Capsule.lnk')), new $(Test-Path (Join-Path $StartMenu 'Karya Context Capsule.lnk'))" }
+function AppsEntries {
+    $all = @(Get-ChildItem 'HKCU:\Software\Microsoft\Windows\CurrentVersion\Uninstall' -ErrorAction SilentlyContinue | Get-ItemProperty -ErrorAction SilentlyContinue | Where-Object { $_.DisplayName -like '*Context Capsule*' })
+    "$($all.Count) ($(($all | ForEach-Object { $_.DisplayName + ' ' + $_.DisplayVersion }) -join '; '))"
+}
 Note "screen: $([System.Windows.Forms.SystemInformation]::VirtualScreen)  dpi scale: $([System.Windows.Forms.Screen]::PrimaryScreen.Bounds)"
 Shot '00-desktop'
 
@@ -114,8 +125,8 @@ if ($Part -eq 'shipped') {
     Click 'Install' | Out-Null
     $started = WaitFor { (Running | Where-Object { $_.Path -eq $Installed }).Count -ge 1 } 60
     Note "installed copy running: $started; exe: $(Test-Path $Installed); files: $((Get-ChildItem $Dir -ErrorAction SilentlyContinue).Name -join ', ')"
-    Note "start menu shortcut: $(Test-Path (Join-Path $env:APPDATA 'Microsoft\Windows\Start Menu\Programs\Context Capsule.lnk'))"
-    Note "uninstall entry: $(Test-Path 'HKCU:\Software\Microsoft\Windows\CurrentVersion\Uninstall\ContextCapsule')"
+    Note "start menu shortcut: $(Shortcuts)"
+    Note "uninstall entry: $(Test-Path $UninstallKey); Settings → Apps entries: $(AppsEntries)"
     $win = WaitFor { (MainWindow) -ne [IntPtr]::Zero } 20
     Note "first-run window open: $win"
     Start-Sleep -Seconds 4
@@ -138,8 +149,43 @@ if ($Part -eq 'shipped') {
     Click 'OK' 5 | Out-Null
     WaitFor { -not (Test-Path $Installed) } 20 | Out-Null
     Start-Sleep -Seconds 3
-    Note "after uninstall: running $((Running).Count), folder $(Test-Path $Dir), shortcut $(Test-Path (Join-Path $env:APPDATA 'Microsoft\Windows\Start Menu\Programs\Context Capsule.lnk')), uninstall entry $(Test-Path 'HKCU:\Software\Microsoft\Windows\CurrentVersion\Uninstall\ContextCapsule'), data kept $(Test-Path $Data)"
+    Note "after uninstall: running $((Running).Count), folder $(Test-Path $Dir), shortcut $(Shortcuts), uninstall entry $(Test-Path $UninstallKey), data kept $(Test-Path $Data)"
     Shot '06-after-uninstall'
+    StopApp
+} elseif ($Part -eq 'update') {
+    # 1. Install the released version.
+    Start-Process -FilePath $Exe
+    if (WaitFor { [W]::Dialogs() -match 'Install' } 30) { Dialogs; Shot 'u01-install-question' } else { Note 'no install question'; Shot 'u01-no-question' }
+    Click 'Install' | Out-Null
+    $started = WaitFor { (Running | Where-Object { $_.Path -eq $Installed }).Count -ge 1 } 60
+    Start-Sleep -Seconds 3
+    Note "released version installed: $started; shortcuts: $(Shortcuts); Settings → Apps: $(AppsEntries)"
+    # 2. Update the way the app does: the running exe moves aside, the new one moves in and starts with --updated.
+    StopApp
+    Move-Item $Installed "$Installed.old" -Force
+    Copy-Item $New $Installed -Force
+    Start-Process -FilePath $Installed -ArgumentList '--updated', '0'
+    $updated = WaitFor { (Running | Where-Object { $_.Path -eq $Installed }).Count -ge 1 } 30
+    WaitFor { -not (Test-Path (Join-Path $StartMenu 'Context Capsule.lnk')) } 20 | Out-Null
+    Start-Sleep -Seconds 4
+    Dialogs
+    Note "updated copy running: $updated; leftover .old: $(Test-Path "$Installed.old")"
+    Note "after update: shortcuts: $(Shortcuts) (want: old False, new True)"
+    Note "after update: Settings → Apps: $(AppsEntries) (want: 1, Karya Context Capsule)"
+    $lnk = (New-Object -ComObject WScript.Shell).CreateShortcut((Join-Path $StartMenu 'Karya Context Capsule.lnk'))
+    Note "new shortcut points at: $($lnk.TargetPath)"
+    Note "exe description: $((Get-Item $Installed).VersionInfo.FileDescription)"
+    if ((MainWindow) -ne [IntPtr]::Zero) { $t = New-Object System.Text.StringBuilder 256; [W]::GetWindowText((MainWindow), $t, 256) | Out-Null; Note "window title: $t" }
+    Shot 'u02-after-update'
+    # 3. Uninstall: both shortcut names go, the entry goes.
+    Start-Process -FilePath $Installed -ArgumentList '--uninstall'
+    if (WaitFor { [W]::Dialogs() -match 'delete' } 20) { Dialogs; Shot 'u03-uninstall-question' } else { Note 'no delete question'; Dialogs }
+    Click 'No' | Out-Null
+    if (WaitFor { [W]::Dialogs() -match 'removed' } 20) { Dialogs; Shot 'u04-removed' } else { Note 'no removed message'; Dialogs }
+    Click 'OK' 5 | Out-Null
+    WaitFor { -not (Test-Path $Installed) } 20 | Out-Null
+    Start-Sleep -Seconds 3
+    Note "after uninstall: running $((Running).Count), folder $(Test-Path $Dir), shortcuts $(Shortcuts), Settings → Apps: $(AppsEntries)"
     StopApp
 } else {
     # The build from main, put where the installer would (so it doesn't ask to install).

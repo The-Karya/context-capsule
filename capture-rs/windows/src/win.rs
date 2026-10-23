@@ -378,15 +378,83 @@ pub fn sunday_first() -> bool {
 
 /// Today as the user's long date, without the year ("Tuesday, 20 October").
 pub fn long_date_today() -> String {
+    long_date(chrono::Local::now().date_naive(), false)
+}
+
+/// A day as the user's long date (Settings → Time & language → Region), with or without the year: what Home and
+/// the Timeline show.
+pub fn long_date(day: chrono::NaiveDate, year: bool) -> String {
+    use chrono::Datelike;
     use windows::Win32::Globalization::{GetDateFormatEx, ENUM_DATE_FORMATS_FLAGS, LOCALE_SLONGDATE};
-    let pattern = locale_info(LOCALE_SLONGDATE).map(|p| crate::layout::without_year(&p)).unwrap_or_else(|| "dddd, d MMMM".into());
+    let full = locale_info(LOCALE_SLONGDATE);
+    let pattern = match (full, year) {
+        (Some(p), true) => p,
+        (Some(p), false) => crate::layout::without_year(&p),
+        (None, _) => return context_capsule_core::formats::day_month(day, year),
+    };
     let picture: Vec<u16> = pattern.encode_utf16().chain(Some(0)).collect();
+    let st = windows::Win32::Foundation::SYSTEMTIME { wYear: day.year() as u16, wMonth: day.month() as u16, wDay: day.day() as u16, ..Default::default() };
     let mut buf = [0u16; 128];
-    // SAFETY: writes at most buf.len() chars; null date = today, null locale = the user's.
-    let n = unsafe { GetDateFormatEx(PCWSTR::null(), ENUM_DATE_FORMATS_FLAGS(0), None, PCWSTR(picture.as_ptr()), Some(&mut buf), PCWSTR::null()) };
+    // SAFETY: writes at most buf.len() chars; null locale = the user's.
+    let n = unsafe { GetDateFormatEx(PCWSTR::null(), ENUM_DATE_FORMATS_FLAGS(0), Some(&st), PCWSTR(picture.as_ptr()), Some(&mut buf), PCWSTR::null()) };
     if n > 1 {
         String::from_utf16_lossy(&buf[..n as usize - 1])
     } else {
-        chrono::Local::now().format("%A, %-d %B").to_string()
+        context_capsule_core::formats::day_month(day, year)
+    }
+}
+
+/// A time of day as the user's clock shows it ("4:49 PM" / "16:49"); `hour_only`: the hour mark ("4 PM" / "16").
+fn clock_time(hour: u32, minute: u32, hour_only: bool) -> Option<String> {
+    use windows::Win32::Globalization::{GetTimeFormatEx, TIME_FORMAT_FLAGS, TIME_NOMINUTESORSECONDS, TIME_NOSECONDS};
+    let st = windows::Win32::Foundation::SYSTEMTIME { wYear: 2000, wMonth: 1, wDay: 1, wHour: hour as u16, wMinute: minute as u16, ..Default::default() };
+    let flags: TIME_FORMAT_FLAGS = if hour_only { TIME_NOMINUTESORSECONDS } else { TIME_NOSECONDS };
+    let mut buf = [0u16; 64];
+    // SAFETY: writes at most buf.len() chars; null locale = the user's.
+    let n = unsafe { GetTimeFormatEx(PCWSTR::null(), flags, Some(&st), PCWSTR::null(), Some(&mut buf)) };
+    (n > 1).then(|| String::from_utf16_lossy(&buf[..n as usize - 1]))
+}
+
+/// From now on the window writes times and dates as Windows does for this user (12/24-hour clock, date order). Read
+/// each time, so a change in Settings shows at the next repaint.
+pub fn use_system_formats() {
+    use context_capsule_core::formats::{self, Formats};
+    formats::set(Formats {
+        time: |h, m| clock_time(h, m, false).unwrap_or_else(|| formats::time_24(h, m)),
+        hour: |h| clock_time(h, 0, true).unwrap_or_else(|| formats::hour_24(h)),
+        date: long_date,
+    });
+}
+
+/// The app icon (the Karya panther, inside the exe: res.rs) at `size` px; the caller destroys it. None in a build
+/// without it (tests on other hosts never get here).
+pub fn app_icon(size: i32) -> Option<windows::Win32::UI::WindowsAndMessaging::HICON> {
+    use windows::Win32::System::LibraryLoader::GetModuleHandleW;
+    use windows::Win32::UI::WindowsAndMessaging::{LoadImageW, HICON, IMAGE_ICON, LR_DEFAULTCOLOR};
+    // SAFETY: loads our own resource by id (MAKEINTRESOURCE) at the asked size.
+    unsafe {
+        let instance = GetModuleHandleW(None).ok()?;
+        let h = LoadImageW(Some(instance.into()), PCWSTR(crate::res::ICON_ID as usize as *const u16), IMAGE_ICON, size, size, LR_DEFAULTCOLOR).ok()?;
+        Some(HICON(h.0))
+    }
+}
+
+/// Give a dialog (install, update, reminder questions) the app icon in its title bar and taskbar button. The
+/// system's shared copies at the standard sizes: never destroyed.
+pub fn set_dialog_icon(hwnd: HWND) {
+    use windows::Win32::Foundation::{LPARAM, WPARAM};
+    use windows::Win32::System::LibraryLoader::GetModuleHandleW;
+    use windows::Win32::UI::WindowsAndMessaging::{
+        GetSystemMetrics, LoadImageW, SendMessageW, ICON_BIG, ICON_SMALL, IMAGE_ICON, LR_SHARED, SM_CXICON, SM_CXSMICON, WM_SETICON,
+    };
+    // SAFETY: shared icons from our own resources, sent to our own dialog.
+    unsafe {
+        let Ok(instance) = GetModuleHandleW(None) else { return };
+        for (kind, metric) in [(ICON_SMALL, SM_CXSMICON), (ICON_BIG, SM_CXICON)] {
+            let size = GetSystemMetrics(metric);
+            if let Ok(h) = LoadImageW(Some(instance.into()), PCWSTR(crate::res::ICON_ID as usize as *const u16), IMAGE_ICON, size, size, LR_SHARED) {
+                SendMessageW(hwnd, WM_SETICON, Some(WPARAM(kind as usize)), Some(LPARAM(h.0 as isize)));
+            }
+        }
     }
 }

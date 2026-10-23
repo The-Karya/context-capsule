@@ -70,6 +70,7 @@ impl Gtk {
             return None;
         }
         let _ = adw::init();
+        glib::set_application_name(words::APP_NAME); // the app's name where the desktop shows one
         let app = adw::Application::builder().application_id(crate::APP_ID).flags(gio::ApplicationFlags::HANDLES_OPEN).build();
         if let Err(e) = app.register(None::<&gio::Cancellable>) {
             eprintln!("Context Capsule: {e}");
@@ -142,6 +143,7 @@ pub fn run_alone(paths: Paths, section: Section, locale: String) -> i32 {
         return 1;
     }
     let _ = adw::init();
+    glib::set_application_name(words::APP_NAME);
     let app = adw::Application::builder()
         .application_id(format!("{}.WindowOnly", crate::APP_ID))
         .flags(gio::ApplicationFlags::NON_UNIQUE)

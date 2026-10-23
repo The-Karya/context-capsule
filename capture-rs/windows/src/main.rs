@@ -21,6 +21,9 @@ mod picker;
 mod pointer;
 mod program;
 mod reminder;
+// The exe's icon and version info: written by build.rs; here for its id and tests.
+#[cfg_attr(not(test), allow(dead_code))]
+mod res;
 mod setup;
 mod tray;
 mod toast;

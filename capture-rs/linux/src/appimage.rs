@@ -44,9 +44,10 @@ pub fn exec_quote(path: &str) -> String {
 /// it is never made the default app.
 pub fn menu_entry(exe: &str) -> String {
     format!(
-        "[Desktop Entry]\nType=Application\nName=Context Capsule\nComment=Turn your work into context for Claude\n\
+        "[Desktop Entry]\nType=Application\nName={}\nComment=Turn your work into context for Claude\n\
          Exec={} %f\nIcon={ICON_NAME}\nTerminal=false\nCategories=Utility;\nMimeType=text/markdown;\n\
          X-GNOME-UsesNotifications=true\n",
+        context_capsule_core::window::APP_NAME,
         exec_quote(exe)
     )
 }
@@ -73,21 +74,33 @@ pub fn add_to_apps(share: &Path, exe: &Path, appdir: Option<&Path>) -> std::io::
     let apps = share.join("applications");
     std::fs::create_dir_all(&apps)?;
     std::fs::write(apps.join(DESKTOP_FILE), menu_entry(&exe.to_string_lossy()))?;
-    if let Some(icon) = appdir.map(|d| d.join(format!("{ICON_NAME}.png"))).filter(|i| i.is_file()) {
-        let dir = share.join("icons/hicolor/256x256/apps");
-        std::fs::create_dir_all(&dir)?;
-        std::fs::copy(icon, dir.join(format!("{ICON_NAME}.png")))?;
+    copy_icon(share, appdir)
+}
+
+/// The icon from the AppImage (`$APPDIR`) into `share`'s hicolor 256×256, when it isn't the same already.
+fn copy_icon(share: &Path, appdir: Option<&Path>) -> std::io::Result<()> {
+    let Some(icon) = appdir.map(|d| d.join(format!("{ICON_NAME}.png"))).filter(|i| i.is_file()) else { return Ok(()) };
+    let dir = share.join("icons/hicolor/256x256/apps");
+    let target = dir.join(format!("{ICON_NAME}.png"));
+    if std::fs::read(&icon).ok() == std::fs::read(&target).ok() {
+        return Ok(());
     }
+    std::fs::create_dir_all(&dir)?;
+    std::fs::copy(icon, target)?;
     Ok(())
 }
 
-/// Our menu entry already there: keep it pointing at this AppImage (it may have been moved).
-fn refresh(share: &Path, exe: &Path) -> bool {
+/// Our menu entry already there: keep it pointing at this AppImage (it may have been moved), with today's name and
+/// icon (an entry from 0.2.0 says "Context Capsule" and has the old icon). Same file: never a second entry.
+fn refresh(share: &Path, exe: &Path, appdir: Option<&Path>) -> bool {
     let file = share.join("applications").join(DESKTOP_FILE);
     let Ok(old) = std::fs::read_to_string(&file) else { return false };
     let want = menu_entry(&exe.to_string_lossy());
-    if old != want && old.contains(&format!("Icon={ICON_NAME}")) && std::fs::write(&file, want).is_ok() {
-        file_types_changed(share);
+    if old.contains(&format!("Icon={ICON_NAME}")) {
+        let _ = copy_icon(share, appdir);
+        if old != want && std::fs::write(&file, want).is_ok() {
+            file_types_changed(share);
+        }
     }
     true
 }
@@ -97,7 +110,8 @@ fn refresh(share: &Path, exe: &Path) -> bool {
 pub fn offer_once(data_dir: &Path, notifier: &Notifier) {
     let env = |k: &str| std::env::var(k).ok();
     let (Some(image), Some(share)) = (appimage(&env), data_home(&env)) else { return };
-    if refresh(&share, &image) {
+    let appdir = env("APPDIR").map(PathBuf::from);
+    if refresh(&share, &image, appdir.as_deref()) {
         return;
     }
     let marker = data_dir.join(".apps-asked");
@@ -106,11 +120,10 @@ pub fn offer_once(data_dir: &Path, notifier: &Notifier) {
     }
     let _ = std::fs::create_dir_all(data_dir);
     let _ = std::fs::write(&marker, "1\n");
-    if !notifier.ask("Context Capsule", ADD_QUESTION, ADD_BUTTON, NOT_NOW) {
+    if !notifier.ask(context_capsule_core::window::APP_NAME, ADD_QUESTION, ADD_BUTTON, NOT_NOW) {
         eprintln!("Context Capsule: add to apps: not now");
         return;
     }
-    let appdir = env("APPDIR").map(PathBuf::from);
     match add_to_apps(&share, &image, appdir.as_deref()) {
         Ok(()) => {
             file_types_changed(&share);
@@ -131,7 +144,7 @@ mod tests {
         let e = menu_entry("/x/cc.AppImage");
         assert!(e.contains("Exec=\"/x/cc.AppImage\" %f\n") && e.contains("Icon=com.thekarya.contextcapsule\n"));
         assert!(e.contains("MimeType=text/markdown;\n"), "offered for .md files (Open With), not made the default");
-        assert!(e.starts_with("[Desktop Entry]\nType=Application\n"));
+        assert!(e.starts_with("[Desktop Entry]\nType=Application\nName=Karya Context Capsule\n"));
     }
 
     #[test]
@@ -157,9 +170,18 @@ mod tests {
         let entry = share.join("applications").join(DESKTOP_FILE);
         assert!(std::fs::read_to_string(&entry).unwrap().contains("/a/one.AppImage"));
         assert!(share.join("icons/hicolor/256x256/apps/com.thekarya.contextcapsule.png").is_file());
-        assert!(refresh(&share, Path::new("/b/moved.AppImage")));
+        assert!(refresh(&share, Path::new("/b/moved.AppImage"), Some(&appdir)));
         assert!(std::fs::read_to_string(&entry).unwrap().contains("/b/moved.AppImage"), "follows the AppImage");
-        assert!(!refresh(&tmp.join("none"), Path::new("/a")), "no entry yet");
+        assert!(!refresh(&tmp.join("none"), Path::new("/a"), None), "no entry yet");
+        // An entry and icon from 0.2.0: renamed in place, the panther copied over the old icon.
+        let old = menu_entry("/b/moved.AppImage").replace("Name=Karya Context Capsule", "Name=Context Capsule");
+        std::fs::write(&entry, old).unwrap();
+        let icon = share.join("icons/hicolor/256x256/apps/com.thekarya.contextcapsule.png");
+        std::fs::write(&icon, b"old").unwrap();
+        assert!(refresh(&share, Path::new("/b/moved.AppImage"), Some(&appdir)));
+        assert!(std::fs::read_to_string(&entry).unwrap().contains("\nName=Karya Context Capsule\n"));
+        assert_eq!(std::fs::read(&icon).unwrap(), b"png");
+        assert_eq!(std::fs::read_dir(share.join("applications")).unwrap().count(), 1, "one entry");
         std::fs::remove_dir_all(&tmp).unwrap();
     }
 }

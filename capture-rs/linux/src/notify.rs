@@ -7,8 +7,9 @@ use std::sync::{Arc, Mutex};
 use tokio::runtime::Handle;
 use zbus::zvariant::Value;
 
-const APP: &str = "Context Capsule";
-const ICON: &str = "media-record";
+/// The app's name and icon on notifications.
+const APP: &str = context_capsule_core::window::APP_NAME;
+const ICON: &str = crate::appimage::ICON_NAME;
 
 #[derive(Clone)]
 pub struct Notifier {

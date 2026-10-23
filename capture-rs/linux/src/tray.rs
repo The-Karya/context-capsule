@@ -7,7 +7,7 @@ use crate::link::WindowLink;
 use crate::notify::Notifier;
 use context_capsule_core::look::{self, LEVEL_FRAMES};
 use context_capsule_core::anyai::{self, YourAi};
-use context_capsule_core::window::{MAKE_TITLE, OPEN_WINDOW};
+use context_capsule_core::window::{APP_NAME, MAKE_TITLE, OPEN_WINDOW};
 use context_capsule_core::{Hotkeys, Indicator, Msg, ProjectItem, Shortcut, Status, Voice};
 use ksni::menu::{CheckmarkItem, StandardItem, SubMenu};
 use ksni::{MenuItem, TrayMethods};
@@ -56,8 +56,8 @@ pub fn toggle_label(status: &Status) -> &'static str {
 /// The tray's title: the running time while contextualizing.
 pub fn title_text(status: &Status, now: SystemTime) -> String {
     match look::elapsed(status, now) {
-        Some(time) => format!("Context Capsule ● {time}"),
-        None => "Context Capsule".into(),
+        Some(time) => format!("{APP_NAME} ● {time}"),
+        None => APP_NAME.into(),
     }
 }
 
@@ -70,7 +70,7 @@ pub fn tooltip_text(indicator: Indicator, status: &Status, now: SystemTime, h: &
             let time = look::elapsed(status, now).unwrap_or_default();
             format!("● Contextualizing {time} — {record} to stop, {voice} to talk")
         }
-        _ => format!("Context Capsule ({record} to start contextualizing)"),
+        _ => format!("{APP_NAME} ({record} to start contextualizing)"),
     }
 }
 
@@ -99,8 +99,11 @@ pub fn label(s: &str) -> String {
 pub const NO_DIALOG: &str =
     "To name a new project, install zenity (or kdialog), or ask your AI to create it (create_project).";
 
+/// "14:57" / "2:57 PM", as this computer writes times (`formats`, set from the locale).
 fn local_time(t: SystemTime) -> String {
-    chrono::DateTime::<chrono::Local>::from(t).format("%H:%M").to_string()
+    use chrono::Timelike;
+    let t = chrono::DateTime::<chrono::Local>::from(t);
+    context_capsule_core::formats::time(t.hour(), t.minute())
 }
 
 impl ksni::Tray for CapsuleTray {
@@ -454,7 +457,7 @@ mod tests {
         let mut s = Status::default();
         assert_eq!(info_line(&s, now, &t), "Not contextualizing");
         assert_eq!(toggle_label(&s), "Start contextualizing");
-        assert_eq!(title_text(&s, now), "Context Capsule");
+        assert_eq!(title_text(&s, now), "Karya Context Capsule");
         s.picking = true;
         assert_eq!(info_line(&s, now, &t), "Pick a window or screen…");
         assert_eq!(toggle_label(&s), "Cancel");
@@ -469,7 +472,7 @@ mod tests {
         let later = now + Duration::from_secs(754);
         assert_eq!(info_line(&s, later, &t), "● Contextualizing 12:34 — since 10:01 — 1 moment");
         assert_eq!(toggle_label(&s), "Stop contextualizing");
-        assert_eq!(title_text(&s, later), "Context Capsule ● 12:34");
+        assert_eq!(title_text(&s, later), "Karya Context Capsule ● 12:34");
         let h = Hotkeys::DEFAULT;
         assert_eq!(
             tooltip_text(Indicator::Recording, &s, later, &h),
@@ -478,7 +481,7 @@ mod tests {
         assert!(tooltip_text(Indicator::Listening, &s, later, &h).starts_with("Listening"));
         let mine = Hotkeys { record: Shortcut::parse("Ctrl+Shift+R").unwrap(), voice: Shortcut::parse("F9").unwrap() };
         assert_eq!(tooltip_text(Indicator::Listening, &s, later, &mine), "Listening — press F9 to finish the voice note");
-        assert_eq!(tooltip_text(Indicator::Idle, &s, later, &mine), "Context Capsule (Ctrl+Shift+R to start contextualizing)");
+        assert_eq!(tooltip_text(Indicator::Idle, &s, later, &mine), "Karya Context Capsule (Ctrl+Shift+R to start contextualizing)");
     }
 
     #[test]

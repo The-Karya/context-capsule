@@ -11,9 +11,12 @@ use crate::projects::Project;
 use crate::settings::ShareScreens;
 use crate::shortcuts::Hotkeys;
 use crate::stats::{Totals, WorkStats};
+use crate::timeline::Colour;
 use std::time::SystemTime;
 
-pub const APP_NAME: &str = "Context Capsule";
+/// The app's name where people see it as a name: window title, taskbar, Start menu, Settings → Apps, dialog titles,
+/// the tray's tooltip, notifications. In sentences it stays "Context Capsule".
+pub const APP_NAME: &str = "Karya Context Capsule";
 /// The tray / menu item that opens the window.
 pub const OPEN_WINDOW: &str = "Open Context Capsule";
 
@@ -126,7 +129,7 @@ pub fn greeting(hour: u32, first_name: &str) -> String {
     }
 }
 
-/// The small pill top right: "● 0:12" while contextualizing, else "Today 2 m".
+/// The small pill top right: "● 0:12" while contextualizing, else "Today 2 min".
 pub fn status_pill(status: &Status, now: SystemTime, today_seconds: f64) -> String {
     match look::elapsed(status, now) {
         Some(time) => format!("● {time}"),
@@ -233,20 +236,25 @@ pub fn now_line(status: &Status) -> Option<String> {
     status.current_project().map(|p| format!("Now: {}", p.name))
 }
 
-/// One bar: a project's name, its share of the longest bar (0–1), the time, and muted for "Not sorted yet".
+/// One bar: a project's name, its share of the longest bar (0–1), the time, muted for "Not sorted", and its colour
+/// (the same as on the Timeline).
 #[derive(Clone, Debug, PartialEq)]
 pub struct Bar {
     pub name: String,
     pub fraction: f64,
     pub time: String,
     pub muted: bool,
+    pub colour: Colour,
 }
 
-pub const NOT_SORTED: &str = "Not sorted yet";
+/// The same words as the Timeline's.
+pub const NOT_SORTED: &str = crate::timeline::NOT_SORTED;
 
-/// The top projects as bars (at most `MAX_BARS`), each relative to the longest.
-pub fn bars(totals: &Totals, projects: &[Project]) -> Vec<Bar> {
+/// The top projects as bars (at most `MAX_BARS`), each relative to the longest. `colours`: each project's colour on
+/// today's Timeline (`HomeNumbers::colours`); a project it doesn't have gets the next colour not taken; Not sorted grey.
+pub fn bars(totals: &Totals, projects: &[Project], colours: &[(String, Colour)]) -> Vec<Bar> {
     let longest = totals.by_project.first().map_or(1.0, |(_, s)| *s).max(1e-9);
+    let mut spare = Colour::ORDER.iter().copied().filter(|c| !colours.iter().any(|(_, t)| t == c)).collect::<Vec<_>>().into_iter().cycle();
     totals
         .by_project
         .iter()
@@ -256,6 +264,11 @@ pub fn bars(totals: &Totals, projects: &[Project]) -> Vec<Bar> {
             fraction: (seconds / longest).clamp(0.0, 1.0),
             time: WorkStats::duration(*seconds),
             muted: id.is_empty(),
+            colour: if id.is_empty() {
+                Colour::Grey
+            } else {
+                colours.iter().find(|(k, _)| k == id).map(|(_, c)| *c).or_else(|| spare.next()).unwrap_or(Colour::Blue)
+            },
         })
         .collect()
 }
@@ -294,6 +307,8 @@ pub struct HomeNumbers {
     pub streak: u32,
     /// The newest capsules (at most `RECENT_COUNT`).
     pub recent: Vec<CapsuleSummary>,
+    /// Each project's colour on today's Timeline, for the bars.
+    pub colours: Vec<(String, Colour)>,
 }
 
 impl HomeNumbers {
@@ -314,6 +329,7 @@ impl HomeNumbers {
             week_capsules: capsules.iter().filter(|c| c.made_since(since)).count(),
             streak: WorkStats::streak(&WorkStats::session_ids(&paths.sessions()), chrono::DateTime::<chrono::Local>::from(now).date_naive()),
             recent: capsules.into_iter().take(RECENT_COUNT).collect(),
+            colours: crate::timeline::load_day(paths, chrono::DateTime::<chrono::Local>::from(now).date_naive()).project_colours(),
         }
     }
 }
@@ -509,21 +525,28 @@ mod tests {
     fn bars_and_captions() {
         let projects = vec![Project { id: "web".into(), name: "Website".into(), clues: vec![] }];
         let t = Totals { seconds: 2403.0, by_project: vec![("web".into(), 1803.0), ("".into(), 600.0)] };
-        let b = bars(&t, &projects);
-        assert_eq!(b[0], Bar { name: "Website".into(), fraction: 1.0, time: "30 m".into(), muted: false });
-        assert_eq!((b[1].name.as_str(), b[1].muted, b[1].time.as_str()), ("Not sorted yet", true, "10 m"));
+        let b = bars(&t, &projects, &[]);
+        assert_eq!(b[0], Bar { name: "Website".into(), fraction: 1.0, time: "30 min".into(), muted: false, colour: Colour::Blue });
+        assert_eq!((b[1].name.as_str(), b[1].muted, b[1].time.as_str(), b[1].colour), ("Not sorted", true, "10 min", Colour::Grey));
         assert!((b[1].fraction - 600.0 / 1803.0).abs() < 1e-9);
         let many = Totals { seconds: 0.0, by_project: (0..8).map(|i| (format!("p{i}"), 10.0)).collect() };
-        assert_eq!(bars(&many, &[]).len(), MAX_BARS);
+        assert_eq!(bars(&many, &[], &[]).len(), MAX_BARS);
+        // The Timeline's colours; one it doesn't have gets the next colour not taken.
+        let t3 = Totals { seconds: 0.0, by_project: vec![("a".into(), 30.0), ("b".into(), 20.0), ("c".into(), 10.0)] };
+        let timeline = [("b".to_string(), Colour::Blue), ("a".to_string(), Colour::Teal)];
+        let colours: Vec<Colour> = bars(&t3, &[], &timeline).iter().map(|b| b.colour).collect();
+        assert_eq!(colours, [Colour::Teal, Colour::Blue, Colour::Orange]);
         let n = HomeNumbers { today: t.clone(), week: t.clone(), week_capsules: 1, streak: 3, ..Default::default() };
         let s = stats(&n);
-        assert_eq!((s[0].label, s[0].value.as_str(), s[0].detail.as_str()), ("Today", "40 m", "contextualized"));
+        assert_eq!((s[0].label, s[0].value.as_str(), s[0].detail.as_str()), ("Today", "40 min", "contextualized"));
         assert_eq!((s[1].label, s[1].detail.as_str()), ("This week", "1 capsule"));
         assert_eq!((s[2].label, s[2].value.as_str(), s[2].detail.as_str()), ("Streak", "3 days", "in a row"));
         let none = stats(&HomeNumbers::default());
         assert_eq!((none[1].detail.as_str(), none[2].value.as_str()), ("0 capsules", "0 days"));
         let now = SystemTime::now();
-        assert_eq!(status_pill(&Status::default(), now, 120.0), "Today 2 m");
+        assert_eq!(status_pill(&Status::default(), now, 120.0), "Today 2 min");
+        assert_eq!(status_pill(&Status::default(), now, 0.0), "Today under 1 min");
+        assert_eq!(status_pill(&Status::default(), now, 3900.0), "Today 1 h 5 min");
         let rec = Status { recording: true, started_at: Some(now), ..Default::default() };
         assert_eq!(status_pill(&rec, now + std::time::Duration::from_secs(12), 0.0), "● 0:12");
         assert_eq!(home_shortcuts(&wk()), [("Alt+C".into(), "Start or stop"), ("Alt+V".into(), "Speak a note")]);
