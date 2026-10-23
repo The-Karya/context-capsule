@@ -1046,20 +1046,26 @@ final class MainWindow: NSObject, NSWindowDelegate {
             window.makeKeyAndOrderFront(nil)
             return
         }
-        let view = MainView(app: app, library: library, nav: nav, setup: setup, prefs: prefs, timeline: timeline)
-        let window = NSWindow(contentViewController: NSHostingController(rootView: view))
-        window.title = AppName.full
-        window.styleMask = [.titled, .closable, .miniaturizable, .resizable, .fullSizeContentView]
-        window.titlebarAppearsTransparent = true
-        window.titleVisibility = .hidden
-        window.toolbarStyle = .unified
-        window.isReleasedWhenClosed = false
+        let window = makeWindow(NSWindow.self)
         window.setFrameAutosaveName("ContextCapsuleMain")
         window.delegate = self
         if !window.setFrameUsingName("ContextCapsuleMain") { window.setContentSize(NSSize(width: 860, height: 620)); window.center() }
         self.window = window
         NSApp.activate(ignoringOtherApps: true)
         window.makeKeyAndOrderFront(nil)
+    }
+
+    /// The window and its views, not shown yet (shared by show() and the --render-page renders).
+    private func makeWindow<W: NSWindow>(_ type: W.Type) -> W {
+        let view = MainView(app: app, library: library, nav: nav, setup: setup, prefs: prefs, timeline: timeline)
+        let window = W(contentViewController: NSHostingController(rootView: view))
+        window.title = AppName.full
+        window.styleMask = [.titled, .closable, .miniaturizable, .resizable, .fullSizeContentView]
+        window.titlebarAppearsTransparent = true
+        window.titleVisibility = .hidden
+        window.toolbarStyle = .unified
+        window.isReleasedWhenClosed = false
+        return window
     }
 
     func windowWillClose(_ notification: Notification) {
@@ -1129,5 +1135,107 @@ enum MainMenu {
         main.addItem(windowHolder)
         NSApp.windowsMenu = windowMenu
         return main
+    }
+}
+
+// MARK: Renders
+
+/// --render-page: the window drawn offscreen into a PNG at 2× (no screen capture, so it works with the screen locked).
+extension MainWindow {
+    /// A window the system leaves where it's put (titled windows are otherwise pulled back onto a screen).
+    private final class OffscreenWindow: NSWindow {
+        override func constrainFrameRect(_ frameRect: NSRect, to screen: NSScreen?) -> NSRect { frameRect }
+        // Drawn as the window in front (blue default button, sidebar as when you use it), even if it can't be key.
+        override var canBecomeKey: Bool { true }
+        override var canBecomeMain: Bool { true }
+        override var isKeyWindow: Bool { true }
+        override var isMainWindow: Bool { true }
+    }
+
+    /// The window as the window server drew it (its own window: no Screen Recording permission needed).
+    /// CGWindowListCreateImage is gone from the macOS 15 SDK but still in the system, so it is looked up by name.
+    private static func windowImage(_ window: NSWindow) -> CGImage? {
+        typealias Fn = @convention(c) (CGRect, UInt32, UInt32, UInt32) -> Unmanaged<CGImage>?
+        guard let sym = dlsym(UnsafeMutableRawPointer(bitPattern: -2), "CGWindowListCreateImage") else { return nil }
+        let fn = unsafeBitCast(sym, to: Fn.self)
+        let options = CGWindowListOption.optionIncludingWindow.rawValue
+        let image = CGWindowImageOption([.boundsIgnoreFraming, .bestResolution]).rawValue
+        return fn(.null, options, UInt32(window.windowNumber), image)?.takeRetainedValue()
+    }
+
+    /// The app for renders: always the app in front, so the window draws as when you use it.
+    final class RenderApplication: NSApplication {
+        override var isActive: Bool { true }
+    }
+
+    static let renderPages = ["home", "timeline", "timeline-open", "capsules", "projects", "settings", "help", "welcome"]
+
+    /// Draws one page with the data in Paths.standard (CONTEXT_CAPSULE_HOME). "welcome" is Settings on first launch
+    /// (nothing set up yet); "settings" has everything set up except Connect your AI. No AI apps are installed.
+    static func renderPage(_ page: String, to out: URL, dark: Bool, size: NSSize) -> Bool {
+        let section: Section
+        switch page {
+        case "home": section = .home
+        case "timeline", "timeline-open": section = .timeline
+        case "capsules": section = .capsules
+        case "projects": section = .projects
+        case "settings", "welcome": section = .settings
+        case "help": section = .help
+        default: return false
+        }
+        let paths = Paths.standard
+        let model = AppModel()
+        model.projects = Projects.load(from: paths.projects)
+        let keys = Shortcut.load(from: paths.config)
+        model.recordKey = keys.record.symbols
+        model.voiceKey = keys.voice.symbols
+        model.version = Updater.currentVersion
+        let ai = AIState.shared
+        ai.configURL = paths.config
+        ai.clients = [AIClient(id: "claude", name: "Claude", installed: false, connected: false, how: "extension"),
+                      AIClient(id: "cursor", name: "Cursor", installed: false, connected: false, how: "config")]
+        ai.loaded = true
+        ai.updateChoice()
+
+        let main = MainWindow(app: model, paths: paths)
+        NSApp.appearance = NSAppearance(named: dark ? .darkAqua : .aqua)
+        main.nav.section = section
+        main.library.reload()
+        main.prefs.load()
+        main.refreshStats()
+        let done = page != "welcome"
+        main.setup.readsText = done
+        main.setup.microphone = done
+        main.setup.speech = done
+        main.setup.dictation = done
+        main.setup.ai = false
+        main.setup.atLogin = done
+
+        let window = main.makeWindow(OffscreenWindow.self)
+        window.appearance = NSAppearance(named: dark ? .darkAqua : .aqua)
+        window.setContentSize(size)
+        window.setFrameOrigin(NSPoint(x: -30_000, y: -30_000)) // drawn the same as on screen (checked)
+        NSApp.activate(ignoringOtherApps: true)
+        window.makeKeyAndOrderFront(nil)
+        func wait(_ seconds: Double) { RunLoop.main.run(until: Date().addingTimeInterval(seconds)) }
+        wait(1.5) // files are read off the main thread
+        if page == "timeline-open", let first = main.timeline.blocks.first {
+            main.timeline.toggle(first)
+            wait(1)
+        }
+        // As after clicking the page in the sidebar: the sidebar has the focus (not the first text field).
+        func table(in view: NSView) -> NSTableView? {
+            if let t = view as? NSTableView { return t }
+            for sub in view.subviews { if let t = table(in: sub) { return t } }
+            return nil
+        }
+        if let frame = window.contentView?.superview, let sidebar = table(in: frame) {
+            window.makeFirstResponder(sidebar)
+            wait(0.5)
+        }
+        let image = windowImage(window)
+        window.orderOut(nil)
+        guard let image, let png = NSBitmapImageRep(cgImage: image).representation(using: .png, properties: [:]) else { return false }
+        return (try? png.write(to: out)) != nil
     }
 }

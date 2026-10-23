@@ -29,8 +29,18 @@ struct Paths {
     var projects: URL { root.appendingPathComponent("projects.json") }
     var capsules: URL { root.appendingPathComponent("capsules", isDirectory: true) }
 
-    static let standard = Paths(root: FileManager.default.homeDirectoryForCurrentUser
-        .appendingPathComponent(".context-capsule", isDirectory: true))
+    /// `~/.context-capsule`, or CONTEXT_CAPSULE_HOME when it is set (as on Windows and Linux; for tests and renders).
+    static let standard = Paths(root: root(env: ProcessInfo.processInfo.environment["CONTEXT_CAPSULE_HOME"]))
+
+    static func root(env: String?) -> URL {
+        let home = FileManager.default.homeDirectoryForCurrentUser
+        guard let dir = env?.trimmingCharacters(in: .whitespaces), !dir.isEmpty else {
+            return home.appendingPathComponent(".context-capsule", isDirectory: true)
+        }
+        if dir == "~" { return home }
+        if dir.hasPrefix("~/") { return home.appendingPathComponent(String(dir.dropFirst(2)), isDirectory: true) }
+        return URL(fileURLWithPath: dir, isDirectory: true)
+    }
 }
 
 // MARK: - JSON (hand-written so key order matches SPEC.md)

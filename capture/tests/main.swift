@@ -1420,5 +1420,12 @@ check(ClaudeLink.searchPrompt("why?").hasPrefix("Use Context Capsule to search m
 
 try? FileManager.default.removeItem(at: tmp)
 
+// The data folder: CONTEXT_CAPSULE_HOME when set (as on Windows and Linux).
+let userHome = FileManager.default.homeDirectoryForCurrentUser
+check(Paths.root(env: nil) == userHome.appendingPathComponent(".context-capsule", isDirectory: true), "data folder: default")
+check(Paths.root(env: "  ") == Paths.root(env: nil), "data folder: blank counts as unset")
+check(Paths.root(env: " /data/cc ").path == "/data/cc", "data folder: CONTEXT_CAPSULE_HOME, trimmed")
+check(Paths.root(env: "~/cc").path == userHome.appendingPathComponent("cc").path, "data folder: ~ is the home folder")
+
 print("\(passes) passed, \(failures) failed")
 exit(failures == 0 ? 0 : 1)
