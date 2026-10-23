@@ -5,3 +5,4 @@ capture/build/
 *.log
 dist-ext/
 dist-bin/
+.cargo-docker/

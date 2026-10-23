@@ -1,12 +1,21 @@
 # context-capsule — CI: tests and builds on Windows and Linux. The Mac side is tested and built on a Mac
 # (capture/tests/run.sh, capture/build.sh): macOS minutes on GitHub cost 10×.
 # Runs only when asked: GitHub → Actions → ci → "Run workflow", or `gh workflow run ci`.
+# For a release, only the Linux file is needed here (Mac and Windows are built on a Mac):
+# `gh workflow run ci -f only=linux-file`. Rust builds are kept between runs (caches), so only what changed is rebuilt.
 name: ci
 on:
   workflow_dispatch:
+    inputs:
+      only:
+        description: What to run
+        type: choice
+        options: [everything, linux-file]
+        default: everything
 
 jobs:
   mcp:
+    if: inputs.only != 'linux-file'
     runs-on: ${{ matrix.os }}
     strategy:
       fail-fast: false
@@ -28,6 +37,7 @@ jobs:
   # context-capsule-mcp as one self-contained file per platform (bun build --compile), shipped inside each app.
   # The Mac one (universal) is built on a Mac: mcp/build-binary.sh.
   mcp-binary:
+    if: inputs.only != 'linux-file'
     runs-on: ${{ matrix.os }}
     strategy:
       fail-fast: false
@@ -58,6 +68,7 @@ jobs:
           path: mcp/dist-bin/*
 
   core:
+    if: inputs.only != 'linux-file'
     runs-on: ${{ matrix.os }}
     strategy:
       fail-fast: false
@@ -71,10 +82,14 @@ jobs:
       - uses: dtolnay/rust-toolchain@stable
         with:
           components: clippy
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: capture-rs
       - run: cargo test -p context-capsule-core
       - run: cargo clippy -p context-capsule-core --all-targets -- -D warnings
 
   windows-recorder:
+    if: inputs.only != 'linux-file'
     runs-on: windows-latest
     defaults:
       run:
@@ -84,6 +99,9 @@ jobs:
       - uses: dtolnay/rust-toolchain@stable
         with:
           components: clippy
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: capture-rs
       - run: cargo test -p context-capsule-windows
       - run: cargo clippy -p context-capsule-windows --all-targets -- -D warnings
       - run: cargo build --release -p context-capsule-windows
@@ -93,14 +111,32 @@ jobs:
           path: capture-rs/target/release/context-capsule.exe
 
   linux-recorder:
+    if: inputs.only != 'linux-file'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - name: Build the Linux box
-        run: docker build -t context-capsule-linux -f capture-rs/ci/linux.Dockerfile capture-rs/ci
+      - uses: docker/setup-buildx-action@v3
+      - name: Build the Linux box (kept between runs)
+        uses: docker/build-push-action@v6
+        with:
+          context: capture-rs/ci
+          file: capture-rs/ci/linux.Dockerfile
+          tags: context-capsule-linux
+          load: true
+          cache-from: type=gha,scope=linux-box
+          cache-to: type=gha,mode=max,scope=linux-box
+      - uses: actions/cache@v4
+        with:
+          path: |
+            .cargo-docker
+            capture-rs/target
+          key: linux-recorder-${{ hashFiles('capture-rs/Cargo.lock') }}-${{ github.sha }}
+          restore-keys: |
+            linux-recorder-${{ hashFiles('capture-rs/Cargo.lock') }}-
+            linux-recorder-
       - name: Test, lint and build
         run: >
-          docker run --rm -v "$PWD:/work" -w /work/capture-rs context-capsule-linux sh -c
+          docker run --rm -v "$PWD:/work" -v "$PWD/.cargo-docker:/usr/local/cargo/registry" -w /work/capture-rs context-capsule-linux sh -c
           "rustup component add clippy &&
           cargo test -p context-capsule-linux &&
           cargo clippy -p context-capsule-linux --all-targets -- -D warnings &&
@@ -111,10 +147,27 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - name: Build the Linux box
-        run: docker build -t context-capsule-linux -f capture-rs/ci/linux.Dockerfile capture-rs/ci
+      - uses: docker/setup-buildx-action@v3
+      - name: Build the Linux box (kept between runs)
+        uses: docker/build-push-action@v6
+        with:
+          context: capture-rs/ci
+          file: capture-rs/ci/linux.Dockerfile
+          tags: context-capsule-linux
+          load: true
+          cache-from: type=gha,scope=linux-box
+          cache-to: type=gha,mode=max,scope=linux-box
+      - uses: actions/cache@v4
+        with:
+          path: |
+            .cargo-docker
+            capture-rs/target-appimage
+          key: appimage-${{ hashFiles('capture-rs/Cargo.lock') }}-${{ github.sha }}
+          restore-keys: |
+            appimage-${{ hashFiles('capture-rs/Cargo.lock') }}-
+            appimage-
       - name: Build the AppImage
-        run: docker run --rm -v "$PWD:/work" -w /work/capture-rs context-capsule-linux sh linux/appimage.sh
+        run: docker run --rm -v "$PWD:/work" -v "$PWD/.cargo-docker:/usr/local/cargo/registry" -w /work/capture-rs context-capsule-linux sh linux/appimage.sh
       - uses: actions/upload-artifact@v4
         with:
           name: context-capsule-linux-appimage
