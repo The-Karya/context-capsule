@@ -3,7 +3,7 @@
 // Refused (the other one's keys, no Ctrl / Alt, another app has them): a short line under the row, the old keys
 // stay. "Reset" puts back Alt+C and Alt+V. On Wayland the desktop binds them and has the last word.
 
-use super::widgets::{flat_button, keycap, label, row, vbox};
+use super::widgets::{self, flat_button, hbox, keycap, label, note, row, vbox};
 use super::Ctx;
 use crate::hotkeys::{self, Applied};
 use crate::ui;
@@ -16,7 +16,8 @@ use std::rc::{Rc, Weak};
 pub struct Shortcuts {
     ctx: Rc<Ctx>,
     pub root: gtk::Box,
-    group: adw::PreferencesGroup,
+    /// The line under the panel (how to change a shortcut, or "Press the new keys…").
+    help: gtk::Label,
     rows: Vec<(Which, adw::ActionRow, gtk::Button)>,
     reset: gtk::Button,
     /// Listening for new keys for this one: the window's key controller, while it listens.
@@ -28,23 +29,29 @@ pub struct Shortcuts {
 
 impl Shortcuts {
     pub fn new(ctx: &Rc<Ctx>) -> Rc<Shortcuts> {
-        let group = adw::PreferencesGroup::new();
-        group.set_title(words::SHORTCUTS);
-        group.set_description(Some(words::SHORTCUTS_HELP));
+        // As on the Mac: the rows in a panel, the help line under it, Reset beside the help line.
+        let root = vbox(8);
+        root.append(&widgets::heading(words::SHORTCUTS));
+        let group = widgets::boxed_list();
+        root.append(&group);
+        let help = note(words::SHORTCUTS_HELP);
+        help.set_hexpand(true);
         let reset = flat_button(words::RESET);
-        group.set_header_suffix(Some(&reset));
+        let under = hbox(8);
+        under.append(&help);
+        under.append(&reset);
         let mut rows = vec![];
         for which in Which::ALL {
             let r = row(which.title(), "");
             let b = gtk::Button::new();
             b.set_valign(gtk::Align::Center);
+            b.add_css_class("cc-keys");
             r.add_suffix(&b);
             r.set_activatable_widget(Some(&b));
-            group.add(&r);
+            group.append(&r);
             rows.push((which, r, b));
         }
-        let root = vbox(8);
-        root.append(&group);
+        root.append(&under);
         if ctx.hotkeys.on_portal() {
             let note = label(hotkeys::DESKTOP_NOTE, &["dim-label", "caption"]);
             note.set_margin_start(2);
@@ -53,7 +60,7 @@ impl Shortcuts {
         let s = Rc::new(Shortcuts {
             ctx: ctx.clone(),
             root,
-            group,
+            help,
             rows,
             reset,
             listening: RefCell::new(None),
@@ -136,7 +143,7 @@ impl Shortcuts {
                 b.set_label(words::PRESS_KEYS);
             }
         }
-        self.group.set_description(Some(words::PRESS_HELP));
+        self.help.set_text(words::PRESS_HELP);
         let keys = gtk::EventControllerKey::new();
         keys.set_propagation_phase(gtk::PropagationPhase::Capture);
         let me = self.me.borrow().clone();
@@ -158,7 +165,7 @@ impl Shortcuts {
         // Not from inside the controller's own signal: on the next turn of the loop.
         let win = self.ctx.win.clone();
         glib::idle_add_local_once(move || win.remove_controller(&keys));
-        self.group.set_description(Some(words::SHORTCUTS_HELP));
+        self.help.set_text(words::SHORTCUTS_HELP);
         self.show_keys();
         if resume {
             self.ctx.hotkeys.resume(hotkeys::current());

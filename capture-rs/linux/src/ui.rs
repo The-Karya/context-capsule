@@ -177,6 +177,9 @@ pub const SHOW_IN_FOLDER: &str = "Show in folder";
 pub const SAVED_COPY: &str = "Saved.";
 pub const CANT_OPEN: &str = "Couldn't open it.";
 pub const CANT_SAVE: &str = "Couldn't save that. Try again.";
+/// Settings' group names that the Mac has and core doesn't (Screens: when you start; Look: light or dark).
+pub const SCREENS: &str = "Screens";
+pub const LOOK: &str = "Look";
 pub const CANT_OPEN_CLAUDE: &str = "Couldn't open Claude";
 
 /// What to say when Claude couldn't be opened: type the request yourself.

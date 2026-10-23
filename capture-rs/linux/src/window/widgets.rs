@@ -199,13 +199,26 @@ window.cc-window .cc-page menubutton > button.flat, window.cc-window .cc-page bu
 window.cc-window .cc-page menubutton > button.flat:hover, window.cc-window .cc-page button.image-button:hover { background-color: @cc_control; }
 window.cc-window headerbar button { color: @cc_fg2; }
 window.cc-window .cc-page dropdown > button, window.cc-window .cc-page combobox button { background-color: @cc_control; border-radius: 7px; min-height: 24px; }
-window.cc-window switch { background-color: @cc_switch_off; border: none; }
+window.cc-window switch { background-color: @cc_switch_off; border: none; border-radius: 999px; padding: 0; min-height: 24px; }
 window.cc-window switch:checked { background-color: @cc_accent; }
-window.cc-window switch > slider { background-color: #ffffff; box-shadow: 0 1px 2px rgba(0,0,0,0.3); }
+window.cc-window switch > slider { background-color: #ffffff; border: none; border-radius: 999px; min-width: 24px; min-height: 20px; margin: 2px; box-shadow: 0 1px 2px rgba(0,0,0,0.25); }
+window.cc-window switch image { color: transparent; }
+window.cc-window .cc-page button.cc-small:not(.flat):not(.circular):not(.image-button) { min-height: 20px; padding: 0 10px; font-size: 12px; }
+window.cc-window .cc-page dropdown.cc-popup > button { background-color: @cc_control; border-radius: 7px; min-height: 24px; padding: 0 8px 0 12px; font-size: 13px; }
+window.cc-window .cc-page dropdown.cc-popup > button:hover { background-color: @cc_control_hover; }
+window.cc-window .cc-page dropdown.cc-popup arrow { color: @cc_fg2; -gtk-icon-size: 12px; }
+window.cc-window .cc-segmented { background-color: @cc_control; border-radius: 999px; padding: 0; }
+window.cc-window .cc-page .cc-segmented > button:not(.flat):not(.circular):not(.image-button) { background-color: transparent; border-radius: 999px; min-height: 24px; padding: 0 16px; }
+window.cc-window .cc-page .cc-segmented > button:checked:not(.flat):not(.circular):not(.image-button) { background-color: @cc_accent; color: #ffffff; }
+window.cc-window .cc-page button.flat.cc-disclosure { color: @cc_fg2; font-size: 13px; padding: 2px 0; min-height: 20px; }
+window.cc-window .cc-page button.flat.cc-disclosure:hover { background: transparent; color: @cc_fg; }
+window.cc-window .cc-page button.cc-keys:not(.flat):not(.circular):not(.image-button) { background-color: transparent; padding: 0 2px; }
+window.cc-window .cc-page button.cc-keys:not(.flat):hover { background-color: @cc_control; }
+window.cc-window list.boxed-list > row.cc-sub:hover { background-color: transparent; }
 window.cc-window image.success { color: @cc_fg2; }
 
 /* Text fields: the search fields round with a hairline; others filled. */
-window.cc-window entry { background-color: @cc_text_field; border: none; border-radius: 8px; min-height: 26px; box-shadow: none; color: @cc_fg; }
+window.cc-window entry { background-color: @cc_text_field; border: none; border-radius: 7px; min-height: 24px; box-shadow: none; color: @cc_fg; }
 window.cc-window entry.search { background-color: @cc_field; border: 1px solid @cc_field_border; border-radius: 999px; min-height: 26px; padding: 0 10px; }
 window.cc-window entry.search > image { color: @cc_fg2; }
 window.cc-window entry:focus-within { outline: 3px solid alpha(@cc_accent, 0.45); outline-offset: 0; }
@@ -346,6 +359,22 @@ pub fn plain_list() -> gtk::ListBox {
     let l = gtk::ListBox::new();
     l.set_selection_mode(gtk::SelectionMode::None);
     l.add_css_class("cc-plain");
+    l
+}
+
+/// A settings group as on the Mac: its name, then its rows in one rounded box (a note can go under it).
+pub fn group(title: &str) -> (gtk::Box, gtk::ListBox) {
+    let outer = vbox(8);
+    outer.append(&heading(title));
+    let list = boxed_list();
+    outer.append(&list);
+    (outer, list)
+}
+
+/// Small grey text under a group.
+pub fn note(text: &str) -> gtk::Label {
+    let l = label(text, &["dim-label", "caption"]);
+    l.set_margin_start(4);
     l
 }
 
