@@ -7,6 +7,7 @@
 
 pub mod anyai;
 pub mod applog;
+pub mod bridge;
 pub mod capsules;
 pub mod claude;
 pub mod clock;
