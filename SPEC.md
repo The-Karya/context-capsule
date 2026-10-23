@@ -429,8 +429,13 @@ Nothing goes to the internet except what the person pastes into their AI themsel
 
 ## Timeline (all recorders)
 
-A **Timeline** page (sidebar, under Your work) shows everything recorded for one day (Today, Yesterday,
-or a date picker), short enough to read at a glance. Nothing leaves the computer.
+A **Timeline** page (sidebar, under Your work) shows everything recorded for one day, short enough to read
+at a glance. Nothing leaves the computer.
+
+**Choosing the day:** one control, "‹  Thursday 23 October  ›" (the year only when it isn't this year). ‹ and ›
+go one day back/forward (› disabled on today; no future days). Clicking the date opens a small month calendar;
+days with recordings have a dot; picking a day closes it. A **Today** button appears only when another day is
+shown. No Today/Yesterday tabs and no typed date field.
 
 The recorder writes a new event every few seconds when the screen text changes, so the page never lists events
 one by one at first. It groups them into **stretches**.
@@ -449,7 +454,7 @@ one by one at first. It groups them into **stretches**.
   and the text folded to 3 lines with **Show all**.
 
 **The page, top to bottom:**
-1. **Header:** "Today" (or the date), then "Thursday 23 October · 1 h 50 min recorded · 3 recordings", and
+1. **Header:** the day control, then "1 h 50 min recorded · 3 recordings", and
    **Search**. Recorded time = the sum of the stretches' lengths in the day.
 2. **Day bar:** one row from the hour before the first stretch to the hour after the last, hour labels below;
    each stretch is a segment coloured by its project (none → grey). Clicking a segment opens its recording and
