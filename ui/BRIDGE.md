@@ -202,6 +202,15 @@ page checks it and opens your AI (SPEC "Opening a received capsule").
 
 ## Dev harness
 
-`bun ui/dev/server.js [data folder]` serves the page with a fake host that answers every method above from a data
-folder (default `/tmp/mac-ref-data`); writes go to memory only. URL options for renders: `#home`, `#timeline`,
-`?open=first` (open the first recording), `?dark=1`, `?firstRun=1`, `?now=2026-10-23T19:00:00` (the page's clock).
+`bun ui/dev/server.js [data folder]` serves the page at http://localhost:5174 with a fake host (`ui/dev/shim.js` +
+the server) that answers every method above from a data folder (default `/tmp/mac-ref-data`); writes stay in memory.
+URL options: `#home` … `#help`, `?open=first` (open the first recording), `?dark=1`, `?firstRun=1`,
+`?platform=windows|linux`, `?locale=en-GB`, `?recording=1`, `?now=2026-10-23T19:00:00` (the page's clock).
+
+Renders: `ui/dev/render-all.sh` (WKWebView, `ui/dev/snap.swift`) writes every page in light and dark to
+`/tmp/shared-ui/<page>-<mode>.png` (860 × 620 @2×, like the Mac's `--render-page`), plus `full/` (860 × 1700),
+`narrow/` (640 × 620) and `large/` (1280 × 900); `ui/dev/compare.sh` puts each next to the Mac's render in
+`/tmp/shared-ui/compare/`. `snap <url> <out> <w> <h> <light|dark> [script]` runs a script first (open a menu…).
+The page sets `document.documentElement.dataset.ready = "1"` once its first view is drawn.
+
+Tests: `cd ui && bun test`.

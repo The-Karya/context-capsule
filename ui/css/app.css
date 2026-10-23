@@ -40,7 +40,7 @@
   --switch-off: #e3e3e3;
   --focus: rgba(0, 103, 244, 0.5);
   --red: #ff383c;
-  --menu: rgba(246, 246, 246, 0.98);
+  --menu: #f6f6f6;
   --menu-hover: #3b86f1;
   --dialog: #f2f2f2;
   --scrim: rgba(0, 0, 0, 0.12);
@@ -51,56 +51,48 @@
   --c-pink: #ff2d55;
   --c-brown: #ac7f5e;
   --c-none: #c9c9cb;
-  /* The day bar: the plain system colours, a little softer (as the Mac draws them on the page). */
-  --d-blue: #3a8bf5;
-  --d-teal: #5bc0cb;
-  --d-orange: #f39a45;
-  --d-green: #5cc777;
-  --d-pink: #f2577a;
-  --d-brown: #b48e72;
-  --d-none: #c6c6c6;
 }
 
 :root[data-dark] {
   color-scheme: dark;
-  --bg: #282828;
-  --sidebar: #272727;
-  --sidebar-edge: #3e3e3e;
+  --bg: #1e1e1e;
+  --sidebar: #1c1c1c;
+  --sidebar-edge: #333333;
   --label: rgba(255, 255, 255, 0.85);
   --secondary: rgba(255, 255, 255, 0.55);
   --tertiary: rgba(255, 255, 255, 0.25);
   --quaternary: rgba(255, 255, 255, 0.1);
-  --card: #363636;
-  --card-top: #656565;
-  --card-bottom: #444444;
+  --card: #292929;
+  --card-top: #4a4a4a;
+  --card-bottom: #333333;
   --card-shadow: 0 1px 6px rgba(0, 0, 0, 0.3), 0 0 0 0.5px rgba(0, 0, 0, 0.4);
-  --panel: #343434;
-  --sep: #494949;
-  --track: #464646;
-  --track-light: #464646;
-  --daytrack: #363636;
+  --panel: #272727;
+  --sep: #3b3b3b;
+  --track: #3a3a3a;
+  --track-light: #393939;
+  --daytrack: #2a2a2a;
   --accent: #418ff8;
   --accent-press: #3479de;
   --sel: #2e70d4;
   --sel-dim: #464646;
-  --btn: #3e3e3e;
-  --btn-card: #474747;
-  --btn-press: #555555;
-  --field: #424242;
-  --popup: #494949;
-  --search: #282828;
-  --search-rim: #3a3a3a;
-  --bubble: #364254;
-  --pill: #393939;
+  --btn: #313131;
+  --btn-card: #3a3a3a;
+  --btn-press: #484848;
+  --field: #353535;
+  --popup: #3c3c3c;
+  --search: #1e1e1e;
+  --search-rim: #303030;
+  --bubble: #2a3547;
+  --pill: #2c2c2c;
   --pill-shadow: 0 2px 10px rgba(0, 0, 0, 0.35), inset 0 0 0 0.5px rgba(255, 255, 255, 0.12);
   --link: #419cff;
-  --keycap: #3f3f3f;
+  --keycap: #333333;
   --keycap-rim: rgba(255, 255, 255, 0.14);
-  --switch-off: #4a4a4a;
+  --switch-off: #3d3d3d;
   --focus: rgba(26, 169, 255, 0.5);
   --red: #ff4245;
-  --menu: rgba(44, 44, 44, 0.98);
-  --dialog: #323232;
+  --menu: #2c2c2c;
+  --dialog: #2a2a2a;
   --scrim: rgba(0, 0, 0, 0.3);
   --c-blue: #0091ff;
   --c-teal: #00d2e0;
@@ -109,13 +101,6 @@
   --c-pink: #ff375f;
   --c-brown: #b78a66;
   --c-none: #717173;
-  --d-blue: #2f86f0;
-  --d-teal: #3fb3bf;
-  --d-orange: #f08f3a;
-  --d-green: #3cc163;
-  --d-pink: #f04c70;
-  --d-brown: #a9825f;
-  --d-none: #6c6c6e;
 }
 
 /* ---------- type ---------- */
@@ -132,6 +117,7 @@
 :root[data-platform="linux"] { --greeting: 32px; }
 
 * { box-sizing: border-box; }
+[hidden] { display: none !important; }
 
 html, body {
   margin: 0;
@@ -139,7 +125,6 @@ html, body {
   background: var(--bg);
   color: var(--label);
   font: 13px/1.23 var(--font);
-  -webkit-font-smoothing: antialiased;
   -webkit-user-select: none;
   user-select: none;
   cursor: default;
@@ -175,7 +160,7 @@ button, input, select { font: inherit; color: inherit; }
   padding-top: 45px;
   overflow: hidden auto;
 }
-:root[data-dark] .side-panel { box-shadow: inset 0 1px 0 #3e3e3e, 0 0 0 1px #1a1a1a, 0 2px 8px rgba(0, 0, 0, 0.35); }
+:root[data-dark] .side-panel { box-shadow: inset 0 1px 0 #333333, 0 0 0 1px #1a1a1a, 0 2px 8px rgba(0, 0, 0, 0.35); }
 :root[data-platform="windows"] .side-panel, :root[data-platform="linux"] .side-panel { padding-top: 12px; }
 .side-group ul { list-style: none; margin: 0; padding: 0; }
 .side-group + .side-group { margin-top: 14px; }
@@ -271,13 +256,15 @@ button, input, select { font: inherit; color: inherit; }
 
 .btn {
   -webkit-appearance: none; appearance: none;
-  height: 24px; padding: 0 12px; border: 0; border-radius: 12px;
+  height: 24px; padding: 0 12px; border: 0; border-radius: 6px;
   background: var(--btn); color: var(--label);
   font-size: 13px; line-height: 24px; white-space: nowrap;
   display: inline-flex; align-items: center; justify-content: center; gap: 6px;
   flex: none;
 }
 .card .btn:not(.prominent) { background: var(--btn-card); }
+.btn:not(.large):not(.small) { border-radius: 12px; }
+.card .btn:not(.large):not(.small) { border-radius: 7px; }
 .btn:active:not(:disabled) { background: var(--btn-press); }
 .btn:disabled { color: var(--tertiary); }
 :root:not([data-dark]) .btn:disabled { color: #bfbfbf; }
@@ -340,7 +327,11 @@ button, input, select { font: inherit; color: inherit; }
   -webkit-appearance: none; appearance: none; border: 0; background: none;
   height: 24px; padding: 0 30px 0 14px; font-size: 13px; border-radius: 7px; width: 100%;
 }
-.popup .ic { position: absolute; right: 10px; width: 10px; height: 12px; pointer-events: none; }
+.popup .ic { position: absolute; right: 9px; width: 11px; height: 13px; pointer-events: none; }
+.popup .ic svg path { stroke-width: 2; }
+/* The Mac centres a control in its frame (a pop-up 240 wide, the shortcut buttons 110…): the same here. */
+.frame { display: inline-flex; justify-content: center; flex: none; }
+.frame > .popup { max-width: 100%; }
 .popup select:focus-visible { box-shadow: 0 0 0 3px var(--focus); }
 .popup select option { color: initial; }
 
@@ -349,7 +340,7 @@ button, input, select { font: inherit; color: inherit; }
 }
 .segmented button {
   -webkit-appearance: none; appearance: none; border: 0; background: none;
-  min-width: 0; flex: 1; height: 24px; padding: 0 12px; border-radius: 12px; font-size: 13px;
+  min-width: 0; height: 24px; padding: 0 12px; border-radius: 12px; font-size: 13px;
   position: relative;
 }
 .segmented button + button::before {
@@ -360,17 +351,29 @@ button, input, select { font: inherit; color: inherit; }
 
 .switch {
   -webkit-appearance: none; appearance: none; border: 0; padding: 0;
-  width: 38px; height: 22px; border-radius: 11px; background: var(--switch-off);
+  width: 52px; height: 24px; border-radius: 12px; background: var(--switch-off);
   position: relative; flex: none; transition: background 0.15s;
 }
 .switch::after {
-  content: ""; position: absolute; top: 2px; left: 2px; width: 24px; height: 18px; border-radius: 9px;
+  content: ""; position: absolute; top: 2px; left: 2px; width: 30px; height: 20px; border-radius: 10px;
   background: #fff; box-shadow: 0 1px 2px rgba(0, 0, 0, 0.2); transition: left 0.15s;
 }
 .switch[aria-checked="true"] { background: var(--accent); }
-.switch[aria-checked="true"]::after { left: 12px; }
+.switch[aria-checked="true"]::after { left: 20px; }
 
-.stepper { display: inline-flex; align-items: center; gap: 4px; }
+.stepper { display: inline-flex; align-items: center; gap: 2px; }
+.stepper .val {
+  height: 24px; line-height: 24px; border-radius: 7px; background: var(--popup); padding: 0 8px; font-size: 13px;
+  font-variant-numeric: tabular-nums; min-width: 60px; text-align: right;
+}
+.stepper .val:focus-visible { box-shadow: 0 0 0 3px var(--focus); }
+.stepper .arrows { display: flex; flex-direction: column; }
+.stepper .arrows button {
+  -webkit-appearance: none; appearance: none; border: 0; background: none; padding: 0; width: 13px; height: 12px;
+  display: flex; align-items: center; justify-content: center; color: var(--label);
+}
+.stepper .arrows .ic { width: 9px; height: 9px; }
+.stepper .arrows .ic svg path { stroke-width: 2.2; }
 .stepper input {
   -webkit-appearance: none; appearance: none; border: 0; background: var(--popup);
   height: 24px; border-radius: 7px; padding: 0 8px; font-size: 13px; width: 86px;
@@ -381,7 +384,7 @@ button, input, select { font: inherit; color: inherit; }
 
 .keycap {
   display: inline-flex; align-items: center; justify-content: center;
-  font: 600 13px/1 var(--font-rounded);
+  font: 600 13px/16px var(--font-rounded);
   padding: 4px 9px; min-width: 24px; border-radius: 6px;
   background: var(--keycap); box-shadow: inset 0 0 0 1px var(--keycap-rim);
 }
@@ -433,7 +436,7 @@ button, input, select { font: inherit; color: inherit; }
 .working h3 { margin-bottom: 8px; }
 .pick-row {
   -webkit-appearance: none; appearance: none; border: 0; background: none; padding: 5px 0; text-align: left;
-  display: flex; align-items: center; gap: 8px; font-size: 13px; width: 100%; border-radius: 6px;
+  display: flex; align-items: center; gap: 8px; font-size: 13px; line-height: 16px; width: 100%; border-radius: 6px;
 }
 .pick-row .ic { width: 15px; height: 15px; color: var(--secondary); }
 .pick-row .t { flex: 1; min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
@@ -442,6 +445,7 @@ button, input, select { font: inherit; color: inherit; }
 .make { gap: 10px; }
 .make p { margin: 0; font-size: 12px; color: var(--secondary); line-height: 15px; }
 .make .your-ai { display: flex; gap: 4px; align-items: baseline; font-size: 12px; color: var(--secondary); }
+.make .your-ai .link { color: var(--secondary); }
 
 .empty-card { padding: 16px; font-size: 13px; color: var(--secondary); }
 
@@ -449,7 +453,7 @@ button, input, select { font: inherit; color: inherit; }
 
 .cap-row { display: flex; align-items: flex-start; gap: 12px; padding: 9px 14px; min-height: 50px; }
 .cap-row > .ic { width: 20px; height: 18px; margin-top: 2px; color: var(--secondary); }
-.cap-row .main { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 3px; }
+.cap-row .main { flex: 1; min-width: 0; margin-right: 12px; display: flex; flex-direction: column; gap: 3px; }
 .cap-row .t { display: flex; align-items: baseline; gap: 6px; }
 .cap-row .t b { font-size: 14px; font-weight: var(--medium); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .cap-row .t small { font-size: 11px; color: var(--secondary); }
@@ -466,6 +470,7 @@ button, input, select { font: inherit; color: inherit; }
 .web-row p { margin: 0 auto 0 0; font-size: 12px; color: var(--secondary); line-height: 15px; }
 .group { display: flex; flex-direction: column; gap: 6px; }
 .group .caption { margin-top: 16px; }
+.group + .group { margin-top: 8px; }
 
 /* ---------- Projects ---------- */
 
@@ -481,7 +486,8 @@ button, input, select { font: inherit; color: inherit; }
 .step { display: flex; align-items: center; gap: 12px; height: 44px; padding: 0 14px; }
 .step > .ic { width: 22px; height: 17px; color: var(--secondary); }
 .step .label { flex: 1; font-size: 14px; }
-.step .done { color: var(--secondary); width: 14px; height: 14px; }
+.step .done { color: var(--secondary); width: 15px; height: 15px; }
+.step .done svg path, .ai-row .done svg path { stroke-width: 1.9; }
 .ai-row { display: flex; align-items: center; gap: 10px; height: 36px; padding: 0 14px 0 48px; font-size: 13px; }
 .ai-row .label { flex: 1; }
 .ai-row .ic.app { width: 18px; height: 18px; color: var(--secondary); }
@@ -578,7 +584,7 @@ button, input, select { font: inherit; color: inherit; }
 .gap-row .ic { width: 20px; height: 14px; }
 
 .read-row { display: flex; align-items: flex-start; gap: 10px; padding: 6px 14px 6px 46px; }
-.read-row .time { width: 110px; flex: none; font-size: 11px; color: var(--secondary); font-variant-numeric: tabular-nums; padding-top: 1px; }
+.read-row .time { min-width: 110px; white-space: nowrap; flex: none; font-size: 11px; color: var(--secondary); font-variant-numeric: tabular-nums; padding-top: 1px; }
 .read-row .main { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 3px; align-items: flex-start; }
 .read-row .meta { display: flex; gap: 8px; align-items: center; max-width: 100%; }
 .read-row .looked { font-size: 11px; font-weight: var(--medium); color: var(--secondary); padding: 0 6px; border-radius: 8px; box-shadow: inset 0 0 0 1px var(--tertiary); line-height: 15px; }
@@ -614,7 +620,7 @@ button, input, select { font: inherit; color: inherit; }
 #layer { position: fixed; inset: 0; pointer-events: none; z-index: 10; }
 #layer > * { pointer-events: auto; }
 .popover {
-  position: fixed; background: var(--menu); border-radius: 12px;
+  position: fixed; isolation: isolate; background: var(--menu); border-radius: 12px;
   box-shadow: 0 8px 30px rgba(0, 0, 0, 0.18), 0 0 0 0.5px rgba(0, 0, 0, 0.15);
 }
 :root[data-dark] .popover { box-shadow: 0 8px 30px rgba(0, 0, 0, 0.5), 0 0 0 0.5px rgba(255, 255, 255, 0.15); }
@@ -659,13 +665,6 @@ button, input, select { font: inherit; color: inherit; }
 .c0 { background: var(--c-blue); } .c1 { background: var(--c-teal); } .c2 { background: var(--c-orange); }
 .c3 { background: var(--c-green); } .c4 { background: var(--c-pink); } .c5 { background: var(--c-brown); }
 .cn { background: var(--c-none); }
-.daybar .c0, .went .c0, .stretch .c0 { background: var(--d-blue); }
-.daybar .c1, .went .c1, .stretch .c1 { background: var(--d-teal); }
-.daybar .c2, .went .c2, .stretch .c2 { background: var(--d-orange); }
-.daybar .c3, .went .c3, .stretch .c3 { background: var(--d-green); }
-.daybar .c4, .went .c4, .stretch .c4 { background: var(--d-pink); }
-.daybar .c5, .went .c5, .stretch .c5 { background: var(--d-brown); }
-.daybar .cn, .went .cn, .stretch .cn { background: var(--d-none); }
 
 @media (prefers-reduced-motion: reduce) { * { transition: none !important; } }
 
@@ -679,3 +678,14 @@ button, input, select { font: inherit; color: inherit; }
 :root[data-platform="mac"][data-dark] .bars:not(.went) .c0 { background: #25c2ff; }
 :root[data-platform="mac"][data-dark] .bars:not(.went) .c1 { background: #51f3fc; }
 :root[data-platform="mac"][data-dark] .bars:not(.went) .c2 { background: #ffc560; }
+.side-row .ic svg path, .side-row .ic svg rect, .side-row .ic svg circle[fill="none"] { stroke-width: 1.1; }
+
+/* Narrow windows (Windows and Linux allow them): a narrower sidebar, the big numbers shrink, then stack. */
+@media (max-width: 700px) {
+  #sidebar { width: 178px; }
+  .side-panel { width: 170px; }
+}
+.stats { container-type: inline-size; }
+@container (max-width: 600px) { .stat .v { font-size: 22px; line-height: 34px; } .stat { padding: 18px 14px; } }
+@container (max-width: 380px) { .stat .v { font-size: 18px; } }
+@media (max-width: 560px) { .status-line { flex-wrap: wrap; } }

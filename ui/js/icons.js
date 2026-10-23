@@ -13,6 +13,8 @@ const paths = {
   search: `<circle ${S} cx="6.8" cy="6.8" r="4.6" stroke-width="1.4"/><path ${S} d="m10.2 10.2 4 4" stroke-width="1.5"/>`,
   chevronLeft: `<path ${S} stroke-width="1.6" d="M10 2.5 4.5 8l5.5 5.5"/>`,
   chevronRight: `<path ${S} stroke-width="1.6" d="M6 2.5 11.5 8 6 13.5"/>`,
+  chevronUp: `<path ${S} d="M3 10.5 8 5.5l5 5"/>`,
+  chevronDown: `<path ${S} d="M3 5.5 8 10.5l5-5"/>`,
   disclosure: `<path ${S} stroke-width="1.7" d="M5.5 2.8 10.7 8l-5.2 5.2"/>`,
   updown: `<path ${S} stroke-width="1.6" d="M4.5 6 8 2.5 11.5 6M4.5 10 8 13.5 11.5 10"/>`,
   ellipsis: `<circle cx="3.3" cy="8" r="1.05" fill="currentColor"/><circle cx="8" cy="8" r="1.05" fill="currentColor"/><circle cx="12.7" cy="8" r="1.05" fill="currentColor"/>`,

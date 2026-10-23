@@ -1,14 +1,14 @@
 // context-capsule — ui: snap — renders a URL in an offscreen WKWebView and writes a 2× PNG (for comparing with Mac renders).
 // Build: swiftc -O ui/dev/snap.swift -o /tmp/shared-ui-tools/snap
-// Usage: snap <url> <out.png> <width> <height> <light|dark>
+// Usage: snap <url> <out.png> <width> <height> <light|dark> [script to run once ready]
 // Waits until the page sets document.documentElement.dataset.ready = "1" (10 s at most, then snaps anyway and warns).
 import AppKit
 import WebKit
 
 let args = CommandLine.arguments
-guard args.count == 6, let url = URL(string: args[1]), let w = Double(args[3]), let h = Double(args[4]),
+guard args.count == 6 || args.count == 7, let url = URL(string: args[1]), let w = Double(args[3]), let h = Double(args[4]),
       ["light", "dark"].contains(args[5]) else {
-    FileHandle.standardError.write("usage: snap <url> <out.png> <width> <height> <light|dark>\n".data(using: .utf8)!)
+    FileHandle.standardError.write("usage: snap <url> <out.png> <width> <height> <light|dark> [script]\n".data(using: .utf8)!)
     exit(2)
 }
 let out = URL(fileURLWithPath: args[2])
@@ -64,7 +64,15 @@ let start = Date()
 func poll() {
     web.evaluateJavaScript("document.documentElement.dataset.ready === '1'") { value, _ in
         if value as? Bool == true {
-            DispatchQueue.main.asyncAfter(deadline: .now() + 0.15) { snapshot() } // let the last frame paint
+            // Optional 6th argument: a script to run first (open a menu, type in a search…), then a moment to settle.
+            if args.count > 6 {
+                web.evaluateJavaScript(args[6]) { _, error in
+                    if let error { FileHandle.standardError.write("snap: script: \(error)\n".data(using: .utf8)!) }
+                    DispatchQueue.main.asyncAfter(deadline: .now() + 0.8) { snapshot() }
+                }
+            } else {
+                DispatchQueue.main.asyncAfter(deadline: .now() + 0.15) { snapshot() } // let the last frame paint
+            }
         } else if Date().timeIntervalSince(start) > 10 {
             FileHandle.standardError.write("snap: warning: \(url) never set data-ready=1 in 10 s; snapping anyway\n".data(using: .utf8)!)
             snapshot()

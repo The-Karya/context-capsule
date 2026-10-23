@@ -37,9 +37,51 @@ function row(title, control, id = uid("r")) {
   return h("div", { class: "row" }, h("span", { class: "label", id }, title), control);
 }
 
-function popup(options, value, onchange, width) {
+/** A pop-up menu; `frame`: the width the Mac gives it (the pop-up sits in the middle of it). */
+function popup(options, value, onchange, frame) {
   const sel = h("select", { onchange: (e) => onchange(e.target.value) }, options.map(([v, label]) => h("option", { value: v, selected: String(v) === String(value) }, label)));
-  return h("span", { class: "popup", style: width ? { width: width + "px" } : null }, sel, icon("updown"));
+  const p = h("span", { class: "popup" }, sel, icon("updown"));
+  return frame ? h("span", { class: "frame", style: { width: frame + "px" } }, p) : p;
+}
+
+/** "At 6:00 PM": the time as the system writes it, with up/down arrows (and ↑ ↓ keys) a quarter of an hour at a time. */
+function timeStepper(app, hhmm, onchange) {
+  let [hh, mm] = hhmm.split(":").map(Number);
+  const val = h("span", { class: "val", tabindex: "0", role: "spinbutton", "aria-label": "At" });
+  const show = () => {
+    const d = new Date(2026, 0, 1, hh, mm);
+    val.textContent = app.dates.time(d.getTime());
+    val.setAttribute("aria-valuetext", val.textContent);
+    val.setAttribute("aria-valuenow", String(hh * 60 + mm));
+  };
+  let t = 0;
+  const step = (minutes) => {
+    const total = (((hh * 60 + mm + minutes) % 1440) + 1440) % 1440;
+    hh = Math.floor(total / 60);
+    mm = total % 60;
+    show();
+    clearTimeout(t);
+    t = setTimeout(() => onchange(`${String(hh).padStart(2, "0")}:${String(mm).padStart(2, "0")}`), 400);
+  };
+  val.addEventListener("keydown", (e) => {
+    const d = { ArrowUp: 15, ArrowDown: -15, PageUp: 60, PageDown: -60 }[e.key];
+    if (d) {
+      e.preventDefault();
+      step(d);
+    }
+  });
+  show();
+  return h(
+    "span",
+    { class: "stepper" },
+    val,
+    h(
+      "span",
+      { class: "arrows" },
+      h("button", { type: "button", tabindex: "-1", "aria-label": "Later", onclick: () => step(15) }, icon("chevronUp")),
+      h("button", { type: "button", tabindex: "-1", "aria-label": "Earlier", onclick: () => step(-15) }, icon("chevronDown")),
+    ),
+  );
 }
 
 function toggle(on, onchange, label) {
@@ -53,7 +95,7 @@ function toggle(on, onchange, label) {
 }
 
 function segmented(options, value, onchange, label) {
-  const group = h("div", { class: "segmented", role: "radiogroup", "aria-label": label, style: { width: "228px" } });
+  const group = h("div", { class: "segmented", role: "radiogroup", "aria-label": label });
   const buttons = options.map(([v, text]) =>
     h("button", {
       type: "button",
@@ -80,7 +122,7 @@ function segmented(options, value, onchange, label) {
     buttons[j].focus();
   });
   group.append(...buttons);
-  return group;
+  return h("span", { class: "frame", style: { width: "260px" } }, group);
 }
 
 const sep = (cls = "") => h("div", { class: "sep " + cls, "aria-hidden": "true" });
@@ -208,7 +250,7 @@ export function mount(root, app) {
     const opts = AI.choices(app.clients, choice).map((c) => [c.id, c.label]);
     return [
       h("h2", { class: "caption" }, "Your AI"),
-      h("div", { class: "card" }, row(AI.words.makeWith, popup(opts, choice, (v) => actions.setChoice(app, v), 192))),
+      h("div", { class: "card" }, row(AI.words.makeWith, popup(opts, choice, (v) => actions.setChoice(app, v), 240))),
       h("p", { class: "note" }, AI.settingsLine(kind, app.aiName())),
     ];
   });
@@ -226,7 +268,7 @@ export function mount(root, app) {
       return h(
         "div",
         { class: "short-row" },
-        h("div", { class: "line" }, h("span", { class: "label" }, title), b),
+        h("div", { class: "line" }, h("span", { class: "label" }, title), h("span", { class: "frame", style: { minWidth: "110px" } }, b)),
         problems[which] ? h("div", { class: "problem", role: "alert" }, problems[which]) : null,
       );
     };
@@ -300,7 +342,7 @@ export function mount(root, app) {
         await app.loadSetup();
         redraw("screens");
         app.refresh("config");
-      }, 228)),
+      }, 220)),
     );
     if (all && app.platform === "mac" && app.setup.screenRecording === false) {
       card.append(sep(), row("Allow Screen Recording, then quit and reopen", button("Open Settings", () => call("setup.do", { id: "screen-recording" }))));
@@ -336,13 +378,11 @@ export function mount(root, app) {
     const keep = Number.isFinite(app.config.keep_recordings_days) ? Math.max(0, app.config.keep_recordings_days) : 30;
     const keepOpts = [[7, "1 week"], [30, "30 days"], [90, "90 days"], [0, "Never"]];
     if (!keepOpts.some(([v]) => v === keep)) keepOpts.splice(3, 0, [keep, `${keep} days`]);
-    const time = h("input", { type: "time", value: at, "aria-label": "At", step: 60 });
-    time.addEventListener("change", () => time.value && set("remind_at", time.value));
     const card = h("div", { class: "card" }, row("Remind me to make capsules", toggle(remindOn, async (on) => {
       await set("remind_at", on ? at : false);
       redraw("day");
     }, "Remind me to make capsules")));
-    if (remindOn) card.append(sep(), row("At", h("span", { class: "stepper" }, time)));
+    if (remindOn) card.append(sep(), row("At", timeStepper(app, at, (v) => set("remind_at", v))));
     card.append(
       sep(),
       row("Delete old recordings after", popup(keepOpts, keep, (v) => set("keep_recordings_days", Number(v)))),
@@ -358,7 +398,7 @@ export function mount(root, app) {
     const cur = typeof app.config.voice_locale === "string" ? app.config.voice_locale : "";
     const opts = [["", app.hello.voiceLanguageDefault || (app.platform === "mac" ? "Same as my Mac" : "Same as my computer")], ...langs.map((l) => [l.id, l.name])];
     if (cur && !langs.some((l) => l.id === cur)) opts.push([cur, cur]);
-    return [h("h2", { class: "caption" }, "Voice notes"), h("div", { class: "card" }, row("Language", popup(opts, cur, (v) => set("voice_locale", v || null), 220)))];
+    return [h("h2", { class: "caption" }, "Voice notes"), h("div", { class: "card" }, row("Language", popup(opts, cur, (v) => set("voice_locale", v || null), 240)))];
   });
 
   // Never record
