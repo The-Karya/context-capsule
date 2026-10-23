@@ -422,6 +422,32 @@ pub struct TimelineView {
     pub calendar: Option<(i32, u32)>,
 }
 
+/// For testing: `--show <page> [YYYY-MM-DD] [<recording id>]` opens the window at launch on that page (the
+/// Timeline on that day, with that recording open), like the Mac's `--show-…` flags.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct ShowArg {
+    pub section: Section,
+    pub date: Option<chrono::NaiveDate>,
+    pub open: Option<String>,
+}
+
+pub fn show_arg(args: &[String]) -> Option<ShowArg> {
+    let i = args.iter().position(|a| a == "--show")?;
+    let page = args.get(i + 1)?;
+    let section = Section::ALL.into_iter().find(|s| page.eq_ignore_ascii_case(s.title()))?;
+    let mut show = ShowArg { section, date: None, open: None };
+    for a in &args[i + 2..] {
+        if let Ok(d) = chrono::NaiveDate::parse_from_str(a, "%Y-%m-%d") {
+            show.date = Some(d);
+        } else if a.len() == 15 && chrono::NaiveDateTime::parse_from_str(a, "%Y%m%d-%H%M%S").is_ok() {
+            show.open = Some(a.clone());
+        } else {
+            break;
+        }
+    }
+    Some(show)
+}
+
 impl TimelineView {
     pub fn new(date: chrono::NaiveDate) -> TimelineView {
         TimelineView {
@@ -2010,6 +2036,20 @@ pub fn controls(nodes: &[Node]) -> Vec<usize> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn show_flag() {
+        let a = |v: &[&str]| v.iter().map(|s| s.to_string()).collect::<Vec<_>>();
+        assert_eq!(show_arg(&a(&["cc.exe"])), None);
+        assert_eq!(show_arg(&a(&["cc.exe", "--show", "nowhere"])), None);
+        assert_eq!(show_arg(&a(&["cc.exe", "--show", "help"])), Some(ShowArg { section: Section::Help, date: None, open: None }));
+        let day = chrono::NaiveDate::from_ymd_opt(2026, 10, 19);
+        assert_eq!(
+            show_arg(&a(&["cc.exe", "--show", "Timeline", "2026-10-19", "20261019-100103"])),
+            Some(ShowArg { section: Section::Timeline, date: day, open: Some("20261019-100103".into()) })
+        );
+        assert_eq!(show_arg(&a(&["cc.exe", "--show", "timeline", "--login", "2026-10-19"])).unwrap().date, None);
+    }
     use context_capsule_core::window::Keys;
     use context_capsule_core::Totals;
 

@@ -248,6 +248,19 @@ pub fn show(section: Option<Section>, ctx: Ctx, status: &Status) {
     }
 }
 
+/// For testing (`--show timeline [day] [recording]`): the Timeline on that day, with that recording open.
+pub fn show_day(date: Option<chrono::NaiveDate>, open: Option<&str>) {
+    with_win(|w| {
+        if let Some(d) = date {
+            w.timeline_day(d);
+        }
+        if let Some(session) = open {
+            w.timeline.toggle(session);
+            w.rebuild();
+        }
+    });
+}
+
 /// The recorder's state changed (recording, moments, projects…).
 pub fn set_status(status: &Status) {
     with_win(|w| {

@@ -259,6 +259,10 @@ pub fn run() {
     });
     if let Some(path) = open {
         Ui::of(hwnd).post(UiCmd::OpenCapsule(path));
+    } else if let Some(show) = crate::layout::show_arg(&args) {
+        // For testing: open the window on a page.
+        open_window(hwnd, Some(show.section));
+        main_window::show_day(show.date, show.open.as_deref());
     } else if !setup::seen() {
         open_window(hwnd, Some(context_capsule_core::window::Section::Settings)); // first launch
     }
