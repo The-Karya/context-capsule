@@ -1,0 +1,45 @@
+<!doctype html>
+<!-- context-capsule — ui: the Context Capsule window, one page for Mac, Windows and Linux (shown in the system webview) -->
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self' data:; connect-src 'self'">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="color-scheme" content="light dark">
+<title>Karya Context Capsule</title>
+<link rel="stylesheet" href="css/app.css">
+<script type="module" src="js/app.js"></script>
+</head>
+<body>
+<div id="window">
+  <nav id="sidebar" aria-label="Pages">
+    <div class="side-panel">
+      <div class="side-group" role="group" aria-labelledby="side-h1">
+        <div class="side-h" id="side-h1">Your work</div>
+        <ul role="list">
+          <li><a class="side-row" href="#home" data-page="home"><span class="ic" data-icon="house"></span><span>Home</span></a></li>
+          <li><a class="side-row" href="#timeline" data-page="timeline"><span class="ic" data-icon="timeline"></span><span>Timeline</span></a></li>
+          <li><a class="side-row" href="#capsules" data-page="capsules"><span class="ic" data-icon="doc"></span><span>Capsules</span></a></li>
+          <li><a class="side-row" href="#projects" data-page="projects"><span class="ic" data-icon="folder"></span><span>Projects</span></a></li>
+        </ul>
+      </div>
+      <div class="side-group" role="group" aria-labelledby="side-h2">
+        <div class="side-h" id="side-h2">Karya Context Capsule</div>
+        <ul role="list">
+          <li><a class="side-row" href="#settings" data-page="settings"><span class="ic" data-icon="gear"></span><span>Settings</span></a></li>
+          <li><a class="side-row" href="#help" data-page="help"><span class="ic" data-icon="help"></span><span>Help</span></a></li>
+        </ul>
+      </div>
+    </div>
+  </nav>
+  <div id="detail">
+    <header id="toolbar">
+      <div id="pill" role="status" aria-live="off"></div>
+    </header>
+    <main id="page" tabindex="-1"></main>
+  </div>
+</div>
+<div id="layer"></div>
+<div id="toast" role="status" aria-live="polite"></div>
+</body>
+</html>

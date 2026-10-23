@@ -1,0 +1,47 @@
+// context-capsule — ui: Help — the shortcuts, how it works, and privacy, in plain words
+
+import { h } from "../dom.js";
+import * as AI from "../core/yourai.js";
+
+export function mount(root, app) {
+  const draw = () => root.replaceChildren(page(app));
+  draw();
+  return { refresh: draw };
+}
+
+function page(app) {
+  const keys = app.keys();
+  const computer = app.platform === "mac" ? "this Mac" : app.platform === "windows" ? "this PC" : "this computer";
+  const line = (k, text) => h("div", { class: "row h40", role: "listitem" }, h("span", { class: "label" }, text), h("span", { class: "keys" }, k));
+  const sep = () => h("div", { class: "sep", "aria-hidden": "true" });
+  const text = (lines) => h("div", { class: "card" }, h("div", { class: "help-text" }, lines.map((l) => h("p", null, l))));
+  return h(
+    "div",
+    { class: "content" },
+    h("h1", { class: "title" }, "Help"),
+    h("h2", { class: "caption", id: "h-k" }, "Shortcuts"),
+    h(
+      "div",
+      { class: "card", role: "list", "aria-labelledby": "h-k" },
+      line(keys.record, "Start or stop contextualizing"),
+      sep(),
+      line(keys.voice, "Speak a note, then again when done"),
+      sep(),
+      line(AI.helpMakeKeys(app.kind()), "Make my capsules for today"),
+    ),
+    h("h2", { class: "caption" }, "How it works"),
+    text([
+      "While you work, Context Capsule saves the text of the screen you picked, and what you say in voice notes.",
+      "At the end of the day, your AI sorts it into projects and writes a capsule for each: what you did, what you decided and why, and what's next.",
+      "Any AI works. Apps like Claude or Cursor connect in Settings. For any other AI, such as a website: Copy my day, paste it in, then Save from clipboard.",
+      "Send a capsule to anyone. Their AI reads it and can carry on your work.",
+    ]),
+    h("h2", { class: "caption" }, "Privacy"),
+    text([
+      `Recordings stay on ${computer}. No account, no cloud.`,
+      "Only text is saved: no screenshots, no audio.",
+      "Password managers, WhatsApp, Signal and password fields are never recorded.",
+      "Text goes to your AI only when you ask it to make or read a capsule, or paste your day into it yourself.",
+    ]),
+  );
+}
