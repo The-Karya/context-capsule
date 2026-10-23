@@ -2,7 +2,7 @@
   "manifest_version": "0.3",
   "name": "context-capsule",
   "display_name": "Context Capsule",
-  "version": "0.2.0",
+  "version": "0.2.1",
   "description": "Turn what you worked on into a capsule: a short summary per project, with your decisions and why.",
   "long_description": "Context Capsule records the text of the screen you choose (and your voice notes) on your own computer. Claude uses this extension to start and stop recordings, read a short timeline of your day, sort it into projects, and write capsules you can keep or share. Nothing is uploaded by the extension; it only reads and writes files in your Context Capsule folder. Needs the Context Capsule app.",
   "author": {
