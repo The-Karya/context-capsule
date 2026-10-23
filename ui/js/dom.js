@@ -172,8 +172,15 @@ export function alert({ title, message = "", buttons = [{ text: "OK", kind: "def
       if (e.key === "Escape") {
         e.preventDefault();
         done(cancel >= 0 ? cancel : buttons.length - 1);
+      } else if (e.key === "Enter" && !(document.activeElement instanceof HTMLButtonElement)) {
+        // Return presses the default button (a focused button gets Return the usual way).
+        const d = buttons.findIndex((b) => b.kind === "default");
+        if (d >= 0) {
+          e.preventDefault();
+          done(d);
+        }
       } else if (e.key === "Tab") {
-        const f = [...dlg.querySelectorAll("button, input")];
+        const f = [...dlg.querySelectorAll("button, input, a[href], [tabindex]:not([tabindex='-1'])")];
         const i = f.indexOf(document.activeElement);
         e.preventDefault();
         f[(i + (e.shiftKey ? -1 : 1) + f.length) % f.length].focus();

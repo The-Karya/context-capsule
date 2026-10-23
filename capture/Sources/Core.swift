@@ -1193,9 +1193,11 @@ extension CapsuleSummary {
 // MARK: - Check before sharing
 
 /// What in a capsule might be private, found with plain rules (SPEC "Check before sharing"; the cases in
-/// spec/share-check.json are shared with the Windows/Linux app). No AI.
+/// spec/share-check.json are shared with the shared window, ui/js/core/sharecheck.js, and the Windows/Linux app).
+/// Only four kinds of thing: names in the People section, email addresses, phone numbers, links that look private.
+/// No AI.
 enum ShareCheck {
-    enum Kind: String, CaseIterable { case people, emails, phones, links, money, files }
+    enum Kind: String, CaseIterable { case people, emails, phones, links }
 
     struct Group: Equatable {
         var kind: Kind
@@ -1205,27 +1207,23 @@ enum ShareCheck {
             case .people: return "People"
             case .emails: return "Emails"
             case .phones: return "Phone numbers"
-            case .links: return "Links"
-            case .money: return "Money"
-            case .files: return "Files"
+            case .links: return "Private links"
             }
         }
     }
 
     static let mark = "[removed]"
 
-    private static func re(_ p: String) -> NSRegularExpression {
-        try! NSRegularExpression(pattern: p, options: [.anchorsMatchLines])
+    private static func re(_ p: String, _ options: NSRegularExpression.Options = []) -> NSRegularExpression {
+        try! NSRegularExpression(pattern: p, options: options.union(.anchorsMatchLines))
+    }
+    private static func test(_ r: NSRegularExpression, _ s: String) -> Bool {
+        r.firstMatch(in: s, range: NSRange(location: 0, length: (s as NSString).length)) != nil
     }
     private static let link = re(#"https?://[^\s)>\]]+"#)
     private static let email = re(#"[A-Za-z0-9._%+\-]+@[A-Za-z0-9.\-]+\.[A-Za-z]{2,}"#)
-    private static let file = re(#"(?:^|(?<=[\s(]))(?:~/[^\s/]\S*|/[^\s/]+/[^\s/]\S*|[A-Za-z]:\\\S+)"#)
-    private static let phone = re(#"(?<![\w+])[+\d][\d .()\-]*\d(?!\w)"#)
+    private static let phone = re(#"(?<![\w+(])(?:\+|\()?\d[\d .()\-]*\d(?!\w)"#)
     private static let date = re(#"\d{4}-\d{2}-\d{2}"#)
-    private static let amount = #"\d+(?:,\d{3})*(?:\.\d+)?"#
-    private static let moneySign = re(#"[$€£₹] ?"# + amount + #"(?:(?: ?(?:million|billion|bn)|[kKmMbB])(?!\w))?"#)
-    private static let moneyWord = re(#"(?<![\w.,])"# + amount + #" ?(?:USD|EUR|GBP|INR|dollars|euros|pounds|rupees)(?!\w)"#)
-    private static let handle = re(#"(?<![\w@])@[A-Za-z0-9_]+"#)
     private static let frontEnd = re(#"^---[ \t]*\r?$"#)
 
     /// The text after a leading `---` front matter block.
@@ -1260,7 +1258,78 @@ enum ShareCheck {
         return found
     }
 
-    /// The start of each bullet in the `## People…` section that looks like a name (1–4 capitalised words).
+    // MARK: links that look private
+
+    /// Query keys that carry a secret or point at one private thing.
+    private static let secretKey = re(#"^(?:token|access_token|id_token|refresh_token|auth|authuser|key|api_?key|apikey|secret|sig|signature|password|pass|pwd|session|sessionid|sid|code|otp|invite|share|sharing|usp|x-amz-[a-z-]+|id|uid|userid|docid|fileid|[a-z]+_id)$"#, .caseInsensitive)
+    /// Hosts that only make sense on someone's own computer or network.
+    private static let internalHost = re(#"^(?:localhost|127\.\d+\.\d+\.\d+|0\.0\.0\.0|10\.\d+\.\d+\.\d+|192\.168\.\d+\.\d+|172\.(?:1[6-9]|2\d|3[01])\.\d+\.\d+|\[::1\]|[^.]+|.+\.(?:local|internal|intranet|corp|lan|home|localhost))$"#, .caseInsensitive)
+    /// Share links to private documents, meetings and files: host, then the start of the path.
+    private static let shareLinks: [(NSRegularExpression, NSRegularExpression)] = [
+        (#"^docs\.google\.com$"#, #"^/(?:document|spreadsheets|presentation|forms|drawings)/(?:u/\d+/)?d/"#),
+        (#"^drive\.google\.com$"#, #"^/(?:file/d/|drive/folders/|drive/u/|open)"#),
+        (#"^meet\.google\.com$"#, #"^/[a-z]"#),
+        (#"(?:^|\.)zoom\.us$"#, #"^/(?:j|my|s|rec)/"#),
+        (#"^teams\.microsoft\.com$"#, #"^/l/"#),
+        (#"(?:^|\.)dropbox\.com$"#, #"^/(?:s|sh|scl)/"#),
+        (#"^1drv\.ms$"#, #"^/"#),
+        (#"^onedrive\.live\.com$"#, #"^/"#),
+        (#"\.sharepoint\.com$"#, #"^/"#),
+        (#"(?:^|\.)figma\.com$"#, #"^/(?:file|design|proto|board|deck)/"#),
+        (#"(?:^|\.)notion\.so$"#, #"^/"#),
+        (#"^app\.box\.com$"#, #"^/s/"#),
+        (#"(?:^|\.)wetransfer\.com$"#, #"^/downloads/"#),
+    ].map { (re($0.0, .caseInsensitive), re($0.1)) }
+    private static let urlParts = re(#"^https?://([^/?#]*)([^?#]*)(?:\?([^#]*))?"#, .caseInsensitive)
+    private static let port = re(#":\d+$"#)
+    private static let randomChars = re(#"^[A-Za-z0-9_\-.%~+/=]+$"#)
+    private static let letter = re(#"[A-Za-z]"#)
+    private static let digit = re(#"\d"#)
+
+    /// True when a link looks private: a token, key or id in its query, a local or internal host, a password in it,
+    /// or a share link to a private document, meeting or file. Ordinary public links (a blog, a homepage) are not.
+    static func isPrivateLink(_ url: String) -> Bool {
+        let ns = url as NSString
+        guard let m = urlParts.firstMatch(in: url, range: NSRange(location: 0, length: ns.length)) else { return false }
+        func group(_ i: Int) -> String { m.range(at: i).location == NSNotFound ? "" : ns.substring(with: m.range(at: i)) }
+        var host = group(1)
+        if host.contains("@") { return true } // user:password@host
+        host = port.stringByReplacingMatches(in: host, range: NSRange(location: 0, length: (host as NSString).length),
+                                             withTemplate: "").lowercased()
+        let pathPart = group(2)
+        let path = pathPart.isEmpty ? "/" : pathPart
+        let query = group(3)
+        if test(internalHost, host) { return true }
+        if shareLinks.contains(where: { test($0.0, host) && test($0.1, path) }) { return true }
+        for pair in query.components(separatedBy: "&") where !pair.isEmpty {
+            let kv = pair.components(separatedBy: "=")
+            let k = kv[0], v = kv.count > 1 ? kv[1] : ""
+            if test(secretKey, k) && !v.isEmpty { return true }
+            if (v as NSString).length >= 20 && test(letter, v) && test(digit, v) && test(randomChars, v) { return true } // looks random
+        }
+        return false
+    }
+
+    // MARK: names in "People, links and files"
+
+    /// Words that start a People bullet but aren't a person (things people list there: places, sites, tools).
+    private static let notNames = Set(
+        ("blog post posts site website page link links repo repos repository docs doc document documents file files folder "
+            + "profile account email emails phone github gitlab bitbucket slack figma notion google drive dropbox jira linear "
+            + "trello asana discord twitter linkedin youtube instagram facebook medium hashnode substack wikipedia reddit "
+            + "zoom teams meet calendar spreadsheet sheet sheets slides deck notes note project projects team client clients "
+            + "company app apps tool tools dataset datasets paper papers article articles course video videos me myself you "
+            + "they we us them none other others").split(separator: " ").map(String.init))
+    /// Small words that can sit inside a name ("Ana de la Cruz", "Ludwig van Beethoven").
+    private static let particles = Set("de la le da das do dos del della di du van von der den ter bin binti al el y e"
+        .split(separator: " ").map(String.init))
+    /// One name word: a capital then lower-case letters ("Ana", "O'Neil", "Ruiz-Lopez", "McKay"); not "GitHub", "API", "ML".
+    private static let nameWord = re(#"^(?:\p{Lu}['’])?(?:Mc|Mac)?\p{Lu}\p{Ll}+(?:[-'’]\p{Lu}?\p{Ll}+)*\.?$"#)
+    /// A link or a file on a bullet line: not a person.
+    private static let linkOrPath = re(#"https?://|www\.|\S/\S|~/|[A-Za-z]:\\"#)
+
+    /// The name part of each bullet in the `## People…` section ("- Ana Ruiz — client", "- **Dev Raj** (engineer)"):
+    /// 1–4 name words, on a line with no link or path, that isn't a thing like "Blog" or "GitHub profile".
     static func bulletNames(_ body: String) -> [String] {
         var names: [String] = []
         var inPeople = false
@@ -1271,34 +1340,39 @@ enum ShareCheck {
                 continue
             }
             guard inPeople, line.hasPrefix("- ") || line.hasPrefix("* ") else { continue }
-            var item = String(line.dropFirst(2)).replacingOccurrences(of: "**", with: "")
-            for stop in [" — ", " – ", " - ", ":", "(", ","] {
+            if test(linkOrPath, line) { continue }
+            var item = String(line.dropFirst(2)).replacingOccurrences(of: "**", with: "").replacingOccurrences(of: "__", with: "")
+            for stop in [" — ", " – ", " - ", ":", "(", ",", ";", "<", " <"] {
                 if let r = item.range(of: stop) { item = String(item[..<r.lowerBound]) }
             }
-            item = item.trimmingCharacters(in: .whitespaces)
-            let words = item.split(separator: " ")
-            guard (1...4).contains(words.count),
-                  words.allSatisfy({ $0.first?.isUppercase == true }),
-                  !item.contains(where: { $0.isNumber || $0 == "/" || $0 == "@" }),
-                  !item.lowercased().contains("http") else { continue }
+            item = item.trimmingCharacters(in: .whitespacesAndNewlines)
+            let words = item.split(whereSeparator: \.isWhitespace).map(String.init)
+            guard let first = words.first, let last = words.last, words.count <= 4,
+                  test(nameWord, first), test(nameWord, last),
+                  words.allSatisfy({ test(nameWord, $0) || particles.contains($0) }),
+                  !words.contains(where: { w in
+                      var l = w.lowercased()
+                      if l.hasSuffix(".") { l.removeLast() }
+                      return notNames.contains(l)
+                  }) else { continue }
             names.append(item)
         }
         return names
     }
 
-    /// All six groups, in order; each lists its items once, in order of first appearance in the body.
+    // MARK: all of it
+
+    /// All four groups, in order; each lists its items once, in order of first appearance in the body.
     static func find(_ text: String) -> [Group] {
         let original = body(text)
         var s = original
-        let links = take(link, in: &s, blank: true, trim: true)
+        let links = take(link, in: &s, blank: true, trim: true).filter(isPrivateLink)
         let emails = take(email, in: &s, blank: true)
-        let files = take(file, in: &s, blank: false, trim: true)
         let phones = take(phone, in: &s, blank: false).filter { p in
-            (8...15).contains(p.filter(\.isNumber).count)
-                && date.firstMatch(in: p, range: NSRange(location: 0, length: (p as NSString).length)) == nil
+            (8...15).contains(p.unicodeScalars.filter { CharacterSet.decimalDigits.contains($0) || $0.properties.numericType != nil }.count)
+                && !test(date, p)
         }
-        let money = take(moneySign, in: &s, blank: false) + take(moneyWord, in: &s, blank: false)
-        let people = take(handle, in: &s, blank: false) + bulletNames(original)
+        let people = bulletNames(original)
 
         let ns = original as NSString
         func ordered(_ items: [String]) -> [String] {
@@ -1308,15 +1382,15 @@ enum ShareCheck {
                 .map(\.element)
         }
         return [Group(kind: .people, items: ordered(people)), Group(kind: .emails, items: ordered(emails)),
-                Group(kind: .phones, items: ordered(phones)), Group(kind: .links, items: ordered(links)),
-                Group(kind: .money, items: ordered(money)), Group(kind: .files, items: ordered(files))]
+                Group(kind: .phones, items: ordered(phones)), Group(kind: .links, items: ordered(links))]
     }
 
     /// Every occurrence of each item (longest first) becomes `[removed]`.
     /// One pass, left to right, the longest item first at each place, so a short item never matches inside a
     /// `[removed]` put there for a longer one. The whole file, front matter too.
     static func remove(_ text: String, _ items: [String]) -> String {
-        let list = Set(items).filter { !$0.isEmpty }.sorted { ($0.count, $0) > ($1.count, $1) }
+        let list = Set(items).filter { !$0.isEmpty }
+            .sorted { ($0.unicodeScalars.count, $0) > ($1.unicodeScalars.count, $1) }
         guard !list.isEmpty else { return text }
         var out = ""
         var i = text.startIndex

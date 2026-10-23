@@ -775,7 +775,7 @@ pub fn layout(v: &View, width: f64, height: f64, m: &dyn Measure) -> Layout {
     let mut col = Col::new(x0, cw, 16.0, m);
     // The page's title, at the top of the page (Home's is its greeting, the Timeline's its day; Capsules has its
     // buttons beside it).
-    let title = if v.share.is_some() { w::CHECK_TITLE } else { v.section.title() };
+    let title = if v.share.is_some() { share_check::TITLE } else { v.section.title() };
     if v.share.is_some() || !matches!(v.section, Section::Home | Section::Timeline | Section::Capsules) {
         col.title(title);
     }
@@ -1248,7 +1248,7 @@ fn copy_row(col: &mut Col, ai: &AiState) {
 
 /// "Check before sharing": what was found, by group, each with a check box (all checked), then Cancel and Share.
 fn share_page(col: &mut Col, share: &ShareView) {
-    col.para(w::CHECK_INTRO, Font::Body, Ink::Secondary);
+    col.para(share_check::LINE, Font::Body, Ink::Secondary);
     col.gap(GAP);
     let mut at = 0;
     for kind in Kind::ALL {
@@ -1280,11 +1280,11 @@ fn share_page(col: &mut Col, share: &ShareView) {
         });
     }
     col.gap(GAP);
-    let sw = button_width(col.m, w::SHARE, Style::Accent);
-    let cw = button_width(col.m, w::CANCEL, Style::Standard);
+    let sw = button_width(col.m, share_check::SHARE, Style::Accent);
+    let cw = button_width(col.m, share_check::CANCEL, Style::Standard);
     let right = col.x + col.w;
-    col.button(right - sw - 8.0 - cw, w::CANCEL, Action::ShareCancel, Style::Standard);
-    col.button(right - sw, w::SHARE, Action::ShareGo, Style::Accent);
+    col.button(right - sw - 8.0 - cw, share_check::CANCEL, Action::ShareCancel, Style::Standard);
+    col.button(right - sw, share_check::SHARE, Action::ShareGo, Style::Accent);
     col.gap(BUTTON_H);
 }
 
@@ -2419,22 +2419,23 @@ mod tests {
     #[test]
     fn check_before_sharing() {
         let (status, data) = (Status::default(), data());
-        let text = "---\ncapsule: 1\ntitle: T\n---\n\n## In short\nMet Ana at ana@acme.com about $12,000.\n\n## People, links and files\n- Ana Ruiz — client\n";
+        let text = "---\ncapsule: 1\ntitle: T\n---\n\n## In short\nMet Ana at ana@acme.com about $12,000, call +44 20 7946 0958.\n\n## People, links and files\n- Ana Ruiz — client\n";
         let mut share = ShareView::new(PathBuf::from("C:/c/t.capsule.md"), ShareHow::CopyText, text.into()).unwrap();
         assert!(ShareView::new(PathBuf::from("x"), ShareHow::CopyFile, "Nothing private.".into()).is_none(), "nothing found: straight through");
         let mut v = view(Section::Capsules, &status, &data);
         v.share = Some(&share);
         let l = layout(&v, 1000.0, 700.0, &Fake);
         let t = texts(&l);
-        for word in ["Check before sharing", "People", "Emails", "Money", "Ana Ruiz", "ana@acme.com", "$12,000", "Share", "Cancel"] {
+        for word in ["Before you share", share_check::LINE, "People", "Emails", "Phone numbers", "Ana Ruiz", "ana@acme.com", "+44 20 7946 0958", "Share", "Cancel"] {
             assert!(t.iter().any(|x| x == word), "{word}: {t:?}");
         }
         assert!(!t.iter().any(|x| x == "Make today's capsules"), "instead of the page");
+        assert!(!t.iter().any(|x| x == "Money" || x == "$12,000"), "money is not flagged");
         let checks: Vec<bool> = l.content.iter().filter_map(|n| if let Node::Button { style: Style::Check { on }, .. } = n { Some(*on) } else { None }).collect();
         assert_eq!(checks, [true, true, true], "all checked");
-        assert_eq!(share.shared_text(), "---\ncapsule: 1\ntitle: T\n---\n\n## In short\nMet Ana at [removed] about [removed].\n\n## People, links and files\n- [removed] — client\n");
+        assert_eq!(share.shared_text(), "---\ncapsule: 1\ntitle: T\n---\n\n## In short\nMet Ana at [removed] about $12,000, call [removed].\n\n## People, links and files\n- [removed] — client\n");
         share.checked[2] = false;
-        assert!(share.shared_text().contains("$12,000") && !share.shared_text().contains("ana@"));
+        assert!(share.shared_text().contains("+44 20 7946 0958") && !share.shared_text().contains("ana@"), "unticked: kept");
         let rects: Vec<Rect> = controls(&l.content).iter().map(|i| l.content[*i].rect()).collect();
         for (i, a) in rects.iter().enumerate() {
             assert!(rects[i + 1..].iter().all(|b| !a.overlaps(b)), "controls don't overlap");

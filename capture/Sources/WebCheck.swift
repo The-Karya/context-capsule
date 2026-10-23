@@ -311,6 +311,19 @@ enum WebCheck {
         check(wait("document.querySelector('[role=alertdialog]')?.innerText.includes(\"isn't a capsule\")"), "event open-capsule: checked by the page")
         _ = js("document.querySelector('[role=alertdialog] button').click(); return 1")
         try? fm.removeItem(at: notCapsule)
+        let received = fm.temporaryDirectory.appendingPathComponent("received-\(getpid()).capsule.md")
+        try? "---\ncapsule: 1\ntitle: Sent to me\n---\n\n## In short\nA capsule someone sent.\n".write(to: received, atomically: true, encoding: .utf8)
+        w.openCapsule(received)
+        check(wait("location.hash === '#capsule' && document.querySelector('.reader h1')?.innerText === 'Sent to me' && document.querySelector('.reader-text')?.innerText.includes('A capsule someone sent')"),
+              "event open-capsule: a capsule is shown to read, not sent to your AI")
+        check(js("return [...document.querySelectorAll('.reader-acts button')].some(b => b.innerText.startsWith('Continue in') || b.innerText === 'Copy for your AI') ? 1 : 0") == "1",
+              "reading view: Continue in your AI")
+        _ = js("document.querySelector('.reader .back').click(); return 1")
+        check(wait("location.hash === '#capsules'"), "reading view: Back")
+        _ = js("[...document.querySelectorAll('.cap-row')].find(r => r.innerText.includes('Web check capsule'))?.querySelector('button[aria-label=Open]')?.click(); return 1")
+        check(wait("document.querySelector('.reader h1')?.innerText === 'Web check capsule'"), "capsule row's eye: the reading view")
+        w.navigate("capsules")
+        try? fm.removeItem(at: received)
 
         // Projects
         let projectsText = text(paths.projects)

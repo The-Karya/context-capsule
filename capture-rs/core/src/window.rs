@@ -356,9 +356,8 @@ pub const SEARCH_CAPSULES: &str = "Search capsules";
 pub const NO_MATCHES: &str = "No capsules match. Ask your AI to search inside them.";
 
 /// Before a capsule is shared (Copy file, Copy text, Save a copy…).
-pub const CHECK_TITLE: &str = "Check before sharing";
-pub const CHECK_INTRO: &str =
-    "These might be private. Checked ones become [removed] in the copy you share. Your saved capsule stays as it is.";
+pub const CHECK_TITLE: &str = crate::share_check::TITLE;
+pub const CHECK_INTRO: &str = crate::share_check::LINE;
 pub const SHARE: &str = "Share";
 
 pub const PROJECTS_INTRO: &str = "Work is sorted into these by itself, from words in window names and web addresses.";

@@ -149,13 +149,15 @@ enum Share {
     }
 }
 
-/// "Check before sharing": what might be private, a check box for each (all checked), Share or Cancel.
+/// "Before you share": what might be private (people, emails, phone numbers, private links), a check box for each
+/// (all ticked), Cancel or Share.
 enum ShareCheckPanel {
-    /// The checked items, or nil when cancelled.
+    /// The ticked items, or nil when cancelled.
     static func ask(_ groups: [ShareCheck.Group]) -> [String]? {
         let alert = NSAlert()
-        alert.messageText = "Check before sharing"
-        alert.informativeText = "Checked items become [removed] in the copy you share. Your saved capsule stays the same."
+        alert.messageText = "Before you share"
+        alert.informativeText = "Ticked items are replaced with [removed] in the copy you share. Your capsule stays the same."
+        // Share is the default (Return); Cancel answers Escape. Shown as Cancel / Share.
         alert.addButton(withTitle: "Share")
         alert.addButton(withTitle: "Cancel")
 

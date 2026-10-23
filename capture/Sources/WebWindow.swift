@@ -103,7 +103,7 @@ final class WebWindow: NSObject, NSWindowDelegate, WKNavigationDelegate, WKUIDel
         if helloDone { emit("navigate", ["page": page]) } else { initialPage = page }
     }
 
-    /// A capsule opened with the app (Finder → Open With): the page checks it and opens your AI.
+    /// A capsule opened with the app (Finder → Open With): the page checks it and shows it to read (Continue in your AI there).
     func openCapsule(_ url: URL) {
         show(nil)
         let text = (try? Data(contentsOf: url)).map { String(decoding: $0, as: UTF8.self) } ?? ""
@@ -517,7 +517,16 @@ final class WebWindow: NSObject, NSWindowDelegate, WKNavigationDelegate, WKUIDel
             guard let file = capsuleFile(str("file")) else { return no("not allowed: \(str("file") ?? "")") }
             guard FileManager.default.fileExists(atPath: file.path) else { return no("gone") }
             if options.quiet { options.log("capsule.open \(file.lastPathComponent)"); return ok([String: Any]()) }
-            NSWorkspace.shared.open(file)
+            // In a text editor, never the default app for .capsule.md: that's this app, which would open your AI.
+            let ws = NSWorkspace.shared
+            let me = Bundle.main.bundleURL.standardizedFileURL
+            let editor = ws.urlForApplication(toOpen: UTType.plainText).flatMap { $0.standardizedFileURL == me ? nil : $0 }
+                ?? ws.urlForApplication(withBundleIdentifier: "com.apple.TextEdit")
+            if let editor {
+                ws.open([file], withApplicationAt: editor, configuration: NSWorkspace.OpenConfiguration())
+            } else {
+                ws.activateFileViewerSelecting([file])
+            }
             ok([String: Any]())
 
         case "capsule.share":

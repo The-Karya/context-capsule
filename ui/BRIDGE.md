@@ -151,7 +151,9 @@ Has code: Swift `Claude.open`, `AIState.open`, `appURL`; Rust windows/linux `lin
 
 **`open.url`** `{ "url": "https://chatgpt.com" }` → `{}` — http(s) only, in the default browser.
 
-**`capsule.open`** `{ "file": "capsules/website.capsule.md" }` → `{}` — open in the default app for .md.
+**`capsule.open`** `{ "file": "capsules/website.capsule.md" }` → `{}` — open in a text editor, never this app (on the
+Mac this app is the default for .capsule.md and would send it to your AI). The page doesn't use it now: a capsule row
+opens the reading view (`#capsule`).
 
 **`capsule.share`** `{ "file": "capsules/…", "how": "copy-file" | "copy-text" | "save-copy" | "reveal" | "more", "text"?: "<cleaned copy>" }`
 → `{ "done": true, "where"?: "Desktop" }` — with `text`, share a copy with that text and the same file name (Check
@@ -161,7 +163,8 @@ other hosts may leave it out (`hello.platform` tells the page).
 Has code: Swift `Share.*`; Rust windows/linux share code in `main_window.rs` / `window/`.
 
 **`capsule.pick`** `{}` → `{ "path": "/Users/…/Pricing.capsule.md", "text": "…" }` or `null` — the native open
-panel for a received capsule (.md). The page checks `isCapsule` and opens your AI with the continue prompt.
+panel for a received capsule (.md). The page checks `isCapsule` and shows it in the reading view, with "Continue in
+<your AI>" (the continue prompt).
 
 **`apps.pick`** `{}` → `{ "id": "com.example.app", "name": "Example" }` or `null` — choose an app never to record
 (Mac: /Applications; Windows: an .exe; Linux: a .desktop app).
@@ -207,7 +210,8 @@ every 4 s; the page re-reads only what it shows.
 for a page.
 
 **`open-capsule`** `{ "path": "…", "text": "…" }` — a file was dropped on the window or opened with the app; the
-page checks it and opens your AI (SPEC "Opening a received capsule").
+page checks it and shows it in the reading view; "Continue in <your AI>" there opens your AI (SPEC "Opening a
+received capsule").
 
 ## What lives in the page (`ui/js/core`, tested in `ui/tests`)
 
@@ -220,13 +224,14 @@ page checks it and opens your AI (SPEC "Opening a received capsule").
 | `projects.js` — projects.json, slug, detect, edit | Swift `Projects`, Rust `core::projects` |
 | `shortcuts.js` — parse, show (⌥C / Alt+C), key events, checks | Swift `Shortcut`, Rust `core::shortcuts` |
 | `yourai.js` — Your AI choice, clients, Copy my day / Save words | Swift `YourAI`/`AIAnswer`, Rust `core::anyai` |
-| `sharecheck.js` — Check before sharing | Swift `ShareCheck`, Rust `core::share_check` (spec/share-check.json) |
+| `sharecheck.js` — Before you share (emails, phones, People names, private links) | Swift `ShareCheck`, Rust `core::share_check` (spec/share-check.json; the old windows) |
+| `markdown.js` — the reading view's Markdown (blocks, inline; no HTML) | — |
 
 ## Dev harness
 
 `bun ui/dev/server.js [data folder]` serves the page at http://localhost:5174 with a fake host (`ui/dev/shim.js` +
 the server) that answers every method above from a data folder (default `/tmp/mac-ref-data`); writes stay in memory.
-URL options: `#home` … `#help`, `?open=first` (open the first recording), `?dark=1`, `?firstRun=1`,
+URL options: `#home` … `#help`, `?capsule=capsules/<file>` (the reading view), `?open=first` (open the first recording), `?dark=1`, `?firstRun=1`,
 `?platform=windows|linux`, `?material=glass`, `?locale=en-GB`, `?recording=1`, `?now=2026-10-23T19:00:00` (the page's clock).
 
 Renders: `ui/dev/render-all.sh` (WKWebView, `ui/dev/snap.swift`) writes every page in light and dark to

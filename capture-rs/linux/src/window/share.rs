@@ -1,7 +1,7 @@
-// context-capsule — linux: "Check before sharing" — before Copy file, Copy text or Save a copy…, a dialog lists
-// what in the capsule might be private (People, Emails, Phone numbers, Links, Money, Files), each with a check
-// box (all checked). Share uses a copy with the checked items replaced by [removed]; the saved capsule never
-// changes. Nothing found: straight through.
+// context-capsule — linux: "Before you share" — before Copy file, Copy text or Save a copy…, a dialog lists
+// what in the capsule might be private (People, Emails, Phone numbers, Private links), each with a check box
+// (all ticked). Share uses a copy with the ticked items replaced by [removed]; the saved capsule never changes.
+// Nothing found: straight through.
 
 use super::widgets::vbox;
 use super::Ctx;
@@ -32,7 +32,7 @@ pub fn check_then_share(ctx: &Rc<Ctx>, path: &Path, how: How) {
         share(ctx, path, how, None);
         return;
     }
-    let d = adw::MessageDialog::new(Some(&ctx.win), Some(words::CHECK_TITLE), Some(words::CHECK_INTRO));
+    let d = adw::MessageDialog::new(Some(&ctx.win), Some(share_check::TITLE), Some(share_check::LINE));
     let list = vbox(18);
     let mut boxes: Vec<(gtk::CheckButton, String)> = vec![];
     for kind in Kind::ALL {
@@ -64,8 +64,8 @@ pub fn check_then_share(ctx: &Rc<Ctx>, path: &Path, how: How) {
         .child(&list)
         .build();
     d.set_extra_child(Some(&scroll));
-    d.add_response("cancel", words::CANCEL);
-    d.add_response("share", words::SHARE);
+    d.add_response("cancel", share_check::CANCEL);
+    d.add_response("share", share_check::SHARE);
     d.set_response_appearance("share", adw::ResponseAppearance::Suggested);
     d.set_default_response(Some("share"));
     d.set_close_response("cancel");

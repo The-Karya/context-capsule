@@ -72,9 +72,9 @@ system accent color.
   Make today's capsules (Claude, websites and any other AI: Claude). A row for any other AI: *Using an AI
   on the web, or any other AI?* (after Copy my day: what to do next), **Copy my day** and **Save from
   clipboard**. **Open a capsule…** picks a `.md` file someone sent (see below).
-- **Check before sharing** — Copy file, Copy text and Save a copy… first show a dialog with what in the
-  capsule might be private, by group (People, Emails, Phone numbers, Links, Money, Files), each with a
-  check box, all checked. **Share** uses a copy with the checked ones replaced by `[removed]` (Copy
+- **Check before sharing** — Copy file, Copy text and Save a copy… first show a dialog, *Before you
+  share*, with what in the capsule might be private, by group (People, Emails, Phone numbers, Private
+  links), each with a check box, all ticked. **Share** uses a copy with the ticked ones replaced by `[removed]` (Copy
   file: a temporary file in `$TMPDIR/context-capsule-shared/`); the saved capsule never changes.
   Nothing found: it shares at once. Plain rules, no AI, the same as the Mac's (core `share_check`,
   cases in `spec/share-check.json`).

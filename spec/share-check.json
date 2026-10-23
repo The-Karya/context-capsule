@@ -1,13 +1,12 @@
 {
-  "about": "Golden cases for 'Check before sharing' (see SPEC.md). Mac (Swift) and Windows/Linux (Rust) must give exactly these results.",
+  "about": "Golden cases for 'Before you share' (see SPEC.md). Flagged: emails, phone numbers, names in the People section, links that look private. The shared window (ui/js/core/sharecheck.js), the Mac (Swift ShareCheck) and Windows/Linux (Rust core::share_check) must give exactly these results.",
   "find": [
     {
       "name": "everything",
-      "text": "---\ncapsule: 1\ntitle: Pricing\nauthor: Saachi\n---\n\n## In short\nMet Priya Shah about pricing. Email priya@acme.com or call +44 20 7946 0958.\nBudget is $12,000 for Q4, decided on 2026-10-19 at 10:14.\nSee https://acme.com/pricing, and the file ~/Documents/pricing.xlsx.\nPing @devraj on Slack.\n\n## People, links and files\n- **Priya Shah** — head of sales at Acme\n- Dev Raj (engineer)\n- https://acme.com/pricing\n",
+      "text": "---\ncapsule: 1\ntitle: Pricing\nauthor: Saachi\n---\n\n## In short\nMet Priya Shah about pricing. Email priya@acme.com or call +44 20 7946 0958.\nBudget is $12,000 for Q4, decided on 2026-10-19 at 10:14.\nSee https://acme.com/pricing and the draft https://docs.google.com/document/d/1AbCdEfGhIjK/edit?usp=sharing.\nPing @devraj on Slack. File ~/Documents/pricing.xlsx.\n\n## People, links and files\n- **Priya Shah** — head of sales at Acme\n- Dev Raj (engineer)\n- https://acme.com/pricing\n",
       "expect": {
         "people": [
           "Priya Shah",
-          "@devraj",
           "Dev Raj"
         ],
         "emails": [
@@ -17,55 +16,73 @@
           "+44 20 7946 0958"
         ],
         "links": [
-          "https://acme.com/pricing"
-        ],
-        "money": [
-          "$12,000"
-        ],
-        "files": [
-          "~/Documents/pricing.xlsx"
+          "https://docs.google.com/document/d/1AbCdEfGhIjK/edit?usp=sharing"
         ]
       }
     },
     {
       "name": "nothing",
-      "text": "## In short\nRefactored the parser on 2026-10-19 at 10:14. Version 2.3.1 is 40% faster.\n",
+      "text": "## In short\nRefactored the parser on 2026-10-19 at 10:14. Version 2.3.1 is 40% faster. Paid $450 to GitHub.\n",
       "expect": {
         "people": [],
         "emails": [],
         "phones": [],
-        "links": [],
-        "money": [],
-        "files": []
+        "links": []
       }
     },
     {
       "name": "front matter is skipped",
-      "text": "---\ntitle: Call Ana\nauthor: Saachi Badal\nsource: https://x.example/a\n---\n\n## In short\nNothing private.\n",
+      "text": "---\ntitle: Call Ana\nauthor: Saachi Badal\nsource: https://localhost:3000/a\n---\n\n## In short\nNothing private.\n",
       "expect": {
         "people": [],
         "emails": [],
         "phones": [],
-        "links": [],
-        "money": [],
-        "files": []
+        "links": []
       }
     },
     {
-      "name": "money and windows paths",
-      "text": "## What was done\nPaid €450 and 1,200 USD. Saved to C:\\Users\\ana\\report.docx today.\n",
+      "name": "things in the People section are not people; public links are not private",
+      "text": "## What was done\nWrote a Blog Post for GitHub and Medium.\n\n## People, links and files\n- Blog post: https://saachis-blog.hashnode.dev/convexity-logistic-loss\n- Blog: https://saachis-blog.hashnode.dev/\n- Post: https://saachis-blog.hashnode.dev/overfitting\n- GitHub: Saachi26/ML-Journey; Saachi26/Deep-Learning\n- GitHub profile: Saachi26 (repo ML-Journey)\n- Figma\n- ~/Documents/notes.md\n- Ana Ruiz — client\n- Ana de la Cruz: designer\n",
+      "expect": {
+        "people": [
+          "Ana Ruiz",
+          "Ana de la Cruz"
+        ],
+        "emails": [],
+        "phones": [],
+        "links": []
+      }
+    },
+    {
+      "name": "private links",
+      "text": "## In short\nPublic: https://en.wikipedia.org/wiki/Logistic_regression and https://github.com/Saachi26/ML-Journey.\nPrivate: http://localhost:5173/admin, http://192.168.1.20/router, https://wiki.acme.internal/page,\nhttps://api.acme.com/v1/report?token=abc123, https://shop.com/order?order_id=88812,\nhttps://cdn.acme.com/f.pdf?X-Amz-Signature=9f8e7d6c5b4a39281706f5e4d3c2b1a0,\nhttps://drive.google.com/file/d/1xYz/view, https://acme.zoom.us/j/123456789?pwd=Zx9.\n",
       "expect": {
         "people": [],
         "emails": [],
         "phones": [],
-        "links": [],
-        "money": [
-          "€450",
-          "1,200 USD"
-        ],
-        "files": [
-          "C:\\Users\\ana\\report.docx"
+        "links": [
+          "http://localhost:5173/admin",
+          "http://192.168.1.20/router",
+          "https://wiki.acme.internal/page",
+          "https://api.acme.com/v1/report?token=abc123",
+          "https://shop.com/order?order_id=88812",
+          "https://cdn.acme.com/f.pdf?X-Amz-Signature=9f8e7d6c5b4a39281706f5e4d3c2b1a0",
+          "https://drive.google.com/file/d/1xYz/view",
+          "https://acme.zoom.us/j/123456789?pwd=Zx9"
         ]
+      }
+    },
+    {
+      "name": "phones",
+      "text": "## In short\nCall (020) 7946 0958 or 415-555-0132, not on 2026-10-19 or 2026-10-19 10:14. Order 1234.\n",
+      "expect": {
+        "people": [],
+        "emails": [],
+        "phones": [
+          "(020) 7946 0958",
+          "415-555-0132"
+        ],
+        "links": []
       }
     }
   ],

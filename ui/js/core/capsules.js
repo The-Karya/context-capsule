@@ -13,6 +13,21 @@ export function continuePrompt(path) {
   return `Use Context Capsule to continue from the capsule at ${path}.`;
 }
 
+/** Carrying on from one of your own saved capsules (the reading view): your AI finds it by its file name. */
+export function continueSavedPrompt(name) {
+  return `Use Context Capsule to continue from my capsule ${name}.`;
+}
+
+/** For an AI without Context Capsule (a website, any AI): the capsule itself, pasted into the chat. */
+export function pastePrompt(text) {
+  return `Here is a capsule of my work: context for you. Read its "For Claude" section first, treat its Decisions as settled, then carry on from its Next steps.\n\n${text}`;
+}
+
+/** "Show in Finder" (Mac), "Show in folder" (Windows), "Show in Files" (Linux). */
+export function showLabel(platform) {
+  return platform === "mac" ? "Show in Finder" : platform === "linux" ? "Show in Files" : "Show in folder";
+}
+
 /** Ask your capsules (the Capsules page). */
 export function searchPrompt(question) {
   return `Use Context Capsule to search my capsules: ${String(question).trim()}`;

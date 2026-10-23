@@ -17,9 +17,11 @@ import * as capsules from "./pages/capsules.js";
 import * as projects from "./pages/projects.js";
 import * as settings from "./pages/settings.js";
 import * as help from "./pages/help.js";
+import * as capsule from "./pages/capsule.js";
 import * as actions from "./actions.js";
 
-const PAGES = { home, timeline, capsules, projects, settings, help };
+const PAGES = { home, timeline, capsules, projects, settings, help, capsule };
+const TITLES = { home: "Home", timeline: "Timeline", capsules: "Capsules", projects: "Projects", settings: "Settings", help: "Help" };
 const query = new URLSearchParams(location.search);
 
 /** Everything the pages read. Updated from the host; pages call app.refresh() / app.render(). */
@@ -177,17 +179,26 @@ let current = null;
 /** Show a page (and remember it in the address, so Back works in the dev browser). */
 app.go = (page, opts = {}) => {
   if (!PAGES[page]) page = "home";
+  // "capsule" is the reading view: not in the sidebar; Back returns to the page it was opened from.
+  if (page === "capsule" && !opts.file && !opts.path && !app.reading) page = "home";
   closePopups();
-  const same = page === app.page && current;
+  if (page === "capsule" && app.page !== "capsule") app.from = app.page || "capsules";
+  const same = page === app.page && current && page !== "capsule";
   app.page = page;
   if (location.hash.slice(1) !== page) history.replaceState(null, "", "#" + page);
+  const lit = page === "capsule" ? app.from : page;
   for (const a of document.querySelectorAll(".side-row")) {
-    if (a.dataset.page === page) a.setAttribute("aria-current", "page");
+    if (a.dataset.page === lit) a.setAttribute("aria-current", "page");
     else a.removeAttribute("aria-current");
   }
   if (!same) mount(opts);
   else current.show?.(opts);
 };
+
+/** The reading view of a capsule: { file } (saved) or { path, text } (opened from outside). */
+app.read = (view) => app.go("capsule", view);
+app.back = () => app.go(app.from || "capsules");
+app.backTitle = () => TITLES[app.from] || "Capsules";
 
 function mount(opts) {
   const root = document.getElementById("page");
@@ -302,7 +313,7 @@ async function start() {
   });
   host.on("material", (m) => applyMaterial(m?.material));
   host.on("navigate", (n) => app.go(n?.page || "home"));
-  host.on("open-capsule", (c) => actions.continueFrom(app, c?.path || "", c?.text || ""));
+  host.on("open-capsule", (c) => actions.received(app, c?.path || "", c?.text || ""));
   host.on("data-changed", async (d) => {
     const what = new Set(d?.what || []);
     if (what.has("config")) await app.loadConfig();
@@ -325,6 +336,7 @@ async function start() {
 
   const first = query.get("page") || location.hash.slice(1) || app.hello.page || (app.hello.firstRun ? "settings" : "home");
   app.go(first, { open: query.get("open") });
+  if (query.get("capsule")) app.read({ file: query.get("capsule") }); // dev renders: ?capsule=capsules/….capsule.md
   window.addEventListener("hashchange", () => app.go(location.hash.slice(1)));
   // Ready for renders once the page's own reads are done.
   setTimeout(async () => {
@@ -373,7 +385,7 @@ document.addEventListener("dragover", (e) => e.preventDefault());
 document.addEventListener("drop", async (e) => {
   e.preventDefault();
   const f = e.dataTransfer?.files?.[0];
-  if (f) actions.continueFrom(app, f.name, await f.text());
+  if (f) actions.received(app, f.name, await f.text());
 });
 
 export { dayKey };

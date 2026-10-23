@@ -350,32 +350,46 @@ ChatGPT remote connector (needs hosting), images, cloud sync, teams.
 ## Check before sharing (all recorders)
 
 Before a capsule is shared (Copy file, Copy text, Save a copy, AirDrop/Share…), the app shows what's inside that
-might be private, grouped: **People, Emails, Phone numbers, Links, Money, Files**. Each item has a check box;
-"Share" sends a copy with the checked items replaced by `[removed]` (the saved capsule is never changed). With
-nothing found, sharing goes straight through. No AI: plain rules, the same on every platform
-(`spec/share-check.json` holds the cases both the Swift and the Rust code must pass).
+might be private ("Before you share"), grouped: **People, Emails, Phone numbers, Private links**. Each item has a
+check box, ticked; "Share" sends a copy with the ticked items replaced by `[removed]` (the saved capsule is never
+changed). With nothing found, there is no dialog: sharing goes straight through. No AI: plain rules, the same on
+every platform (`spec/share-check.json` holds the cases the JS, Swift and Rust code must pass). Capitalised words,
+@handles, money, file paths and ordinary public links are not flagged.
 
 Rules (on the body only: a leading `---` front matter block is skipped):
-1. **links** `https?://` up to whitespace, `)`, `>`, `]`; trailing `. , ; :` dropped. **emails** `name@domain.tld`.
-   Both are found first, then blanked out (same length) so later rules can't match inside them.
-2. **files** start after start-of-line, whitespace or `(`: `~/…` or `/…` with at least two parts, or `C:\…`;
-   trailing `. , ; :` dropped.
-3. **phones** `+`/digit, then digits, spaces, `-`, `.`, `(`, `)`, ending in a digit, with 8–15 digits;
-   dates like `2026-10-19` are not phones.
-4. **money** a currency sign (`$ € £ ₹`) and an amount (`$12,000`, `€450`, `$1.5m`), or an amount and a code or
-   word (`1,200 USD`, `EUR`, `GBP`, `INR`, `dollars`, `euros`, `pounds`, `rupees`).
-5. **people** `@handles` (not inside an email), and in the `## People…` section, the start of each `-`/`*`
-   bullet (bold removed) up to ` — `, ` – `, ` - `, `:`, `(` or `,`, when it is 1–4 words that each start with
-   a capital letter, with no digits, `/`, `@` or `http`.
+1. **links** `https?://` up to whitespace, `)`, `>`, `]`; trailing `. , ; :` dropped; then blanked out (same
+   length), and **emails** `name@domain.tld` found and blanked out, so later rules can't match inside them.
+   A link is listed only when it looks private: a password in it (`user:pass@`); a local or internal host
+   (`localhost`, `127.*`, `10.*`, `192.168.*`, `172.16–31.*`, a host with no dot, `.local .internal .intranet .corp
+   .lan .home .localhost`); a share link (`docs.google.com/{document,spreadsheets,presentation,forms,drawings}/d/`,
+   `drive.google.com/{file/d/,drive/folders/,drive/u/,open}`, `meet.google.com/…`, `zoom.us/{j,my,s,rec}/`,
+   `teams.microsoft.com/l/`, `dropbox.com/{s,sh,scl}/`, `1drv.ms`, `onedrive.live.com`, `*.sharepoint.com`,
+   `figma.com/{file,design,proto,board,deck}/`, `notion.so`, `app.box.com/s/`, `wetransfer.com/downloads/`); or a
+   query parameter with a value whose key is a secret or an id (`token access_token id_token refresh_token auth
+   authuser key api_key apikey secret sig signature password pass pwd session sessionid sid code otp invite share
+   sharing usp x-amz-* id uid userid docid fileid *_id`, any case), or whose value looks random (20+ characters of
+   letters, digits and `_-.%~+/=`, with both letters and digits).
+2. **phones** an optional `+` or `(`, then a digit, digits, spaces, `-`, `.`, `(`, `)`, ending in a digit, not
+   inside a word, with 8–15 digits; dates like `2026-10-19` are not phones.
+3. **people** in the `## People…` section, the start of each `-`/`*` bullet (bold removed) up to ` — `, ` – `,
+   ` - `, `:`, `(`, `,`, `;` or `<`, on a line with no link (`http://`, `https://`, `www.`) or path (`a/b`, `~/`,
+   `C:\`), when it is 1–4 words, first and last a name word (a capital then lower-case letters, `-`/`'` parts,
+   `O'`, `Mc`/`Mac` allowed: not `GitHub`, `API`), any middle word a name word or a particle (`de la le da das do
+   dos del della di du van von der den ter bin binti al el y e`), and no word one of the things people list there
+   (`blog post site website page link repo docs file folder profile account github slack figma notion google
+   drive …`, see `notNames` in ui/js/core/sharecheck.js).
 Each group lists items once, in order of first appearance in the body. Removing replaces every occurrence of
 each checked item (longest first) with `[removed]`, in the whole file (front matter too).
 
 ## Opening a received capsule (all recorders)
 
 Context Capsule is offered for `.md` files ("Open With", not the default app) and accepts capsule files dropped
-on its window. Opening one checks it looks like a capsule (front matter with `capsule:` and `title:`), then opens
-Claude on a new chat with: `Use Context Capsule to continue from the capsule at <full path>.` (Claude imports it
-with import_capsule / continue_from_capsule). Not a capsule: a short message, nothing opened.
+on its window. Opening one checks it looks like a capsule (front matter with `capsule:` and `title:`), then shows it
+to read (title, day, project, its sections) with **Continue in <your AI>**, which opens your AI on a new chat with:
+`Use Context Capsule to continue from the capsule at <full path>.` (it imports it with import_capsule /
+continue_from_capsule). Not a capsule: a short message, nothing opened. Your own capsules open in the same reading
+view from their row (Continue there says `Use Context Capsule to continue from my capsule <file name>.`); nothing
+opens your AI by itself.
 
 ## Ask your capsules
 

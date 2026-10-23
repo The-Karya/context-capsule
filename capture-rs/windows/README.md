@@ -160,9 +160,9 @@ Capsules, Projects) and *Context Capsule* (Settings, Help); the page title and a
   in, or another app with it on the clipboard). **Open a capsule…** picks a `.md` file someone sent
   (see below). Under the search, for an AI on the web or any other AI: *Using an AI on the web, or any
   other AI?* (after Copy my day, what to do next), **Copy my day** and **Save from clipboard**.
-- **Check before sharing**: Copy file, Copy text and Save a copy… first show what in the capsule
-  might be private, by group (People, Emails, Phone numbers, Links, Money, Files), each with a
-  check box, all checked, in the window instead of the page. **Share** uses a copy with the checked
+- **Check before sharing**: Copy file, Copy text and Save a copy… first show *Before you share*: what in
+  the capsule might be private, by group (People, Emails, Phone numbers, Private links), each with a
+  check box, all ticked, in the window instead of the page. **Share** uses a copy with the ticked
   ones replaced by `[removed]` (Copy file: a temporary file `%TEMP%\Context Capsule\shared\<name>`);
   the saved capsule never changes. **Cancel** (or Esc) goes back. Nothing found: it shares at once.
   Plain rules, no AI, the same as the Mac's (core `share_check`, cases in `spec/share-check.json`).

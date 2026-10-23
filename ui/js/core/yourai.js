@@ -218,16 +218,16 @@ export function parseSave(out) {
 }
 
 // What Save from clipboard says: a title, then what was saved and what wasn't (and why).
+export const noCapsulesFound = "No capsules found in what you copied. Copy your AI's whole answer, then try again.";
+
+// A refusal for "no capsule markers in the text": shown as plain words, never the "=== CAPSULE ===" lines.
+const noMarkers = (r) => /^No capsule found|=== ?CAPSULE ?===/i.test(r.why ?? "");
+
 export function saveSummary(result) {
   const saved = result.saved ?? [];
-  const refused = result.refused ?? [];
+  const refused = (result.refused ?? []).filter((r) => !noMarkers(r));
   const n = saved.length;
-  if (n === 0 && refused.length === 0) {
-    return {
-      title: "No capsules found",
-      detail: "The clipboard has no capsule in it. Copy your AI's whole reply, then click Save from clipboard again.",
-    };
-  }
+  if (n === 0 && refused.length === 0) return { title: "Nothing was saved", detail: noCapsulesFound };
   const title = n === 0 ? "Nothing was saved" : `Saved ${n} capsule${n === 1 ? "" : "s"}`;
   const lines = saved.map((s) => `✓ ${s.title}`);
   if (refused.length) {

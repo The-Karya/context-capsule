@@ -11,13 +11,7 @@ export function capsuleRow(app, c) {
   const now = app.now();
   const label = Caps.label(c, app.dates, now);
   const when = Caps.when(c, app.dates, now);
-  const shareItems = [
-    { text: "Copy file", action: () => actions.share(app, c, "copy-file") },
-    { text: "Copy text", action: () => actions.share(app, c, "copy-text") },
-    { text: "Save a copy…", action: () => actions.share(app, c, "save-copy") },
-    { text: app.platform === "mac" ? "Show in Finder" : "Show in folder", action: () => actions.share(app, c, "reveal") },
-  ];
-  if (app.platform === "mac") shareItems.push("-", { text: "More…", action: () => actions.share(app, c, "more") });
+  const shareItems = actions.shareItems(app, c);
   const shareBtn = iconButton("share", "Share", (e) => menu(e.currentTarget, shareItems, "Share"), "fade");
   shareBtn.setAttribute("aria-haspopup", "menu");
   const row = h(
@@ -25,10 +19,19 @@ export function capsuleRow(app, c) {
     {
       class: "cap-row hoverfade",
       role: "listitem",
-      ondblclick: () => actions.openCapsule(c),
+      tabindex: "0",
+      onclick: (e) => {
+        if (!e.target.closest("button")) app.read({ file: c.file });
+      },
+      onkeydown: (e) => {
+        if ((e.key === "Enter" || e.key === " ") && e.target === row) {
+          e.preventDefault();
+          app.read({ file: c.file });
+        }
+      },
       oncontextmenu: (e) => {
         e.preventDefault();
-        menu(row, [{ text: "Open", action: () => actions.openCapsule(c) }, ...shareItems.filter((x) => x !== "-")], "Capsule");
+        menu(row, [{ text: "Open", action: () => app.read({ file: c.file }) }, ...shareItems.filter((x) => x !== "-")], "Capsule");
       },
     },
     icon(c.kind === "project" ? "folder" : "doc"),
@@ -39,7 +42,7 @@ export function capsuleRow(app, c) {
       c.inShort ? h("div", { class: "s" }, c.inShort) : null,
     ),
     when ? h("span", { class: "when" }, when) : null,
-    h("div", { class: "acts" }, shareBtn, iconButton("eye", "Open", () => actions.openCapsule(c), "fade")),
+    h("div", { class: "acts" }, shareBtn, iconButton("eye", "Open", () => app.read({ file: c.file }), "fade")),
   );
   row.setAttribute("aria-label", [label, c.draft ? "Draft" : "", c.inShort, when].filter(Boolean).join(", "));
   return row;

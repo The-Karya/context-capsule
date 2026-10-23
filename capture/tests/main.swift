@@ -655,7 +655,7 @@ if let data = try? Data(contentsOf: caseFile), let cases = try? JSONSerializatio
         let name = c["name"] as? String ?? "?"
         let expect = c["expect"] as? [String: [String]] ?? [:]
         let got = ShareCheck.find(c["text"] as? String ?? "")
-        check(got.map(\.kind) == ShareCheck.Kind.allCases, "share check: all six groups, in order (\(name))")
+        check(got.map(\.kind) == ShareCheck.Kind.allCases, "share check: all four groups, in order (\(name))")
         for g in got {
             check(g.items == (expect[g.kind.rawValue] ?? ["<missing in json>"]), "share check: \(name) / \(g.kind.rawValue)",
                   "\(g.items) vs \(expect[g.kind.rawValue] ?? [])")
@@ -668,11 +668,21 @@ if let data = try? Data(contentsOf: caseFile), let cases = try? JSONSerializatio
 } else {
     check(false, "share check: cannot read \(caseFile.standardized.path)")
 }
-check(ShareCheck.find("## In short\nCall (020) 7946 0958 or 2026-10-19.\n")[2].items == ["020) 7946 0958"],
+check(ShareCheck.find("## In short\nCall (020) 7946 0958 or 2026-10-19.\n")[2].items == ["(020) 7946 0958"],
       "phones: a date is not a phone")
 check(ShareCheck.find("## People, links and files\n- **Ana**: design\n- the team\n- Bob 2\n")[0].items == ["Ana"],
       "people: only bullets that look like names")
 check(ShareCheck.find("x\n## Notes\n- Ana Lima\n")[0].items.isEmpty, "people: only in the People section")
+check(ShareCheck.find("## People, links and files\n- GitHub\n- Blog: https://saachis-blog.hashnode.dev/\n- Post\n")[0].items.isEmpty,
+      "people: sites, links and things are not people")
+check(ShareCheck.find("## People\n- Seán O'Neil-Ruiz; designer\n- McKay <m@x.co>\n- API\n")[0].items == ["Seán O'Neil-Ruiz", "McKay"],
+      "people: accents, apostrophes, ; and < end the name, all-caps is not a name")
+check(ShareCheck.find("See https://acme.com/pricing and http://localhost:3000/x")[3].items == ["http://localhost:3000/x"],
+      "links: only private ones")
+check(ShareCheck.isPrivateLink("https://u:p@acme.com/") && !ShareCheck.isPrivateLink("https://github.com/a/b"),
+      "links: a password in it is private, a public repo is not")
+check(ShareCheck.find("Paid $450 to @devraj, see ~/Documents/a.txt").allSatisfy { $0.items.isEmpty },
+      "money, @handles and files are not flagged")
 check(ShareCheck.find("Raised $1.5m. Mail a@b.co about https://e.com/a@b.co")[1].items == ["a@b.co"], "emails not inside links")
 check(ShareCheck.remove("Ana and Ana Lima", ["Ana", "Ana Lima"]) == "[removed] and [removed]", "remove: longest first")
 check(ShareCheck.remove("same", []) == "same", "remove: nothing checked")

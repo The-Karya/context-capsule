@@ -78,7 +78,11 @@ test("words", () => {
 });
 
 test("save summary", () => {
-  expect(A.saveSummary({ saved: [], refused: [] }).title).toBe("No capsules found");
+  const none = { title: "Nothing was saved", detail: "No capsules found in what you copied. Copy your AI's whole answer, then try again." };
+  expect(A.saveSummary({ saved: [], refused: [] })).toEqual(none);
+  const marker = { title: "Untitled", why: 'No capsule found in the pasted text. Copy the AI\'s whole answer: each capsule is between "=== CAPSULE ===" and "=== END ===".' };
+  expect(A.saveSummary({ saved: [], refused: [marker] })).toEqual(none);
+  expect(JSON.stringify(A.saveSummary({ saved: [], refused: [marker] }))).not.toContain("===");
   const r = { saved: [{ title: "Website", path: "/a" }], refused: [{ title: "Shop", why: "no Next steps" }, { title: "X", why: "" }] };
   expect(A.saveSummary(r)).toEqual({ title: "Saved 1 capsule", detail: "✓ Website\n\nNot saved:\n• Shop: no Next steps\n• X" });
   expect(A.saveSummary({ saved: [], refused: r.refused }).title).toBe("Nothing was saved");

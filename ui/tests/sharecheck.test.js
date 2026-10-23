@@ -1,7 +1,7 @@
 // context-capsule — ui: tests for Check before sharing (every case in spec/share-check.json, plus edges)
 import { test, expect } from "bun:test";
 import { readFileSync } from "node:fs";
-import { find, remove, body, nonEmpty, KINDS } from "../js/core/sharecheck.js";
+import { find, remove, body, nonEmpty, KINDS, isPrivateLink } from "../js/core/sharecheck.js";
 
 const cases = JSON.parse(readFileSync(new URL("../../spec/share-check.json", import.meta.url), "utf8"));
 const byKind = (groups) => Object.fromEntries(groups.map((g) => [g.kind, g.items]));
@@ -19,24 +19,35 @@ cases.remove.forEach((c, i) => {
 });
 
 test("groups in order with their titles", () => {
-  expect(KINDS.map((k) => k.title)).toEqual(["People", "Emails", "Phone numbers", "Links", "Money", "Files"]);
-  const g = find("Write to a@b.co about $5k and see https://x.io/a.");
+  expect(KINDS.map((k) => k.title)).toEqual(["People", "Emails", "Phone numbers", "Private links"]);
+  const g = find("Write to a@b.co about $5k, see https://x.io/a and http://localhost:8080/x.");
   expect(byKind(g).emails).toEqual(["a@b.co"]);
-  expect(byKind(g).money).toEqual(["$5k"]);
-  expect(byKind(g).links).toEqual(["https://x.io/a"]);
-  expect(nonEmpty(g).map((x) => x.title)).toEqual(["Emails", "Links", "Money"]);
+  expect(byKind(g).links).toEqual(["http://localhost:8080/x"]);
+  expect(nonEmpty(g).map((x) => x.title)).toEqual(["Emails", "Private links"]);
   expect(nonEmpty(find("Nothing here."))).toEqual([]);
 });
 
-test("edges", () => {
-  const f = byKind(find("Costs $1.5m, or 300 euros. Path /etc is short; /usr/local/bin is not. Call (020) 7946 0958 or 2026-10-19."));
-  expect(f.money).toEqual(["$1.5m", "300 euros"]);
-  expect(f.files).toEqual(["/usr/local/bin"]);
-  expect(f.phones).toEqual(["020) 7946 0958"]);
-  const g = byKind(find("Mail me@x.org, not @me.org. Ping @ana_b."));
-  expect(g.emails).toEqual(["me@x.org"]);
-  expect(g.people).toEqual(["@me", "@ana_b"]); // the Mac's handle rule: letters, digits, _
-  expect(byKind(find("Raised $2 million.")).money).toEqual(["$2 million"]);
+test("not flagged: capitalised words, handles, money, files, public links", () => {
+  const text = "## In short\nUsed GitHub, the Blog and a Post on Medium. Ping @devraj. Paid $2 million. "
+    + "Saved /usr/local/bin/x. Read https://saachis-blog.hashnode.dev/post and https://github.com/a/b?tab=readme.\n";
+  expect(nonEmpty(find(text))).toEqual([]);
+});
+
+test("People section: names flagged, things not", () => {
+  const text = "## People, links and files\n- GitHub\n- Blog\n- Post\n- API docs\n- the team\n- Bob 2\n"
+    + "- **Ana**: design\n- Ana Ruiz — client\n- Seán O'Neil (lawyer)\n- Mary-Jane McKay, PM\n- Ana Lima <ana@x.com>\n";
+  expect(byKind(find(text)).people).toEqual(["Ana", "Ana Ruiz", "Seán O'Neil", "Mary-Jane McKay", "Ana Lima"]);
+  expect(byKind(find("x\n## Notes\n- Ana Lima\n")).people).toEqual([]); // only in the People section
+});
+
+test("private links", () => {
+  for (const u of ["http://localhost:3000", "http://intranet/home", "https://a.b.com/x?api_key=1", "https://u:p@site.com/",
+    "https://docs.google.com/spreadsheets/d/abc/edit", "https://www.figma.com/design/pricing-v2", "https://www.dropbox.com/s/x/y.pdf",
+    "https://x.com/r?ref=Ab12Cd34Ef56Gh78Ij90"]) expect(isPrivateLink(u)).toBe(true);
+  for (const u of ["https://saachis-blog.hashnode.dev/", "https://github.com/Saachi26/ML-Journey", "https://docs.google.com/",
+    "https://www.youtube.com/watch?v=dQw4w9WgXcQ", "https://example.com/search?q=logistic+loss", "https://figma.com/community"]) {
+    expect(isPrivateLink(u)).toBe(false);
+  }
 });
 
 test("front matter: skipped by find (CRLF too), changed by remove", () => {

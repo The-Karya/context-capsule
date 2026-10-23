@@ -42,8 +42,8 @@ time) has everything in one place, with a sidebar:
   sent you (below). **Copy my day** and **Save from clipboard** are always here, for any AI (below).
 
 **Check before sharing.** Every share (Copy file, Copy text, Save a copy, More…) first lists what
-might be private — People, Emails, Phone numbers, Links, Money, Files — with a check box each (all
-on). **Share** sends a copy, same file name in a temporary folder, with the checked items replaced
+might be private — People, Emails, Phone numbers, Private links — with a check box each (all
+ticked), in a "Before you share" box. **Share** sends a copy, same file name in a temporary folder, with the checked items replaced
 by `[removed]`; the saved capsule never changes. Nothing found: no box, it just shares. Plain rules
 in `Core.swift` (`ShareCheck`), tested against `../spec/share-check.json`, the same cases as Windows/Linux.
 

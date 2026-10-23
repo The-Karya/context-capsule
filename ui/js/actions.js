@@ -172,25 +172,51 @@ export async function setChoice(app, id) {
   changed(app);
 }
 
-/** A capsule someone sent (picked, dropped or opened with the app): check it, then your AI carries on from it. */
-export async function continueFrom(app, path, text) {
+/** A capsule from outside (opened with the app, dropped, or picked): checked, then shown in the reading view. */
+export async function received(app, path, text) {
   if (!Caps.isCapsule(text)) {
     const name = path.split(/[\\/]/).pop();
     await alert({ title: "This isn't a capsule", message: `${name} isn't a Context Capsule file.` });
     return;
   }
-  return open(app, Caps.continuePrompt(path), "to read the capsule", "open the capsule again");
+  app.read({ path, text });
+}
+
+/** The reading view's "Continue in <AI>": your AI carries on from the capsule (an AI without the app gets it pasted). */
+export async function continueCapsule(app, { name, path, text, saved }) {
+  const kind = app.kind();
+  if (AI.usesCopy(kind)) {
+    await call("clipboard.write", { text: Caps.pastePrompt(text) }).catch(() => {});
+    if (kind.type === "website") call("open.url", { url: kind.url }).catch(() => {});
+    toast(`Copied. Paste it into ${app.aiName()}.`);
+    return;
+  }
+  const prompt = saved ? Caps.continueSavedPrompt(name) : Caps.continuePrompt(path);
+  return open(app, prompt, "to read the capsule", "click Continue again");
 }
 
 /** "Open a capsule…". */
 export async function pickCapsule(app) {
   const f = await call("capsule.pick").catch(() => null);
-  if (f) await continueFrom(app, f.path, f.text);
+  if (f) await received(app, f.path, f.text);
+}
+
+/** A saved capsule's text (null if it's gone). */
+export async function readCapsule(file) {
+  return (await read([file]).catch(() => ({})))[file] ?? null;
 }
 
 // ---------- sharing ----------
 
-/** Check before sharing: the cleaned text to share, undefined to share the file as it is, or null when cancelled. */
+/** A long item (a link) shortened in the middle, so its start and end both show: "https://docs.goo…/edit". */
+export function middle(text, max) {
+  const chars = [...text];
+  if (chars.length <= max) return text;
+  const head = Math.ceil((max - 1) * 0.6);
+  return chars.slice(0, head).join("") + "…" + chars.slice(chars.length - (max - 1 - head)).join("");
+}
+
+/** Before you share: the cleaned text to share, undefined to share the file as it is, or null when cancelled. */
 async function checked(file) {
   const text = (await read([file]))[file];
   if (text == null) return undefined;
@@ -203,12 +229,12 @@ async function checked(file) {
     for (const item of g.items) {
       const box = h("input", { type: "checkbox", checked: true });
       boxes.push([box, item]);
-      list.append(h("label", { title: item }, box, item));
+      list.append(h("label", { title: item }, box, h("span", null, middle(item, 48))));
     }
   }
   const i = await alert({
-    title: "Check before sharing",
-    message: "Checked items become [removed] in the copy you share. Your saved capsule stays the same.",
+    title: "Before you share",
+    message: "Ticked items are replaced with [removed] in the copy you share. Your capsule stays the same.",
     extra: list,
     wide: true,
     buttons: [{ text: "Cancel", kind: "cancel" }, { text: "Share", kind: "default" }],
@@ -236,6 +262,14 @@ export async function share(app, c, how) {
   }
 }
 
-export function openCapsule(c) {
-  call("capsule.open", { file: c.file }).catch(() => {});
+/** The Share menu for a saved capsule: Copy file, Copy text, Save a copy…, Show in Finder (and More… on a Mac). */
+export function shareItems(app, c) {
+  const items = [
+    { text: "Copy file", action: () => share(app, c, "copy-file") },
+    { text: "Copy text", action: () => share(app, c, "copy-text") },
+    { text: "Save a copy…", action: () => share(app, c, "save-copy") },
+    { text: Caps.showLabel(app.platform), action: () => share(app, c, "reveal") },
+  ];
+  if (app.platform === "mac") items.push("-", { text: "More…", action: () => share(app, c, "more") });
+  return items;
 }
