@@ -424,6 +424,11 @@ pub fn node(dc: HDC, fonts: &mut Fonts, t: &Theme, n: &Node, dy: f64, feel: Feel
             }
             text(dc, fonts, p, s2, Font::SmallStrong, t.text2, Align::Center, 1);
         }
+        Node::Swatch { r, colour } => {
+            let p = px(*r);
+            let g = Shapes::on(dc);
+            g.fill(p, p[3].min(p[2]) / 2.0, colour.map_or(t.track, |c| t.colour(c)));
+        }
         Node::Bubble(r) => {
             let g = Shapes::on(dc);
             g.fill(px(*r), 12.0 * k, mix(t.accent, t.card, if t.dark { 0.22 } else { 0.12 }));
@@ -485,6 +490,14 @@ fn button(dc: HDC, fonts: &mut Fonts, t: &Theme, p: [f32; 4], label: &str, icon:
                 } else {
                     g.fill(b, 4.0 * k, t.field);
                     g.stroke(b, 4.0 * k, t.text2, k);
+                }
+            }
+            Style::Cell { selected } => {
+                if selected {
+                    g.fill(p, 4.0 * k, t.accent);
+                    ink = t.on_accent;
+                } else if enabled && (feel.hover || feel.pressed) {
+                    g.fill(p, 4.0 * k, if feel.pressed { t.subtle_selected } else { t.subtle_hover });
                 }
             }
             Style::Nav { selected } | Style::Row { selected } => {

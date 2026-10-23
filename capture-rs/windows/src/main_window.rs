@@ -1,6 +1,6 @@
 // context-capsule — windows: the Context Capsule window — one place for everything: Home (start / stop, speak a
 // note, add a screen, what you're working on, time per project, recent capsules, make today's capsules with your
-// AI), Timeline (a day as it was recorded: search, Show all, delete, make a capsule from a recording), Capsules (with Copy my day / Save from clipboard), Projects, Settings (set up, Connect your AI, Your AI and
+// AI), Timeline (a day in stretches: day bar, where the time went, recordings to open; search, delete, make a capsule from a recording), Capsules (with Copy my day / Save from clipboard), Projects, Settings (set up, Connect your AI, Your AI and
 // preferences) and Help. Opens from the tray ("Open Context Capsule"), and by
 // itself on Settings the first time.
 //! A plain Win32 window drawn in code with Windows 11's look (Segoe UI Variable, system colors and accent, light
@@ -62,8 +62,6 @@ const STATS_EVERY_MS: u32 = 60_000;
 const TIMELINE_EVERY: u32 = 5;
 /// "this PC", in the Timeline's delete questions.
 const THIS_PC: &str = "this PC";
-/// The Timeline's day menu: at most this many days.
-const DAYS_IN_MENU: usize = 30;
 /// From a text box: Tab (wParam 1 = backwards), Enter, Esc.
 const WM_FIELD_TAB: u32 = WM_APP + 20;
 const WM_FIELD_ENTER: u32 = WM_APP + 21;
@@ -1229,15 +1227,67 @@ fn perform(action: Action, at: POINT) {
                 w.rebuild();
             });
         }
-        Action::Day => {
-            let Some((current, recorded)) = with_win(|w| (w.timeline.date, w.timeline.recorded.clone())) else { return };
+        Action::DayBefore => {
+            with_win(|w| w.timeline_day(tl::day_before(w.timeline.date)));
+        }
+        Action::DayAfter => {
             let today = context_capsule_core::capsules::today();
-            let days = tl::picker_days(&recorded, today, DAYS_IN_MENU);
-            let labels: Vec<String> = days.iter().map(|d| tl::day_label(*d, today)).collect();
-            let checked = days.iter().position(|d| *d == current);
-            if let Some(i) = menu(hwnd, &labels, checked, at) {
-                with_win(|w| w.timeline_day(days[i]));
-            }
+            with_win(|w| {
+                if let Some(d) = tl::day_after(w.timeline.date, today) {
+                    w.timeline_day(d);
+                }
+            });
+        }
+        Action::DayToday => {
+            with_win(|w| w.timeline_day(context_capsule_core::capsules::today()));
+        }
+        Action::Calendar => {
+            use chrono::Datelike;
+            with_win(|w| {
+                let d = w.timeline.date;
+                w.timeline.calendar = if w.timeline.calendar.is_some() { None } else { Some((d.year(), d.month())) };
+                w.rebuild();
+            });
+        }
+        Action::CalendarMonth(delta) => {
+            with_win(|w| {
+                w.timeline.calendar_month(delta, context_capsule_core::capsules::today());
+                w.rebuild();
+            });
+        }
+        Action::PickDay(date) => {
+            with_win(|w| w.timeline_day(date));
+        }
+        Action::ToggleBlock(session) => {
+            with_win(|w| {
+                w.timeline.toggle(&session);
+                w.rebuild();
+            });
+        }
+        Action::OpenStretch(key) => {
+            with_win(|w| {
+                w.timeline.open_stretch(&key);
+                w.rebuild();
+                // Scroll so the stretch is near the top.
+                let at = w.placed.iter().find(|(n, r)| *r == Region::Content && n.action() == Some(&Action::DeleteStretch(key.clone()))).map(|(n, _)| n.rect().y);
+                if let Some(y) = at {
+                    w.scroll_to(y - 16.0);
+                }
+            });
+        }
+        Action::ShowReads(key) => {
+            with_win(|w| {
+                if !w.timeline.reads_open.remove(&key) {
+                    w.timeline.reads_open.insert(key);
+                }
+                w.rebuild();
+            });
+        }
+        Action::MoreReads(key) => {
+            with_win(|w| {
+                *w.timeline.reads_limit.entry(key).or_insert(tl::PAGE) += tl::PAGE;
+                w.rebuild();
+            });
         }
         Action::ShowAll(key) => {
             with_win(|w| {
@@ -1247,36 +1297,32 @@ fn perform(action: Action, at: POINT) {
                 w.rebuild();
             });
         }
-        Action::MoreMoments => {
-            with_win(|w| {
-                w.timeline.limit += tl::PAGE;
-                w.rebuild();
-            });
-        }
         Action::MakeFrom(session) => ai::make_from_session(&ctx.ui, &ctx.log, &session),
-        Action::DeleteMoment(key) => {
+        Action::DeleteRead(key) => {
+            // From the whole day (a search shows only part of it).
             let Some(m) = with_win(|w| w.timeline.day().and_then(|d| d.find(&key)).cloned()).flatten() else { return };
-            if menu(hwnd, &[tl::DELETE_MOMENT_MENU.to_string()], None, at) != Some(0) {
+            let (item, question) = if m.is_note() { (tl::delete_note_menu(&m), tl::delete_note_question(&m)) } else { (tl::DELETE_READ_MENU, tl::DELETE_READ) };
+            if menu(hwnd, &[item.to_string()], None, at) != Some(0) || still_recording(hwnd, &status, &m.session) {
                 return;
             }
-            if status.recording && status.session_id.as_deref() == Some(m.session.as_str()) {
-                let (title, body) = tl::Refused::Recording.message();
-                win::alert(Some(hwnd), &title, &body);
+            if input::ask_choice(question, &tl::delete_read_detail(THIS_PC), tl::DELETE, tl::CANCEL) {
+                let done = tl::delete_read(&ctx.paths, &m);
+                timeline_deleted(hwnd, &ctx, done, if m.is_note() { "note" } else { "read" });
+            }
+        }
+        Action::DeleteStretch(key) => {
+            let Some(s) = with_win(|w| w.timeline.day().and_then(|d| d.stretch(&key)).cloned()).flatten() else { return };
+            if menu(hwnd, &[tl::DELETE_STRETCH_MENU.to_string()], None, at) != Some(0) || still_recording(hwnd, &status, &s.session) {
                 return;
             }
-            if input::ask_choice(tl::DELETE_MOMENT, &tl::delete_moment_detail(THIS_PC), tl::DELETE, tl::CANCEL) {
-                let done = tl::delete_moment(&ctx.paths, &m.session, m.index, &m.t_raw, &m.line);
-                timeline_deleted(hwnd, &ctx, done, "moment");
+            if input::ask_choice(tl::DELETE_STRETCH, &tl::delete_stretch_detail(&s, THIS_PC), tl::DELETE, tl::CANCEL) {
+                let done = tl::delete_stretch(&ctx.paths, &s);
+                timeline_deleted(hwnd, &ctx, done, "stretch");
             }
         }
         Action::DeleteBlock(session) => {
             let Some(block) = with_win(|w| w.timeline.day().and_then(|d| d.block(&session)).cloned()).flatten() else { return };
-            if menu(hwnd, &[tl::DELETE_BLOCK_MENU.to_string()], None, at) != Some(0) {
-                return;
-            }
-            if status.recording && status.session_id.as_deref() == Some(session.as_str()) {
-                let (title, body) = tl::Refused::Recording.message();
-                win::alert(Some(hwnd), &title, &body);
+            if menu(hwnd, &[tl::DELETE_BLOCK_MENU.to_string()], None, at) != Some(0) || still_recording(hwnd, &status, &session) {
                 return;
             }
             if input::ask_choice(tl::DELETE_BLOCK, &tl::delete_block_detail(&block, THIS_PC), tl::DELETE, tl::CANCEL) {
@@ -1303,6 +1349,16 @@ fn perform(action: Action, at: POINT) {
             }
         }
     }
+}
+
+/// That recording is still going: say "Stop first" (true), before a delete is asked about.
+fn still_recording(hwnd: HWND, status: &Status, session: &str) -> bool {
+    let going = status.recording && status.session_id.as_deref() == Some(session);
+    if going {
+        let (title, body) = tl::Refused::Recording.message();
+        win::alert(Some(hwnd), &title, &body);
+    }
+    going
 }
 
 /// After a delete on the Timeline: say why it didn't happen, or read the day (and Home's numbers) again.

@@ -328,10 +328,10 @@ mod win {
         open(ui, log, &search_prompt(question), "to search your capsules", "click Ask again", "ask your AI");
     }
 
-    /// Timeline → "Make a capsule from this": your AI reads that recording (get_session_activity).
+    /// Timeline → "Make a capsule": your AI reads that recording (get_session_activity).
     pub fn make_from_session(ui: &Ui, log: &AppLog, session: &str) {
         let prompt = context_capsule_core::timeline::session_prompt(session);
-        open(ui, log, &prompt, "to read the recording", "click Make a capsule from this again", "make a capsule from a recording");
+        open(ui, log, &prompt, "to read the recording", "click Make a capsule again", "make a capsule from a recording");
     }
 
     /// A capsule someone sent (Open with, or "Open a capsule…"): your AI carries on from it. Not a capsule: say so.

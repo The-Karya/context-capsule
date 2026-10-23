@@ -11,10 +11,10 @@ use context_capsule_core::capsules::{self, CapsuleSummary};
 use context_capsule_core::share_check::{self, Kind};
 use context_capsule_core::settings::{self, Appearance};
 use context_capsule_core::shortcuts::{self as keys, Which};
-use context_capsule_core::timeline::{self as tl, Day, Item, MomentKey, Row};
+use context_capsule_core::timeline::{self as tl, Block, Colour, Day, Item, Moment, MomentKey, Stretch, StretchKey};
 use context_capsule_core::window::{self as w, HomeNumbers, Keys, Section};
 use context_capsule_core::{Config, Project, Status};
-use std::collections::HashSet;
+use std::collections::{HashMap, HashSet};
 use std::path::PathBuf;
 use std::time::SystemTime;
 
@@ -118,6 +118,8 @@ pub enum Style {
     Dropdown,
     /// A full-width row with a check box on the left ("Check before sharing").
     Check { on: bool },
+    /// A day in the Timeline's calendar: centered, highlighted when it's the day shown.
+    Cell { selected: bool },
 }
 
 /// The text boxes the window shows (real Windows edit controls, placed where the layout says).
@@ -225,14 +227,25 @@ pub enum Action {
     /// Settings → Shortcuts: record new keys for one, or put back the defaults.
     Shortcut(Which),
     ResetShortcuts,
-    /// Timeline: the day (a list of days), Show all / Show less, delete a moment or a whole recording (after a
-    /// confirm), make a capsule from a recording with Your AI, and more moments.
-    Day,
+    /// Timeline: the day control (‹, the date's calendar, ›, Today; the calendar's month and its days).
+    DayBefore,
+    DayAfter,
+    DayToday,
+    Calendar,
+    CalendarMonth(i32),
+    PickDay(chrono::NaiveDate),
+    /// Timeline: open or close a recording; a day bar segment (opens its recording, scrolls to the stretch); Show
+    /// what was read and more of it; Show all / Show less; delete a read or note, a stretch or a whole recording
+    /// (after a confirm); make a capsule from a recording with Your AI.
+    ToggleBlock(String),
+    OpenStretch(StretchKey),
+    ShowReads(StretchKey),
+    MoreReads(StretchKey),
     ShowAll(MomentKey),
-    DeleteMoment(MomentKey),
+    DeleteRead(MomentKey),
+    DeleteStretch(StretchKey),
     DeleteBlock(String),
     MakeFrom(String),
-    MoreMoments,
     /// Home → "See today's timeline".
     SeeTimeline,
 }
@@ -260,6 +273,8 @@ pub enum Node {
     Badge { r: Rect, text: String },
     /// A speech bubble (a voice or typed note on the Timeline).
     Bubble(Rect),
+    /// A rounded patch of a project's colour (the Timeline's day bar, its dots and time bars); None: the empty track.
+    Swatch { r: Rect, colour: Option<Colour> },
 }
 
 impl Node {
@@ -278,6 +293,7 @@ impl Node {
             | Node::Key { r, .. }
             | Node::Pill { r, .. }
             | Node::Badge { r, .. }
+            | Node::Swatch { r, .. }
             | Node::Field { r, .. } => *r,
         }
     }
@@ -307,6 +323,7 @@ pub mod glyph {
     pub const MORE: &str = "\u{E712}";
     pub const CHEVRON: &str = "\u{E70D}";
     pub const CHEVRON_RIGHT: &str = "\u{E76C}";
+    pub const CHEVRON_LEFT: &str = "\u{E76B}";
     pub const MIC: &str = "\u{E720}";
     pub const LINK: &str = "\u{E71B}";
     pub const POWER: &str = "\u{E7E8}";
@@ -384,8 +401,8 @@ pub struct TimelineData {
     pub recorded: Vec<chrono::NaiveDate>,
 }
 
-/// The Timeline page's state: the day shown (None while it's read), its search, the moments opened with Show all,
-/// and how many moments show before "Show more".
+/// The Timeline page's state: the day shown (None while it's read), its search, and what's open on it — kept
+/// when Today is read again while recording.
 #[derive(Clone, Debug)]
 pub struct TimelineView {
     pub date: chrono::NaiveDate,
@@ -393,24 +410,45 @@ pub struct TimelineView {
     /// The day filtered by `search`, while searching (kept, so a big day isn't searched again on every repaint).
     shown: Option<Day>,
     pub search: String,
+    /// Recordings opened or closed by hand (open = the default, flipped).
+    pub toggled: HashSet<String>,
+    /// Stretches with Show what was read open, and how many of their reads show.
+    pub reads_open: HashSet<StretchKey>,
+    pub reads_limit: HashMap<StretchKey, usize>,
+    /// Reads opened with Show all.
     pub expanded: HashSet<MomentKey>,
-    pub limit: usize,
     pub recorded: Vec<chrono::NaiveDate>,
+    /// The month calendar under the date, while it's open: (year, month).
+    pub calendar: Option<(i32, u32)>,
 }
 
 impl TimelineView {
     pub fn new(date: chrono::NaiveDate) -> TimelineView {
-        TimelineView { date, day: None, shown: None, search: String::new(), expanded: HashSet::new(), limit: tl::PAGE, recorded: vec![] }
+        TimelineView {
+            date,
+            day: None,
+            shown: None,
+            search: String::new(),
+            toggled: HashSet::new(),
+            reads_open: HashSet::new(),
+            reads_limit: HashMap::new(),
+            expanded: HashSet::new(),
+            recorded: vec![],
+            calendar: None,
+        }
     }
 
     /// Another day: nothing shown until it's read.
     pub fn go_to(&mut self, date: chrono::NaiveDate) {
+        self.calendar = None;
         if date != self.date {
             self.date = date;
             self.day = None;
             self.shown = None;
+            self.toggled.clear();
+            self.reads_open.clear();
+            self.reads_limit.clear();
             self.expanded.clear();
-            self.limit = tl::PAGE;
         }
     }
 
@@ -427,15 +465,14 @@ impl TimelineView {
         if search != self.search {
             self.search = search.to_string();
             self.shown = if self.searching() { self.day.as_ref().map(|d| d.search(search)) } else { None };
-            self.limit = tl::PAGE;
         }
     }
 
-    fn searching(&self) -> bool {
+    pub fn searching(&self) -> bool {
         self.search.split_whitespace().next().is_some()
     }
 
-    /// What the page shows (the search applied); None while reading.
+    /// What the recordings list shows (the search applied); None while reading.
     pub fn shown(&self) -> Option<&Day> {
         if self.searching() {
             self.shown.as_ref()
@@ -444,8 +481,41 @@ impl TimelineView {
         }
     }
 
+    /// The whole day (the header, the day bar and Where your time went; deleting).
     pub fn day(&self) -> Option<&Day> {
         self.day.as_ref()
+    }
+
+    /// A recording is open: by default the one still recording (while searching: those with a match), unless
+    /// opened or closed by hand.
+    pub fn is_open(&self, b: &Block) -> bool {
+        let default = if self.searching() { !b.items.is_empty() } else { b.live };
+        default != self.toggled.contains(&b.session)
+    }
+
+    /// Open or close a recording.
+    pub fn toggle(&mut self, session: &str) {
+        if !self.toggled.remove(session) {
+            self.toggled.insert(session.to_string());
+        }
+    }
+
+    /// The day bar: open the stretch's recording.
+    pub fn open_stretch(&mut self, key: &StretchKey) {
+        let closed = self.shown().and_then(|d| d.block(&key.0)).is_some_and(|b| !self.is_open(b));
+        if closed {
+            self.toggle(&key.0);
+        }
+    }
+
+    /// The calendar's month, one back or on (never past this month).
+    pub fn calendar_month(&mut self, delta: i32, today: chrono::NaiveDate) {
+        use chrono::Datelike;
+        let Some((y, m)) = self.calendar else { return };
+        let n = y * 12 + m as i32 - 1 + delta;
+        if n < today.year() * 12 + today.month() as i32 {
+            self.calendar = Some((n.div_euclid(12), n.rem_euclid(12) as u32 + 1));
+        }
     }
 }
 
@@ -1126,109 +1196,228 @@ fn share_page(col: &mut Col, share: &ShareView) {
 
 // MARK: Timeline
 
-/// The Timeline: the day (a list of days) and a search box, then each recording — its line, Make a capsule from
-/// this and ⋯ (Delete this recording…) — with its moments, notes and gaps in one card; "Off" between recordings;
-/// at most `limit` moments, then "Show more". The Mac's words and order (TimelineView.swift).
+/// The Timeline, top to bottom (SPEC "Timeline"; the Mac's TimelineView.swift): the day control (‹ date ›, Today)
+/// and search, the month calendar while it's open, "1 h 50 min recorded · 3 recordings", the day bar, Where your
+/// time went, then the recordings, each folded to one line (open: its stretches, notes and gaps in one card).
 fn timeline_page(col: &mut Col, v: &View) {
     let tv = v.timeline;
-    let label = tl::day_label(tv.date, v.today);
-    let dw = button_width(col.m, &label, Style::Dropdown).max(150.0);
-    col.nodes.push(Node::Button { r: Rect::new(col.x, col.y, dw, BUTTON_H), action: Action::Day, label, icon: None, style: Style::Dropdown, enabled: true, check: false });
-    col.nodes.push(Node::Field { r: Rect::new(col.x + dw + 8.0, col.y, (col.w - dw - 8.0).max(80.0), BUTTON_H), field: Field::TimelineSearch });
-    col.gap(BUTTON_H + 12.0);
-    col.para(&tl::intro(v.keys.this_computer), Font::Small, Ink::Secondary);
-    col.gap(GAP);
-
-    let Some(day) = tv.shown() else {
+    day_control(col, v);
+    if let Some((year, month)) = tv.calendar {
+        calendar(col, v, year, month);
+    }
+    let (Some(day), Some(shown)) = (tv.day(), tv.shown()) else {
         col.para(tl::LOADING, Font::Body, Ink::Secondary);
         return;
     };
+    col.para(&day.summary(), Font::Small, Ink::Secondary);
+    col.gap(GAP);
     if day.is_empty() {
-        let searching = tv.day().is_some_and(|d| !d.is_empty());
-        col.para(&tl::empty_line(searching, tv.date == v.today, &v.keys.record), Font::Body, Ink::Secondary);
+        col.para(&tl::empty_line(false, tv.date == v.today, &v.keys.record), Font::Body, Ink::Secondary);
         return;
     }
-    let (rows, more) = day.rows(tv.limit);
-    // Group the rows: an "Off" line, a recording's header, then its items in one card.
-    let mut i = 0;
-    while i < rows.len() {
-        match &rows[i] {
-            Row::Off(text) => {
-                let h = col.text_h(text, Font::Small, col.w, 1);
-                col.nodes.push(Node::Text { r: Rect::new(col.x, col.y, col.w, h), text: text.clone(), font: Font::Small, ink: Ink::Secondary, align: Align::Center, lines: 1 });
-                col.gap(h + GAP);
-                i += 1;
-            }
-            Row::Block(b) => {
-                block_header(col, b, &v.data.projects);
-                let mut items: Vec<&Item> = vec![];
-                i += 1;
-                while let Some(Row::Item(_, item)) = rows.get(i) {
-                    items.push(item);
-                    i += 1;
-                }
-                if items.is_empty() {
-                    col.para(tl::NOTHING_IN_IT, Font::Small, Ink::Secondary);
-                } else {
-                    col.card(|out, x, w, top, m| timeline_items(out, m, x, w, top, &items, tv, &v.data.projects));
-                }
-                col.gap(GAP);
-            }
-            Row::Item(..) => i += 1,
-        }
+    if let Some(bar) = day.bar() {
+        col.card(|out, x, w, top, m| day_bar(out, m, x, w, top, &bar));
+        col.gap(GAP);
+        col.caption(tl::WHERE_TIME_WENT);
+        let shares = day.time_went(&v.data.projects);
+        col.card(|out, x, w, top, m| time_went(out, m, x, w, top, &shares));
+        col.gap(GAP);
     }
-    if more {
-        col.button(col.x, tl::SHOW_MORE, Action::MoreMoments, Style::Standard);
-        col.gap(BUTTON_H);
+    col.caption(tl::RECORDINGS);
+    if tv.searching() && shown.blocks.iter().all(|b| b.items.is_empty()) {
+        col.para(tl::NO_MATCHES, Font::Body, Ink::Secondary);
+        col.gap(12.0);
+    }
+    for b in &shown.blocks {
+        let open = tv.is_open(b);
+        // Its line from the whole recording (a search leaves only part of it).
+        block_header(col, day.block(&b.session).unwrap_or(b), open, &v.data.projects);
+        if open {
+            if b.items.is_empty() {
+                let none = if tv.searching() { tl::NO_MATCHES } else { tl::NOTHING_IN_IT };
+                col.para(none, Font::Small, Ink::Secondary);
+            } else {
+                col.card(|out, x, w, top, m| timeline_items(out, m, x, w, top, b, day, tv, &v.data.projects));
+            }
+            col.gap(12.0);
+        }
+        col.gap(4.0);
     }
 }
 
-/// "10:02 – 11:30 · 12 moments · Website" (a red dot and "Recording now" while it records), then Make a capsule
-/// from this and ⋯ on the right.
-fn block_header(col: &mut Col, b: &tl::Block, projects: &[Project]) {
-    let line = b.line(projects);
-    let mw = button_width(col.m, tl::MAKE_FROM_THIS, Style::Standard);
+/// "‹  Thursday 23 October  ›" (the date opens the calendar), Today when another day is shown, and the search box.
+fn day_control(col: &mut Col, v: &View) {
+    let tv = v.timeline;
+    let title = tl::day_title(tv.date, v.today);
+    let mut x = col.x;
+    let icon = |x: f64, glyph: &'static str, action: Action, enabled: bool| Node::Button {
+        r: Rect::new(x, col.y, BUTTON_H, BUTTON_H),
+        action,
+        label: String::new(),
+        icon: Some(glyph),
+        style: Style::Subtle,
+        enabled,
+        check: false,
+    };
+    let back = icon(x, glyph::CHEVRON_LEFT, Action::DayBefore, true);
+    col.nodes.push(back);
+    x += BUTTON_H + 4.0;
+    let dw = button_width(col.m, &title, Style::Dropdown);
+    col.nodes.push(Node::Button { r: Rect::new(x, col.y, dw, BUTTON_H), action: Action::Calendar, label: title, icon: None, style: Style::Dropdown, enabled: true, check: false });
+    x += dw + 4.0;
+    let on = icon(x, glyph::CHEVRON_RIGHT, Action::DayAfter, tl::day_after(tv.date, v.today).is_some());
+    col.nodes.push(on);
+    x += BUTTON_H + 8.0;
+    if tv.date != v.today {
+        x += col.button(x, tl::TODAY, Action::DayToday, Style::Standard) + 8.0;
+    }
+    let room = col.x + col.w - x;
+    if room >= 200.0 {
+        let fw = room.min(320.0);
+        col.nodes.push(Node::Field { r: Rect::new(col.x + col.w - fw, col.y, fw, BUTTON_H), field: Field::TimelineSearch });
+        col.gap(BUTTON_H + 8.0);
+    } else {
+        col.gap(BUTTON_H + 8.0);
+        col.nodes.push(Node::Field { r: Rect::new(col.x, col.y, col.w, BUTTON_H), field: Field::TimelineSearch });
+        col.gap(BUTTON_H + 8.0);
+    }
+}
+
+/// Calendar cells.
+const CELL_W: f64 = 40.0;
+const CELL_H: f64 = 34.0;
+
+/// The month calendar under the date: ‹ October 2026 ›, the weekdays, then its days (a dot on days with a
+/// recording; days after today can't be picked). Picking a day closes it.
+fn calendar(col: &mut Col, v: &View, year: i32, month: u32) {
+    use chrono::Datelike;
+    let tv = v.timeline;
+    let dots = tl::recorded_in_month(&tv.recorded, year, month);
+    let w = 7.0 * CELL_W + 2.0 * CARD_PAD;
+    let saved = (col.x, col.w);
+    col.w = w.min(col.w);
+    col.card(|out, x, _w, top, m| {
+        let mut y = top + 12.0;
+        let left = x + CARD_PAD;
+        let right = left + 7.0 * CELL_W;
+        let arrow = |x: f64, y: f64, glyph: &'static str, delta: i32, enabled: bool| Node::Button {
+            r: Rect::new(x, y, BUTTON_H, BUTTON_H),
+            action: Action::CalendarMonth(delta),
+            label: String::new(),
+            icon: Some(glyph),
+            style: Style::Subtle,
+            enabled,
+            check: false,
+        };
+        out.push(arrow(left, y, glyph::CHEVRON_LEFT, -1, true));
+        let later = (year, month) < (v.today.year(), v.today.month());
+        out.push(arrow(right - BUTTON_H, y, glyph::CHEVRON_RIGHT, 1, later));
+        let title = tl::month_title(year, month);
+        let th = m.text(&title, Font::Strong, right - left - 2.0 * BUTTON_H, 1).1;
+        out.push(Node::Text { r: Rect::new(left + BUTTON_H, y + (BUTTON_H - th) / 2.0, right - left - 2.0 * BUTTON_H, th), text: title, font: Font::Strong, ink: Ink::Primary, align: Align::Center, lines: 1 });
+        y += BUTTON_H + 6.0;
+        for (i, head) in tl::WEEKDAYS.iter().enumerate() {
+            let hh = m.text(head, Font::Small, CELL_W, 1).1;
+            out.push(Node::Text { r: Rect::new(left + i as f64 * CELL_W, y, CELL_W, hh), text: (*head).into(), font: Font::Small, ink: Ink::Secondary, align: Align::Center, lines: 1 });
+        }
+        y += 20.0;
+        for week in tl::month_weeks(year, month) {
+            for (i, d) in week.iter().enumerate() {
+                let Some(d) = d else { continue };
+                let r = Rect::new(left + i as f64 * CELL_W + 2.0, y + 1.0, CELL_W - 4.0, CELL_H - 2.0);
+                out.push(Node::Button { r, action: Action::PickDay(*d), label: d.day().to_string(), icon: None, style: Style::Cell { selected: *d == tv.date }, enabled: *d <= v.today, check: false });
+                if dots.contains(&d.day()) {
+                    out.push(Node::Swatch { r: Rect::new(r.x + r.w / 2.0 - 2.0, r.bottom() - 6.0, 4.0, 4.0), colour: Some(Colour::Grey) });
+                }
+            }
+            y += CELL_H;
+        }
+        y + 10.0
+    });
+    (col.x, col.w) = saved;
+    col.gap(12.0);
+}
+
+/// The day bar: the stretches in their colours from the first one's hour to the last one's, hour labels under it.
+/// A segment opens its recording.
+fn day_bar(out: &mut Vec<Node>, m: &dyn Measure, x: f64, w: f64, top: f64, bar: &tl::DayBar) -> f64 {
+    let (left, width) = (x + CARD_PAD, w - 2.0 * CARD_PAD);
+    let y = top + CARD_PAD + 4.0;
+    let h = 14.0;
+    out.push(Node::Swatch { r: Rect::new(left, y, width, h), colour: None });
+    let mut taken = left;
+    for s in &bar.segments {
+        let sx = left + s.from * width;
+        let sw = ((s.to - s.from) * width).max(3.0).min(left + width - sx);
+        // The click area first (its hover shows around the colour), never over the one before.
+        let cx = sx.max(taken);
+        if sx + sw - cx >= 1.0 {
+            out.push(Node::Button { r: Rect::new(cx, y - 4.0, sx + sw - cx, h + 8.0), action: Action::OpenStretch(s.key.clone()), label: String::new(), icon: None, style: Style::Subtle, enabled: true, check: false });
+            taken = sx + sw;
+        }
+        out.push(Node::Swatch { r: Rect::new(sx, y, sw, h), colour: Some(s.colour) });
+    }
+    let ly = y + h + 6.0;
+    let mut last_right = f64::MIN;
+    let mut lh: f64 = 0.0;
+    for (at, label) in &bar.hours {
+        let (lw, th) = m.text(label, Font::Small, 100.0, 1);
+        let lx = (left + at * width - lw / 2.0).clamp(left, left + width - lw);
+        if lx < last_right + 8.0 {
+            continue;
+        }
+        out.push(Node::Text { r: Rect::new(lx, ly, lw, th), text: label.clone(), font: Font::Small, ink: Ink::Secondary, align: Align::Center, lines: 1 });
+        last_right = lx + lw;
+        lh = lh.max(th);
+    }
+    ly + lh + CARD_PAD
+}
+
+/// Where your time went: a row per project (or app): its name, a bar in its colour, the time.
+fn time_went(out: &mut Vec<Node>, m: &dyn Measure, x: f64, w: f64, top: f64, shares: &[tl::Share]) -> f64 {
+    let name_w = ((w - 2.0 * CARD_PAD) * 0.32).clamp(80.0, 200.0);
+    let time_w = 80.0;
+    let mut y = top + CARD_PAD;
+    for s in shares {
+        let lh = m.text(&s.name, Font::Body, name_w, 1).1.max(20.0);
+        let ink = if s.colour == Colour::Grey { Ink::Secondary } else { Ink::Primary };
+        out.push(Node::Text { r: Rect::new(x + CARD_PAD, y, name_w, lh), text: s.name.clone(), font: Font::Body, ink, align: Align::Left, lines: 1 });
+        let bx = x + CARD_PAD + name_w + 12.0;
+        let bw = (w - 2.0 * CARD_PAD - name_w - 12.0 - time_w - 12.0).max(20.0);
+        let by = y + (lh - 8.0) / 2.0;
+        out.push(Node::Swatch { r: Rect::new(bx, by, bw, 8.0), colour: None });
+        out.push(Node::Swatch { r: Rect::new(bx, by, (bw * s.share).max(6.0).min(bw), 8.0), colour: Some(s.colour) });
+        out.push(Node::Text { r: Rect::new(x + w - CARD_PAD - time_w, y, time_w, lh), text: s.time.clone(), font: Font::Small, ink: Ink::Secondary, align: Align::Right, lines: 1 });
+        y += lh + 10.0;
+    }
+    y - 10.0 + CARD_PAD
+}
+
+/// A recording on one line: ˃ "10:00 – 11:40 · 1 h 40 min · Website, Client report" (opens it; a red dot and
+/// "Recording now" while it records), then Make a capsule and ⋯ (Delete this recording…) on the right.
+fn block_header(col: &mut Col, b: &Block, open: bool, projects: &[Project]) {
+    let mw = button_width(col.m, tl::MAKE_CAPSULE, Style::Standard);
     let dw = 36.0;
     let right = col.x + col.w;
-    let room = (col.w - mw - dw - 16.0).max(60.0);
-    let mut x = col.x + 4.0;
+    let live_w = if b.live { col.text_w(tl::RECORDING_NOW, Font::Small) + 24.0 } else { 0.0 };
+    let row_w = (col.w - mw - dw - 12.0 - live_w).max(60.0);
+    col.nodes.push(Node::Button {
+        r: Rect::new(col.x, col.y, row_w, BUTTON_H),
+        action: Action::ToggleBlock(b.session.clone()),
+        label: b.line(projects),
+        icon: Some(if open { glyph::CHEVRON } else { glyph::CHEVRON_RIGHT }),
+        style: Style::Row { selected: false },
+        enabled: true,
+        check: false,
+    });
     if b.live {
+        let x = col.x + row_w + 8.0;
         col.nodes.push(Node::Dot { r: Rect::new(x, col.y + (BUTTON_H - 8.0) / 2.0, 8.0, 8.0), on: true });
-        x += 16.0;
-    }
-    let live_w = if b.live { col.text_w(tl::RECORDING_NOW, Font::Small) + 12.0 } else { 0.0 };
-    let lw = col.text_w(&line, Font::Strong).min((col.x + room - x - live_w).max(40.0));
-    let th = col.text_h(&line, Font::Strong, lw, 1);
-    col.nodes.push(Node::Text { r: Rect::new(x, col.y + (BUTTON_H - th) / 2.0, lw, th), text: line, font: Font::Strong, ink: Ink::Primary, align: Align::Left, lines: 1 });
-    if b.live {
         let sh = col.text_h(tl::RECORDING_NOW, Font::Small, live_w, 1);
-        col.nodes.push(Node::Text {
-            r: Rect::new(x + lw + 12.0, col.y + (BUTTON_H - sh) / 2.0, live_w - 12.0, sh),
-            text: tl::RECORDING_NOW.into(),
-            font: Font::Small,
-            ink: Ink::Secondary,
-            align: Align::Left,
-            lines: 1,
-        });
+        col.nodes.push(Node::Text { r: Rect::new(x + 14.0, col.y + (BUTTON_H - sh) / 2.0, live_w - 24.0, sh), text: tl::RECORDING_NOW.into(), font: Font::Small, ink: Ink::Secondary, align: Align::Left, lines: 1 });
     }
-    col.nodes.push(Node::Button {
-        r: Rect::new(right - dw - 4.0 - mw, col.y, mw, BUTTON_H),
-        action: Action::MakeFrom(b.session.clone()),
-        label: tl::MAKE_FROM_THIS.into(),
-        icon: None,
-        style: Style::Standard,
-        enabled: true,
-        check: false,
-    });
-    col.nodes.push(Node::Button {
-        r: Rect::new(right - dw, col.y, dw, BUTTON_H),
-        action: Action::DeleteBlock(b.session.clone()),
-        label: String::new(),
-        icon: Some(glyph::MORE),
-        style: Style::Subtle,
-        enabled: true,
-        check: false,
-    });
+    col.nodes.push(Node::Button { r: Rect::new(right - dw - 4.0 - mw, col.y, mw, BUTTON_H), action: Action::MakeFrom(b.session.clone()), label: tl::MAKE_CAPSULE.into(), icon: None, style: Style::Standard, enabled: true, check: false });
+    col.nodes.push(Node::Button { r: Rect::new(right - dw, col.y, dw, BUTTON_H), action: Action::DeleteBlock(b.session.clone()), label: String::new(), icon: Some(glyph::MORE), style: Style::Subtle, enabled: true, check: false });
     col.gap(BUTTON_H + CAPTION_GAP);
 }
 
@@ -1237,13 +1426,14 @@ pub fn initial(app: &str) -> String {
     app_label(app).chars().find(|c| c.is_alphanumeric()).map(|c| c.to_uppercase().collect()).unwrap_or_else(|| "·".into())
 }
 
-/// A recording's moments, notes and gaps, one under the other; returns the bottom.
+/// An open recording's stretches, notes and gaps, one under the other; returns the bottom. `day`: the whole day
+/// (the stretches' colours).
 #[allow(clippy::too_many_arguments)]
-fn timeline_items(out: &mut Vec<Node>, m: &dyn Measure, x: f64, w: f64, top: f64, items: &[&Item], tv: &TimelineView, projects: &[Project]) -> f64 {
+fn timeline_items(out: &mut Vec<Node>, m: &dyn Measure, x: f64, w: f64, top: f64, b: &Block, day: &Day, tv: &TimelineView, projects: &[Project]) -> f64 {
     let mut y = top;
     let more_w = 32.0;
     let left = x + CARD_PAD + 36.0;
-    for (n, item) in items.iter().enumerate() {
+    for (n, item) in b.items.iter().enumerate() {
         if n > 0 {
             divider(out, x, w, y);
         }
@@ -1258,7 +1448,7 @@ fn timeline_items(out: &mut Vec<Node>, m: &dyn Measure, x: f64, w: f64, top: f64
                 y += h + 16.0;
             }
             // A voice or typed note: all its words in a speech bubble, then "You said · 10:14 · in Figma".
-            Item::Moment(mo) if mo.is_note() => {
+            Item::Note(mo) => {
                 let bw = (x + w - CARD_PAD - more_w - 8.0 - left).max(80.0);
                 let inner = bw - 24.0;
                 let words = mo.shown_text(true);
@@ -1272,64 +1462,127 @@ fn timeline_items(out: &mut Vec<Node>, m: &dyn Measure, x: f64, w: f64, top: f64
                 let caption = mo.note_caption();
                 let ch = m.text(&caption, Font::Small, bw - 4.0, 1).1;
                 out.push(Node::Text { r: Rect::new(left + 4.0, y + 10.0 + bh + 4.0, bw - 4.0, ch), text: caption, font: Font::Small, ink: Ink::Secondary, align: Align::Left, lines: 1 });
-                out.push(moment_menu(x, w, y + 10.0, mo.key()));
+                out.push(more_button(x, w, y + 10.0, Action::DeleteRead(mo.key())));
                 y += 10.0 + bh + 4.0 + ch + 10.0;
             }
-            // Badge, the title (and "Looked at"), the time; app · where · project; the first lines; Show all.
-            Item::Moment(mo) => {
-                let inner = (x + w - CARD_PAD - more_w - 8.0 - left).max(60.0);
-                let ty0 = y + 10.0;
-                out.push(Node::Badge { r: Rect::new(x + CARD_PAD, ty0, 24.0, 24.0), text: initial(&mo.app) });
-                let time = mo.time();
-                let tw = m.text(&time, Font::Small, inner, 1).0;
-                let heading = mo.heading();
-                let hh = m.text(&heading, Font::Strong, inner, 1).1;
-                let pill = if mo.looked_at() { m.text(tl::LOOKED_AT, Font::Small, inner, 1).0 + 16.0 } else { 0.0 };
-                let room = (inner - tw - 12.0 - if pill > 0.0 { pill + 8.0 } else { 0.0 }).max(40.0);
-                let hw = m.text(&heading, Font::Strong, room, 1).0.min(room);
-                out.push(Node::Text { r: Rect::new(left, ty0 + 2.0, hw, hh), text: heading, font: Font::Strong, ink: Ink::Primary, align: Align::Left, lines: 1 });
-                if pill > 0.0 {
-                    out.push(Node::Pill { r: Rect::new(left + hw + 8.0, ty0 + 2.0 + (hh - 20.0) / 2.0, pill, 20.0), text: tl::LOOKED_AT.into(), live: false });
-                }
-                let th = m.text(&time, Font::Small, tw, 1).1;
-                out.push(Node::Text { r: Rect::new(left + inner - tw, ty0 + 2.0 + (hh - th) / 2.0, tw, th), text: time, font: Font::Small, ink: Ink::Secondary, align: Align::Right, lines: 1 });
-                let mut ty = ty0 + 2.0 + hh;
-                let details = mo.details(projects);
-                if !details.is_empty() {
-                    let dh = m.text(&details, Font::Small, inner, 1).1;
-                    out.push(Node::Text { r: Rect::new(left, ty + 2.0, inner, dh), text: details, font: Font::Small, ink: Ink::Secondary, align: Align::Left, lines: 1 });
-                    ty += dh + 2.0;
-                }
-                let open = tv.expanded.contains(&mo.key());
-                let text = mo.shown_text(open);
-                if text.trim().is_empty() {
-                    let nh = m.text(tl::NOTHING_NEW, Font::Small, inner, 1).1;
-                    out.push(Node::Text { r: Rect::new(left, ty + 4.0, inner, nh), text: tl::NOTHING_NEW.into(), font: Font::Small, ink: Ink::Secondary, align: Align::Left, lines: 1 });
-                    ty += nh + 4.0;
-                } else {
-                    let lines = if open { 0 } else { tl::FOLD_LINES as u8 * 2 };
-                    let bh = m.text(&text, Font::Small, inner, lines).1;
-                    out.push(Node::Text { r: Rect::new(left, ty + 4.0, inner, bh), text, font: Font::Small, ink: Ink::Primary, align: Align::Left, lines });
-                    ty += bh + 4.0;
-                }
-                if open || mo.folds() {
-                    let label = if open { tl::SHOW_LESS } else { tl::SHOW_ALL };
-                    let lw = button_width(m, label, Style::Subtle);
-                    let lh = m.text(label, Font::Small, inner, 1).1 + 8.0;
-                    out.push(Node::Button { r: Rect::new(left - 4.0, ty + 2.0, lw, lh), action: Action::ShowAll(mo.key()), label: label.into(), icon: None, style: Style::Subtle, enabled: true, check: false });
-                    ty += lh + 2.0;
-                }
-                out.push(moment_menu(x, w, y + 6.0, mo.key()));
-                y = ty.max(y + 44.0) + 10.0;
-            }
+            Item::Stretch(s) => y = stretch_row(out, m, x, w, y, s, day, tv, projects),
         }
     }
     y
 }
 
-/// ⋯ on a moment's right (Delete this moment…).
-fn moment_menu(x: f64, w: f64, y: f64, key: MomentKey) -> Node {
-    Node::Button { r: Rect::new(x + w - CARD_PAD - 32.0, y, 32.0, 32.0), action: Action::DeleteMoment(key), label: String::new(), icon: Some(glyph::MORE), style: Style::Subtle, enabled: true, check: false }
+/// One stretch: the app's badge, its colour, "App · title" and "10:00 – 10:38 · 38 min"; where · project; the peek;
+/// "24 reads" and Show what was read (then the reads); ⋯ (Delete this stretch…).
+#[allow(clippy::too_many_arguments)]
+fn stretch_row(out: &mut Vec<Node>, m: &dyn Measure, x: f64, w: f64, y: f64, s: &Stretch, day: &Day, tv: &TimelineView, projects: &[Project]) -> f64 {
+    let more_w = 32.0;
+    let left = x + CARD_PAD + 36.0;
+    let inner = (x + w - CARD_PAD - more_w - 8.0 - left).max(60.0);
+    let ty0 = y + 10.0;
+    out.push(Node::Badge { r: Rect::new(x + CARD_PAD, ty0, 24.0, 24.0), text: initial(&s.app) });
+    let time = format!("{} · {}", s.time(), s.length());
+    let tw = m.text(&time, Font::Small, inner, 1).0;
+    let heading = s.heading();
+    let hh = m.text(&heading, Font::Strong, inner, 1).1;
+    out.push(Node::Swatch { r: Rect::new(left, ty0 + 2.0 + (hh - 8.0) / 2.0, 8.0, 8.0), colour: Some(day.colour(s)) });
+    let room = (inner - 14.0 - tw - 12.0).max(40.0);
+    let hw = m.text(&heading, Font::Strong, room, 1).0.min(room);
+    out.push(Node::Text { r: Rect::new(left + 14.0, ty0 + 2.0, hw, hh), text: heading, font: Font::Strong, ink: Ink::Primary, align: Align::Left, lines: 1 });
+    let th = m.text(&time, Font::Small, tw, 1).1;
+    out.push(Node::Text { r: Rect::new(left + inner - tw, ty0 + 2.0 + (hh - th) / 2.0, tw, th), text: time, font: Font::Small, ink: Ink::Secondary, align: Align::Right, lines: 1 });
+    let mut ty = ty0 + 2.0 + hh;
+    let details: Vec<String> = [s.location.clone(), if s.project.is_empty() { String::new() } else { context_capsule_core::capsules::project_name(projects, &s.project) }]
+        .into_iter()
+        .filter(|p| !p.is_empty())
+        .collect();
+    if !details.is_empty() {
+        let line = details.join(" · ");
+        let dh = m.text(&line, Font::Small, inner, 1).1;
+        out.push(Node::Text { r: Rect::new(left, ty + 2.0, inner, dh), text: line, font: Font::Small, ink: Ink::Secondary, align: Align::Left, lines: 1 });
+        ty += dh + 2.0;
+    }
+    if let Some(peek) = &s.peek {
+        let ph = m.text(peek, Font::Small, inner, 2).1;
+        out.push(Node::Text { r: Rect::new(left, ty + 4.0, inner, ph), text: peek.clone(), font: Font::Small, ink: Ink::Primary, align: Align::Left, lines: 2 });
+        ty += ph + 4.0;
+    }
+    // "24 reads"  Show what was read
+    let reads = s.reads_line();
+    let (rw, rh) = m.text(&reads, Font::Small, inner, 1);
+    let open = tv.reads_open.contains(&s.key());
+    let label = if open { tl::HIDE_READS } else { tl::SHOW_READS };
+    let lw = button_width(m, label, Style::Subtle);
+    let lh = rh + 8.0;
+    out.push(Node::Text { r: Rect::new(left, ty + 4.0 + (lh - rh) / 2.0, rw, rh), text: reads, font: Font::Small, ink: Ink::Secondary, align: Align::Left, lines: 1 });
+    out.push(Node::Button { r: Rect::new(left + rw + 8.0, ty + 4.0, lw.min((inner - rw - 8.0).max(0.0)), lh), action: Action::ShowReads(s.key()), label: label.into(), icon: None, style: Style::Subtle, enabled: true, check: false });
+    ty += lh + 4.0;
+    out.push(more_button(x, w, y + 6.0, Action::DeleteStretch(s.key())));
+    if open {
+        ty = reads_list(out, m, x, w, ty, s, tv);
+    }
+    ty.max(y + 44.0) + 10.0
+}
+
+/// Show what was read: each read's time, where and "Looked at", its first lines (Show all), ⋯ (Delete this
+/// read…); at most `reads_limit`, then Show more.
+fn reads_list(out: &mut Vec<Node>, m: &dyn Measure, x: f64, w: f64, top: f64, s: &Stretch, tv: &TimelineView) -> f64 {
+    let more_w = 32.0;
+    let left = x + CARD_PAD + 52.0;
+    let inner = (x + w - CARD_PAD - more_w - 8.0 - left).max(60.0);
+    let limit = tv.reads_limit.get(&s.key()).copied().unwrap_or(tl::PAGE);
+    let reads = s.shown_reads();
+    let mut y = top + 4.0;
+    for mo in reads.iter().take(limit) {
+        out.push(Node::Divider(Rect::new(left, y, inner, 1.0)));
+        y = read_row(out, m, x, w, left, inner, y + 8.0, mo, tv);
+    }
+    if reads.len() > limit {
+        let bw = button_width(m, tl::SHOW_MORE, Style::Standard);
+        out.push(Node::Button { r: Rect::new(left, y + 4.0, bw.min(inner), BUTTON_H), action: Action::MoreReads(s.key()), label: tl::SHOW_MORE.into(), icon: None, style: Style::Standard, enabled: true, check: false });
+        y += BUTTON_H + 8.0;
+    }
+    y
+}
+
+/// One read: "10:01 – 10:03 · linear.app/pricing" (and Looked at), the text folded to 3 lines with Show all, ⋯.
+#[allow(clippy::too_many_arguments)]
+fn read_row(out: &mut Vec<Node>, m: &dyn Measure, x: f64, w: f64, left: f64, inner: f64, y: f64, mo: &Moment, tv: &TimelineView) -> f64 {
+    let line = if mo.location.is_empty() { mo.time() } else { format!("{} · {}", mo.time(), mo.location) };
+    let pill = if mo.looked_at() { m.text(tl::LOOKED_AT, Font::Small, inner, 1).0 + 16.0 } else { 0.0 };
+    let room = (inner - if pill > 0.0 { pill + 8.0 } else { 0.0 }).max(40.0);
+    let (lw, lh) = m.text(&line, Font::Small, room, 1);
+    let lw = lw.min(room);
+    out.push(Node::Text { r: Rect::new(left, y, lw, lh), text: line, font: Font::Small, ink: Ink::Secondary, align: Align::Left, lines: 1 });
+    if pill > 0.0 {
+        out.push(Node::Pill { r: Rect::new(left + lw + 8.0, y + (lh - 20.0) / 2.0, pill, 20.0), text: tl::LOOKED_AT.into(), live: false });
+    }
+    let mut ty = y + lh.max(if pill > 0.0 { 20.0 } else { 0.0 });
+    let open = tv.expanded.contains(&mo.key());
+    let text = mo.shown_text(open);
+    if text.trim().is_empty() {
+        let nh = m.text(tl::NOTHING_NEW, Font::Small, inner, 1).1;
+        out.push(Node::Text { r: Rect::new(left, ty + 4.0, inner, nh), text: tl::NOTHING_NEW.into(), font: Font::Small, ink: Ink::Secondary, align: Align::Left, lines: 1 });
+        ty += nh + 4.0;
+    } else {
+        let lines = if open { 0 } else { tl::FOLD_LINES as u8 * 2 };
+        let bh = m.text(&text, Font::Small, inner, lines).1;
+        out.push(Node::Text { r: Rect::new(left, ty + 4.0, inner, bh), text, font: Font::Small, ink: Ink::Primary, align: Align::Left, lines });
+        ty += bh + 4.0;
+    }
+    if open || mo.folds() {
+        let label = if open { tl::SHOW_LESS } else { tl::SHOW_ALL };
+        let bw = button_width(m, label, Style::Subtle);
+        let bh = m.text(label, Font::Small, inner, 1).1 + 8.0;
+        out.push(Node::Button { r: Rect::new(left - 4.0, ty + 2.0, bw, bh), action: Action::ShowAll(mo.key()), label: label.into(), icon: None, style: Style::Subtle, enabled: true, check: false });
+        ty += bh + 2.0;
+    }
+    out.push(more_button(x, w, y - 6.0, Action::DeleteRead(mo.key())));
+    ty.max(y + 26.0) + 8.0
+}
+
+/// ⋯ on a row's right (its delete).
+fn more_button(x: f64, w: f64, y: f64, action: Action) -> Node {
+    Node::Button { r: Rect::new(x + w - CARD_PAD - 32.0, y, 32.0, 32.0), action, label: String::new(), icon: Some(glyph::MORE), style: Style::Subtle, enabled: true, check: false }
 }
 
 // MARK: Projects
@@ -1831,43 +2084,37 @@ mod tests {
 
     fn timeline_view(day: Day) -> TimelineView {
         let mut tv = TimelineView::new(day.date);
-        tv.set(TimelineData { date: day.date, day, recorded: vec![] });
+        tv.set(TimelineData { date: day.date, day, recorded: vec![chrono::NaiveDate::from_ymd_opt(2026, 10, 19).unwrap()] });
         tv
     }
 
-    /// A day on the Timeline: a recording on two screens (a page, a window looked at, a gap, a voice note), then
-    /// one still going.
+    /// A day on the Timeline (UTC), read by core from files: a recording with a stretch on Website (two reads, one
+    /// looked at), a gap, a voice note and a stretch in Code; then one still going, in Slack.
     fn sample_day() -> Day {
-        use chrono::TimeZone;
-        let tz = chrono::FixedOffset::east_opt(0).unwrap();
-        let t = |h: u32, m: u32| tz.with_ymd_and_hms(2026, 10, 20, h, m, 0).unwrap();
-        let moment = |session: &str, i: usize, h: u32, mi: u32, kind: &str, focus: &str, text: &str| tl::Moment {
-            session: session.into(),
-            index: i,
-            line: format!("line {i}"),
-            t_raw: String::new(),
-            t: t(h, mi),
-            end: t(h, mi + 2),
-            app: "Google Chrome".into(),
-            bundle: "chrome.exe".into(),
-            title: "Pricing — Linear".into(),
-            location: "linear.app/pricing".into(),
-            project: "web".into(),
-            kind: kind.into(),
-            src: "ax".into(),
-            focus: focus.into(),
-            text: text.into(),
+        use std::sync::atomic::{AtomicUsize, Ordering};
+        static N: AtomicUsize = AtomicUsize::new(0);
+        let root = std::env::temp_dir().join(format!("cc-windows-timeline-{}-{}", std::process::id(), N.fetch_add(1, Ordering::Relaxed)));
+        let write = |id: &str, file: &str, lines: &[&str]| {
+            std::fs::create_dir_all(root.join(id)).unwrap();
+            std::fs::write(root.join(id).join(file), lines.iter().map(|l| format!("{l}\n")).collect::<String>()).unwrap();
         };
         let (a, b) = ("20261020-093000", "20261020-140000");
-        let items = vec![
-            Item::Moment(moment(a, 0, 9, 30, "", "", "Pricing\nFree\nTeams $12\nEnterprise")),
-            Item::Moment(moment(a, 1, 9, 40, "", "pointer", "Annual −20%")),
-            Item::Gap(tl::Gap { session: a.into(), t: t(9, 45), end: t(9, 55), why: "private_app".into() }),
-            Item::Moment(moment(a, 2, 10, 0, "voice", "", "We keep annual at twenty percent off.")),
-        ];
-        let first = tl::Block { session: a.into(), start: t(9, 30), end: t(10, 2), live: false, project: Some("web".into()), moments: 2, notes: 1, items };
-        let live = tl::Block { session: b.into(), start: t(14, 0), end: t(14, 2), live: true, project: None, moments: 1, notes: 0, items: vec![Item::Moment(moment(b, 0, 14, 0, "", "", ""))] };
-        Day { date: chrono::NaiveDate::from_ymd_opt(2026, 10, 20).unwrap(), blocks: vec![first, live] }
+        write(a, "events.jsonl", &[
+            r#"{"t":"2026-10-20T09:30:00Z","end":"2026-10-20T09:30:03Z","app":"Google Chrome","title":"Pricing — Linear","where":"linear.app/pricing","project":"web","text":"Pricing\nFree\nTeams $12\nEnterprise plans for larger teams"}"#,
+            r#"{"t":"2026-10-20T09:30:03Z","end":"2026-10-20T09:40:00Z","app":"Google Chrome","title":"Pricing — Linear","project":"web","focus":"pointer","text":"Annual −20%"}"#,
+            r#"{"t":"2026-10-20T10:00:00Z","end":"2026-10-20T10:00:05Z","kind":"voice","app":"Google Chrome","text":"We keep annual at twenty percent off."}"#,
+            r#"{"t":"2026-10-20T10:02:00Z","end":"2026-10-20T10:10:00Z","app":"Code","title":"main.rs","text":""}"#,
+        ]);
+        write(a, "gaps.jsonl", &[r#"{"t":"2026-10-20T09:45:00Z","end":"2026-10-20T09:55:00Z","why":"private_app"}"#]);
+        write(b, "events.jsonl", &[r##"{"t":"2026-10-20T14:00:00Z","end":"2026-10-20T14:02:00Z","app":"Slack","title":"#general","text":"hello"}"##]);
+        let tz = chrono::FixedOffset::east_opt(0).unwrap();
+        let day = tl::load_day_in(&root, Some(b), chrono::NaiveDate::from_ymd_opt(2026, 10, 20).unwrap(), &tz, &[]);
+        let _ = std::fs::remove_dir_all(&root);
+        day
+    }
+
+    fn actions(l: &Layout) -> Vec<Action> {
+        l.content.iter().filter_map(|n| n.action().cloned()).collect()
     }
 
     #[test]
@@ -1876,45 +2123,103 @@ mod tests {
         let mut v = view(Section::Timeline, &status, &data);
         let l = layout(&v, 1100.0, 800.0, &Fake);
         let t = texts(&l);
-        for word in ["Timeline", "Today", "09:30 – 10:02 · 2 moments · Website", "Off  10:02 – 14:00", "14:00 – 14:02 · 1 moment", "Recording now",
-            "Show all", "Looked at", "09:40 – 09:42", "Not read 09:45 – 09:55: a private app was in front", "You said · 10:00 · in Google Chrome",
-            "We keep annual at twenty percent off.", "Google Chrome · linear.app/pricing · Website", "Pricing\nFree\nTeams $12", "Nothing new on screen",
-            "Everything recorded on this day, as it was read. It stays on this PC."] {
+        let (a, b) = ("20261020-093000".to_string(), "20261020-140000".to_string());
+        // The header, the day bar, where the time went, the recordings: the live one open, the other folded.
+        for word in ["Tuesday 20 October", "20 min recorded · 2 recordings", "09:00", "15:00", "Where your time went", "Website", "Not sorted",
+            "Recordings", "09:30 – 10:10 · 40 min · Website", "14:00 – 14:02 · 2 min · Slack", "Recording now", "Slack · #general", "14:00 – 14:02 · 2 min",
+            "1 read", "Show what was read"] {
             assert!(t.iter().any(|x| x == word), "{word}: {t:?}");
         }
-        assert_eq!(t.iter().filter(|x| *x == "Make a capsule from this").count(), 2);
+        assert!(!t.iter().any(|x| x == "Today"), "no Today button on today");
+        assert!(!t.iter().any(|x| x == "Google Chrome · Pricing — Linear"), "a folded recording shows one line");
+        assert_eq!(t.iter().filter(|x| *x == "Make a capsule").count(), 2);
         assert!(l.content.iter().any(|n| matches!(n, Node::Field { field: Field::TimelineSearch, .. })));
-        assert!(l.content.iter().any(|n| matches!(n, Node::Bubble(_))));
-        let deletes = l.content.iter().filter(|n| matches!(n.action(), Some(Action::DeleteMoment(_)) | Some(Action::DeleteBlock(_)))).count();
-        assert_eq!(deletes, 4 + 2, "each moment and each recording");
-        assert!(find(&l, "Show more").is_none());
+        let acts = actions(&l);
+        assert!(acts.contains(&Action::DayBefore) && acts.contains(&Action::Calendar) && !acts.contains(&Action::DayAfter), "› off on today");
+        let segments = acts.iter().filter(|a| matches!(a, Action::OpenStretch(_))).count();
+        assert_eq!(segments, 3, "a click area per stretch on the day bar");
+        assert_eq!(acts.iter().filter(|a| matches!(a, Action::DeleteBlock(_))).count(), 2);
+        let colours: Vec<Colour> = l.content.iter().filter_map(|n| if let Node::Swatch { colour: Some(c), .. } = n { Some(*c) } else { None }).collect();
+        assert!(colours.contains(&Colour::Blue) && colours.contains(&Colour::Grey) && colours.iter().all(|c| matches!(c, Colour::Blue | Colour::Grey)));
 
-        // Show all, search, paging, reading, an empty day.
+        // Open the other recording: its stretches (where · project, the peek, the reads), the gap, the voice note.
         let mut tv = timeline_view(sample_day());
-        tv.expanded.insert(("20261020-093000".into(), 0));
+        tv.toggle(&a);
         v.timeline = Box::leak(Box::new(tv.clone()));
-        let t = texts(&layout(&v, 1100.0, 800.0, &Fake));
-        assert!(t.iter().any(|x| x == "Show less") && t.iter().any(|x| x == "Pricing\nFree\nTeams $12\nEnterprise"));
+        let l = layout(&v, 1100.0, 800.0, &Fake);
+        let t = texts(&l);
+        for word in ["Google Chrome · Pricing — Linear", "09:30 – 09:40 · 10 min", "linear.app/pricing · Website", "Enterprise plans for larger teams", "2 reads",
+            "Not read 09:45 – 09:55: a private app was in front", "We keep annual at twenty percent off.", "You said · 10:00 · in Google Chrome", "Code · main.rs"] {
+            assert!(t.iter().any(|x| x == word), "{word}: {t:?}");
+        }
+        assert!(l.content.iter().any(|n| matches!(n, Node::Bubble(_))));
+        let chrome = (a.clone(), 0);
+        assert!(actions(&l).contains(&Action::DeleteStretch(chrome.clone())) && actions(&l).contains(&Action::DeleteRead((a.clone(), 2))), "a stretch, a note");
+        assert!(!actions(&l).contains(&Action::DeleteRead(chrome.clone())), "reads only after Show what was read");
+
+        // Show what was read: each read's time and where, Looked at, its lines (Show all).
+        tv.reads_open.insert(chrome.clone());
+        tv.expanded.insert(chrome.clone());
+        v.timeline = Box::leak(Box::new(tv.clone()));
+        let l = layout(&v, 1100.0, 800.0, &Fake);
+        let t = texts(&l);
+        for word in ["Hide what was read", "09:30 · linear.app/pricing", "09:30 – 09:40", "Looked at", "Show less", "Pricing\nFree\nTeams $12\nEnterprise plans for larger teams"] {
+            assert!(t.iter().any(|x| x == word), "{word}: {t:?}");
+        }
+        assert!(actions(&l).contains(&Action::DeleteRead((a.clone(), 1))));
+        tv.reads_limit.insert(chrome.clone(), 1);
+        v.timeline = Box::leak(Box::new(tv.clone()));
+        assert!(find(&layout(&v, 1100.0, 800.0, &Fake), "Show more").is_some());
+
+        // Search: every recording listed, those with a match open; "1 of 2 reads match"; the header stays the day's.
+        let mut tv = timeline_view(sample_day());
         tv.set_search("ANNUAL");
         v.timeline = Box::leak(Box::new(tv.clone()));
         let t = texts(&layout(&v, 1100.0, 800.0, &Fake));
-        assert!(t.iter().any(|x| x == "We keep annual at twenty percent off.") && !t.iter().any(|x| x.starts_with("Not read")) && !t.iter().any(|x| x == "Recording now"));
+        for word in ["1 of 2 reads match", "We keep annual at twenty percent off.", "20 min recorded · 2 recordings", "14:00 – 14:02 · 2 min · Slack"] {
+            assert!(t.iter().any(|x| x == word), "{word}: {t:?}");
+        }
+        assert!(!t.iter().any(|x| x.starts_with("Not read") || x == "Code · main.rs" || x == "Slack · #general"), "{t:?}");
         tv.set_search("nothing like it");
         v.timeline = Box::leak(Box::new(tv.clone()));
         assert!(texts(&layout(&v, 1100.0, 800.0, &Fake)).iter().any(|x| x == "Nothing on this day matches."));
-        tv.set_search("");
-        tv.limit = 2;
-        v.timeline = Box::leak(Box::new(tv.clone()));
-        let l = layout(&v, 1100.0, 800.0, &Fake);
-        assert!(find(&l, "Show more").is_some() && find(&l, "Recording now").is_none());
+
+        // The day bar opens a recording.
+        let mut tv = timeline_view(sample_day());
+        tv.open_stretch(&chrome);
+        assert!(tv.is_open(tv.shown().unwrap().block(&a).unwrap()));
+        tv.open_stretch(&(b.clone(), 0));
+        assert!(tv.is_open(tv.shown().unwrap().block(&b).unwrap()), "already open stays open");
+
+        // Reading, an empty day, another day (Today and ›), the calendar.
         v.timeline = Box::leak(Box::new(TimelineView::new(sample_day().date)));
         assert!(texts(&layout(&v, 1100.0, 800.0, &Fake)).iter().any(|x| x == "Reading…"));
         let empty = Day { date: sample_day().date, blocks: vec![] };
         v.timeline = Box::leak(Box::new(timeline_view(empty)));
-        assert!(texts(&layout(&v, 1100.0, 800.0, &Fake)).iter().any(|x| x == "Nothing recorded today yet. Start contextualizing (Alt+C) when you begin work."));
-        // Another day picked: nothing until it's read.
-        tv.go_to(chrono::NaiveDate::from_ymd_opt(2026, 10, 19).unwrap());
-        assert!(tv.shown().is_none() && tv.expanded.is_empty());
+        let t = texts(&layout(&v, 1100.0, 800.0, &Fake));
+        assert!(t.iter().any(|x| x == "Nothing recorded today yet. Start contextualizing (Alt+C) when you begin work.") && t.iter().any(|x| x == "nothing recorded"));
+        let mut tv = timeline_view(Day { date: chrono::NaiveDate::from_ymd_opt(2026, 10, 19).unwrap(), blocks: vec![] });
+        tv.calendar = Some((2026, 10));
+        v.timeline = Box::leak(Box::new(tv.clone()));
+        let l = layout(&v, 1100.0, 800.0, &Fake);
+        let t = texts(&l);
+        assert!(t.iter().any(|x| x == "Monday 19 October") && t.iter().any(|x| x == "Today") && t.iter().any(|x| x == "October 2026") && t.iter().any(|x| x == "Mo"));
+        assert!(actions(&l).contains(&Action::DayAfter) && actions(&l).contains(&Action::DayToday));
+        let days: Vec<&Node> = l.content.iter().filter(|n| matches!(n, Node::Button { action: Action::PickDay(_), .. })).collect();
+        assert_eq!(days.len(), 31);
+        assert!(days.iter().any(|n| matches!(n, Node::Button { label, style: Style::Cell { selected: true }, .. } if label == "19")));
+        assert!(days.iter().any(|n| matches!(n, Node::Button { label, enabled: false, .. } if label == "21")), "no future days");
+        assert!(!actions(&l).contains(&Action::CalendarMonth(1)), "not past this month");
+        assert_eq!(l.content.iter().filter(|n| matches!(n, Node::Swatch { colour: Some(Colour::Grey), r } if r.w == 4.0)).count(), 1, "a dot on the 19th");
+        tv.calendar_month(-1, v.today);
+        assert_eq!(tv.calendar, Some((2026, 9)));
+        tv.calendar_month(1, v.today);
+        tv.calendar_month(1, v.today);
+        assert_eq!(tv.calendar, Some((2026, 10)));
+        // Another day picked: nothing until it's read, nothing left open.
+        tv.toggle("x");
+        tv.go_to(chrono::NaiveDate::from_ymd_opt(2026, 10, 18).unwrap());
+        assert!(tv.shown().is_none() && tv.toggled.is_empty() && tv.calendar.is_none());
     }
 
     /// Claude (connected), Cursor (not), Zed (not installed); Your AI = `choice`.
@@ -2238,7 +2543,8 @@ mod tests {
                     }
                     Node::Button { label, style, .. } => {
                         let (fill, ink) = match style {
-                            Style::Accent => (accent.clone(), on_accent.clone()),
+                            Style::Accent | Style::Cell { selected: true } => (accent.clone(), on_accent.clone()),
+                            Style::Cell { .. } => ("none".into(), text.clone()),
                             Style::Nav { selected: true } | Style::Row { selected: true } => (selected.clone(), text.clone()),
                             Style::Nav { .. } | Style::Row { .. } => ("none".into(), text.clone()),
                             Style::Subtle => ("none".into(), accent.clone()),
@@ -2247,6 +2553,9 @@ mod tests {
                         let stroke = if matches!(style, Style::Standard | Style::Dropdown) { border.clone() } else { "none".into() };
                         out += &format!("<rect x='{}' y='{}' width='{}' height='{}' rx='4' fill='{fill}' stroke='{stroke}'/>", r.x, r.y, r.w, r.h);
                         let (x, anchor) = if matches!(style, Style::Nav { .. }) { (r.x + 44.0, "start") } else if matches!(style, Style::Row { .. } | Style::Dropdown) { (r.x + 12.0, "start") } else { (r.x + r.w / 2.0, "middle") };
+                        if label.is_empty() && matches!(style, Style::Subtle) && r.h < 30.0 {
+                            continue; // a day bar segment's click area
+                        }
                         let label = if label.is_empty() { "⋯".to_string() } else { label.clone() };
                         out += &format!("<text x='{x}' y='{}' font-size='14' fill='{ink}' text-anchor='{anchor}'>{}</text>", r.y + r.h / 2.0 + 5.0, esc(&label));
                     }
@@ -2260,6 +2569,10 @@ mod tests {
                     Node::Pill { text: t, .. } => out += &format!("<rect x='{}' y='{}' width='{}' height='{}' rx='13' fill='{card}' stroke='{border}'/><text x='{}' y='{}' font-size='12' fill='{text2}' text-anchor='middle'>{}</text>", r.x, r.y, r.w, r.h, r.x + r.w / 2.0, r.y + 17.0, esc(t)),
                     Node::Field { .. } => out += &format!("<rect x='{}' y='{}' width='{}' height='{}' rx='4' fill='{}' stroke='{border}'/><text x='{}' y='{}' font-size='14' fill='{text}'>Saachi Badal</text>", r.x, r.y, r.w, r.h, field, r.x + 10.0, r.y + 21.0),
                     Node::Badge { text: t, .. } => out += &format!("<circle cx='{}' cy='{}' r='12' fill='{track}'/><text x='{}' y='{}' font-size='12' font-weight='600' fill='{text2}' text-anchor='middle'>{}</text>", r.x + 12.0, r.y + 12.0, r.x + 12.0, r.y + 16.0, esc(t)),
+                    Node::Swatch { colour, .. } => {
+                        let fill = colour.map_or(track.clone(), |c| hex(t.colour(c)));
+                        out += &format!("<rect x='{}' y='{}' width='{}' height='{}' rx='{}' fill='{fill}'/>", r.x, r.y, r.w, r.h, r.h.min(r.w) / 2.0);
+                    }
                     Node::Bubble(_) => out += &format!("<rect x='{}' y='{}' width='{}' height='{}' rx='12' fill='{selected}'/>", r.x, r.y, r.w, r.h),
                 }
             }

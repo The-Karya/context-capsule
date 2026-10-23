@@ -320,40 +320,39 @@ its reply.
 
 ## 12. The Timeline
 
-Everything recorded, raw, one day at a time. It stays on your PC.
+One day at a glance, from what was recorded. It stays on your PC.
 
 1. Start contextualizing (**Alt + C**), pick a screen, and work for 2–3 minutes: a long web page,
    another app, then a password manager or WhatsApp for 20 seconds, then back. Speak a note
    (**Alt + V**, say a sentence, **Alt + V**). Keep recording.
 2. Open the window → **Home** → under *Today*, click **See today's timeline**. ✅ The **Timeline**
-   page (also in the sidebar, under *Your work*, between Home and Capsules), on **Today**.
-3. ✅ A block like *10:02 – 10:05 · 14 moments · Website* with a red dot and *Recording now*,
-   **Make a capsule from this** and **⋯**. In it, in time order: each window you used (a round badge
-   with the app's first letter, the window's title, the time; the app, the web address or file, the
-   project) with its first 3 lines of text; your voice note as a speech bubble with all its words
-   and *You said · 10:04 · in …* under it; and a grey line *Not read 10:03 – 10:04: a private app was
-   in front* for the password manager. Keep the page open ✅ new moments appear within a few seconds
-   while you keep working.
-4. On a long moment click **Show all** ✅ all its text; **Show less** folds it again.
-5. Type a word from one page into *Search this day* ✅ only moments with that word stay (in the
-   title, address, app or text); the grey lines go. Esc clears it.
-6. With a second screen (part 5): ✅ moments read under the mouse say *Looked at*.
-7. On a moment of the recording that's still going: **⋯** → *Delete this moment…* ✅ *Stop first*.
-   Stop (**Alt + C**). ✅ *Recording now* goes away. Delete one moment ✅ it asks *Delete this moment?
-   It can't be undone.*; **Delete** ✅ it's gone (also after reopening the window). **Cancel** ✅
-   nothing changes.
-8. Record a second short session a few minutes later. ✅ Two blocks, with *Off  10:30 – 10:34*
-   between them. On the second block, **⋯** → *Delete this recording…* ✅ *Delete this recording? It
-   can't be undone.*; **Delete** ✅ the block is gone, and its folder in
+   page (also in the sidebar, under *Your work*, between Home and Capsules): *‹  <today's date>  ›*
+   with › greyed out, *3 min recorded · 1 recording*, a day bar with coloured segments and hour labels
+   under it, **Where your time went**.
+3. ✅ Under **Recordings**, one line like *10:02 – 10:05 · 3 min · Website* with a red dot and
+   *Recording now*, **Make a capsule** and **⋯**, already open. In it, in time order: one row per window
+   you stayed in (its badge, a coloured dot, *App · title*, the time and how long; the address or file
+   and the project; a line of its text; *12 reads* and **Show what was read**); your voice note as a
+   speech bubble with *You said · 10:04 · in …* under it; and a grey line *Not read 10:03 – 10:04: a
+   private app was in front* for the password manager. Keep the page open ✅ the newest row grows
+   within a few seconds while you keep working, and what you opened stays open.
+4. **Show what was read** ✅ each read's time and address, its first 3 lines; on a long one **Show all**
+   ✅ all its text; **Show less** folds it again. **Hide what was read** folds the list.
+5. Type a word from one page into *Search this day* ✅ only rows with that word stay, *1 of 12 reads
+   match*, the grey lines go; the header, day bar and Where your time went don't change. Esc clears it.
+6. With a second screen (part 5): ✅ reads under the mouse say *Looked at*.
+7. On a row of the recording that's still going: **⋯** → *Delete this stretch…* ✅ *Stop first*. Stop
+   (**Alt + C**). ✅ *Recording now* goes away. Delete one read ✅ *Delete this read? It can't be
+   undone.*; **Delete** ✅ it's gone (also after reopening the window). Delete a whole row (*Delete this
+   stretch…*) ✅ it's gone. **Cancel** ✅ nothing changes.
+8. Record a second short session a few minutes later. ✅ Two recordings, each on one line (the one
+   not recording folded; click its line to open it). Click a segment of the day bar ✅ its recording
+   opens and scrolls to that row. On the second recording, **⋯** → *Delete this recording…* ✅
+   *Delete this recording? It can't be undone.*; **Delete** ✅ it's gone, and its folder in
    `C:\Users\<you>\.context-capsule\sessions\` too.
-9. Click **Make a capsule from this** on the first block ✅ your AI opens with *Use Context Capsule
-   to make a capsule from my session 2026…* (Claude typed in; another app: on the clipboard).
-10. The day menu (**Today** ▾) ✅ lists Today, Yesterday and other days you recorded; pick
-    *Yesterday* ✅ that day (or *Nothing recorded this day.*).
-11. On a big day (an hour or more): ✅ scrolling stays smooth; at the end **Show more** shows more.
-12. In the session folder, `gaps.jsonl` ✅ one line per stretch that wasn't read (5 s or longer),
-    like `{"t":"…","end":"…","why":"private_app"}`; locking the PC (**Win + L**) for a while during
-    a recording gives `"why":"locked"`.
+9. Click **‹** ✅ yesterday, with **Today** next to the date. Click the date ✅ a month calendar with a
+   dot on days you recorded; days after today can't be picked; pick one ✅ that day, the calendar
+   closes. **Today** ✅ back to today.
 
 ## 13. Send us the results
 

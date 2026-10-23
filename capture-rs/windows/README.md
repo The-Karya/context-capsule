@@ -124,22 +124,24 @@ Capsules, Projects) and *Context Capsule* (Settings, Help); the page title and a
   Copy my day: *Paste it into your AI. When it answers, copy its whole reply, then click Save from
   clipboard.*), **Copy my day** and **Save from clipboard** (both off while one runs). Under it
   *Your AI: Cursor* and a **Change** link (to Settings).
-- **Timeline**: one day as it was recorded, raw (it never leaves this PC), with the Mac's words. A day
-  menu (*Today*, *Yesterday*, then the other days with a recording) and a search box (*Search this
-  day*: every word in a moment's title, address or file, app or text, any case or accent; Esc clears
-  it). One block per recording on that day, *10:02 – 11:30 · 12 moments · Website* (a red dot and
-  *Recording now* while it records), with **Make a capsule from this** (Your AI gets *Use Context
-  Capsule to make a capsule from my session 20261020-100200.*, the same way as Ask) and ⋯ → *Delete
-  this recording…*. In it, in time order: moments (the app's first letter as its badge, the title,
-  *Looked at* for a window read under the mouse on another screen, the time; the app, the address or
-  file and the project; the first 3 lines of text with **Show all** / **Show less**, or *Nothing new on
-  screen*; ⋯ → *Delete this moment…*), voice and typed notes as speech bubbles with all their words
-  (*You said · 10:14 · in Figma*), and the stretches that weren't read (*Not read 10:40 – 10:55: a
-  private app was in front*, from `gaps.jsonl`). *Off  11:30 – 13:05* between recordings a minute or
-  more apart. A recording across midnight shows its part on each day. Deleting asks first (*Delete
-  this moment? It can't be undone.*), is permanent, and refuses the recording still going (*Stop
-  first*). Today is read again every 5 s while recording. A big day shows 150 moments, then **Show
-  more**. Home's *Today* has a **See today's timeline** link.
+- **Timeline**: one day, short enough to read at a glance (it never leaves this PC), with the Mac's words.
+  The day control *‹  Thursday 23 October  ›* (› off on today; the date opens a month calendar with a dot
+  on days with a recording; **Today** when another day is shown), *1 h 50 min recorded · 3 recordings*, and
+  *Search this day*. A day bar from the first stretch's hour to the last one's, each stretch coloured by its
+  project (blue, teal, orange, green, pink, brown; none grey; a click opens its recording and scrolls to it);
+  **Where your time went** (per project, *Not sorted* grey; per app when nothing has a project); then
+  **Recordings**, each folded to one line (*10:00 – 11:40 · 1 h 40 min · Website, Client report*, **Make a
+  capsule**: Your AI gets *Use Context Capsule to make a capsule from my session 20261020-100200.*; ⋯ →
+  *Delete this recording…*), the one still recording open. Opened, in time order: stretches (reads in a row
+  in one window, the same app and title, until a note, a gap or a minute's pause: the app's badge, its
+  colour, app · title, *10:00 – 10:38 · 38 min*, where · project, a peek line, *24 reads* and **Show what
+  was read**, which lists each read's time, where, *Looked at*, its first 3 lines with **Show all**; ⋯ →
+  *Delete this stretch…* / *Delete this read…*), voice and typed notes as speech bubbles, and the stretches
+  that weren't read (*Not read 10:40 – 10:55: a private app was in front*, from `gaps.jsonl`). Search keeps
+  every recording, opens those with a match and lists only matching reads (*2 of 24 reads match*).
+  Deleting asks first, is permanent, and refuses the recording still going (*Stop first*). Today is read
+  again every 5 s while recording, keeping what's open and the scroll position. Home's *Today* has a **See
+  today's timeline** link.
 - **Capsules**: by project, the growing *Whole project* capsule first, then days, newest first.
   Open, and ⋯ → Copy file (paste it into a chat, an email or a folder), Copy text, Save a copy…,
   Show in folder. A search box filters by title and *In short* as you type; **Ask Claude** (when
@@ -174,8 +176,8 @@ Capsules, Projects) and *Context Capsule* (Settings, Help); the page title and a
   privacy.
 
 Raw recordings show only on the Timeline; everywhere else the window shows time per project, counts
-and capsules. The Timeline is read by core (`timeline`: blocks, moments, gaps, search, delete), the
-same rules as the Mac's.
+and capsules. The Timeline is read by core (`timeline`: recordings, stretches, gaps, the day bar, time per
+project, search, delete), the same rules as the Mac's.
 Time per project follows the same rules as the Mac and Claude (core `WorkStats`). Connected
 means the extension is in Claude's `Claude Extensions` folder or `claude_desktop_config.json`
 has a `context-capsule` server.

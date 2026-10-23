@@ -4,6 +4,7 @@
 
 use crate::layout::Ink;
 use context_capsule_core::settings::Appearance;
+use context_capsule_core::timeline::Colour;
 
 /// ARGB.
 pub type Argb = u32;
@@ -103,6 +104,26 @@ impl Theme {
         Theme::new(dark, accent(dark))
     }
 
+    /// A project's colour on the Timeline: Windows' own named colours (Fluent's blue, teal, orange, green, pink and
+    /// brown, lighter in dark mode); "Not sorted" grey. No purple.
+    pub fn colour(&self, c: Colour) -> Argb {
+        match (c, self.dark) {
+            (Colour::Blue, false) => 0xFF00_67C0,
+            (Colour::Blue, true) => 0xFF4C_C2FF,
+            (Colour::Teal, false) => 0xFF03_8387,
+            (Colour::Teal, true) => 0xFF00_B7C3,
+            (Colour::Orange, false) => 0xFFCA_5010,
+            (Colour::Orange, true) => 0xFFF7_630C,
+            (Colour::Green, false) => 0xFF10_7C10,
+            (Colour::Green, true) => 0xFF6C_CB5F,
+            (Colour::Pink, false) => 0xFFE3_008C,
+            (Colour::Pink, true) => 0xFFF4_8FC7,
+            (Colour::Brown, false) => 0xFF8E_562E,
+            (Colour::Brown, true) => 0xFFC1_9C7A,
+            (Colour::Grey, _) => self.text3,
+        }
+    }
+
     pub fn ink(&self, ink: Ink) -> Argb {
         match ink {
             Ink::Primary => self.text,
@@ -176,6 +197,20 @@ mod tests {
             }
             assert!(contrast(t.on_accent, t.accent) >= 4.5, "dark={} button text on the accent", t.dark);
             assert_ne!(t.subtle_selected, t.bg, "the selected sidebar item stands out");
+        }
+    }
+
+    #[test]
+    fn timeline_colours_show_and_differ() {
+        for t in [Theme::new(false, None), Theme::new(true, None)] {
+            let all: Vec<Argb> = Colour::ORDER.iter().map(|c| t.colour(*c)).collect();
+            for (i, c) in all.iter().enumerate() {
+                assert!(!all[..i].contains(c), "dark={}: each project its own colour", t.dark);
+                assert!(contrast(*c, t.card) >= 2.0, "dark={}: {c:08x} shows on a card", t.dark);
+                let (r, g, b) = ((c >> 16) & 0xFF, (c >> 8) & 0xFF, c & 0xFF);
+                assert!(!(b > g + 40 && r > g + 40 && b > r), "dark={}: no purple {c:08x}", t.dark);
+            }
+            assert_eq!(t.colour(Colour::Grey), t.text3);
         }
     }
 

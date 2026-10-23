@@ -92,16 +92,19 @@ system accent color.
 - **Help** — shortcuts (the current ones), how it works, privacy.
 
 Raw recordings show only on the **Timeline** (a day as it was recorded, on this computer, with the
-Mac's words): a day menu (Today, Yesterday, other days with a recording), *Search this day*, a block
-per recording (*10:02 – 11:30 · 12 moments · Website*, *Recording now* while it records, **Make a
-capsule from this**, ⋯ → *Delete this recording…*), its moments (the app's first letter, title,
-*Looked at* for a window read under the mouse, time; app · address or file · project; the first 3
-lines with **Show all**; ⋯ → *Delete this moment…*), voice and typed notes as speech bubbles (*You
-said · 10:14 · in Figma*), the stretches not read (*Not read 10:40 – 10:55: a private app was in
-front*, from `gaps.jsonl`) and *Off  11:30 – 13:05* between recordings. Deleting asks first, is
-permanent, and refuses the recording still going (*Stop first*). Today is read again every 5 s while
-recording; a big day shows 150 moments, then **Show more**. Home's *Today* has **See today's
-timeline**. Everywhere else: time per project, counts and capsules.
+Mac's words): the day control *‹  Thursday 23 October  ›* (› off on today; the date opens a month calendar
+with a mark on days with a recording; **Today** when another day is shown), *1 h 50 min recorded · 3
+recordings* and *Search this day*; a day bar (each stretch coloured by
+its project; a click opens its recording there); **Where your time went** (per project, or per app when
+nothing has one); then **Recordings**, each folded to one line (*10:00 – 11:40 · 1 h 40 min · Website,
+Client report*, **Make a capsule**, ⋯ → *Delete this recording…*; open by itself while it records). Opened:
+its reads grouped into stretches (one window in a row: app · title, time and length, where · project, a peek line, *24
+reads*; **Show what was read** lists the reads with **Show all**; ⋯ → *Delete this stretch…* /
+*Delete this read…*), voice and typed notes as speech bubbles, and the stretches not read (*Not read 10:40 –
+10:55: a private app was in front*, from `gaps.jsonl`). Deleting asks first, is permanent, and refuses the
+recording still going (*Stop first*). Today is read again every 5 s while recording, keeping what's open and
+the scroll position. Home's *Today* has **See today's timeline**. Everywhere else: time per project, counts
+and capsules.
 
 **Connect your AI** (SPEC "Any AI"): the AI apps come from `context-capsule-mcp clients` (read on a thread at
 start, when Settings shows and every 10 s while it does). The row has a ✓ when at least one is connected; under

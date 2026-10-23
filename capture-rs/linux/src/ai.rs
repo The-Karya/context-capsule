@@ -28,9 +28,9 @@ pub const AGAIN_SEARCH: &str = "click Ask again";
 /// A capsule someone sent.
 pub const WHY_CAPSULE: &str = "to read the capsule";
 pub const AGAIN_CAPSULE: &str = "open the capsule again";
-/// Timeline → Make a capsule from this.
+/// Timeline → Make a capsule.
 pub const WHY_SESSION: &str = "to read the recording";
-pub const AGAIN_SESSION: &str = "click Make a capsule from this again";
+pub const AGAIN_SESSION: &str = "click Make a capsule again";
 pub const TRY_AGAIN: &str = "Please try again.";
 /// Tray only, and no clipboard tool is installed.
 pub const NO_CLIPBOARD_TOOL: &str = "To use the clipboard here, install wl-clipboard (or xclip), or open Context Capsule's window.";
