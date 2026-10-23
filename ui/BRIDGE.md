@@ -54,11 +54,20 @@ allow-list below.
   "firstWeekday": 2,             // 1 = Sunday … 7 = Saturday; null = from the locale
   "userName": "Saachi Badal",    // the account's full name (fallback for config "author")
   "dark": false,                 // the system appearance right now
+  "material": "glass",           // "glass" | "none" (see below); missing = "none"
   "firstRun": true,              // open on Settings with nothing set up (the old welcome)
   "page": "home",                // the page to show first (tray "Open Settings…" → "settings")
   "voiceLanguages": [ {"id": "en-US", "name": "English (United States)"} ],
   "voiceLanguageDefault": "Same as my Mac" }
 ```
+**`material`**: `"glass"` = the host shows the system material behind a transparent webview (Mac: an
+`NSVisualEffectView` under a WKWebView that doesn't draw its background; Windows 11: Mica with a transparent WebView2
+background). The page then sets `<html data-material="glass">` and paints the window, sidebar and cards as tints of
+its usual colours over it (menus, alerts, fields and buttons stay solid; text keeps full contrast). `"none"` = flat
+fills, exactly as without the field: Linux, Windows 10, and whenever the system asks to reduce transparency (Mac
+`accessibilityDisplayShouldReduceTransparency`, Windows "Transparency effects" off). When that setting changes the
+host sends the `material` event.
+
 Has code: Swift `Updater.currentVersion`, `NSFullUserName`, `MainWindow.seen`, `Preferences.languages`; Rust
 `settings::language_options`, `SAME_LANGUAGE`, `update::CURRENT`.
 
@@ -181,6 +190,8 @@ Has code: Swift `Updater`; Rust `update.rs`.
 (a capsule was saved, the MCP made a project, a session ended…). While recording, the host sends `sessions` at most
 every 4 s; the page re-reads only what it shows.
 
+**`material`** `{ "material": "glass" | "none" }` — reduce transparency was switched on or off (see `host.hello`).
+
 **`navigate`** `{ "page": "home" | "timeline" | "capsules" | "projects" | "settings" | "help" }` — the tray asked
 for a page.
 
@@ -205,7 +216,7 @@ page checks it and opens your AI (SPEC "Opening a received capsule").
 `bun ui/dev/server.js [data folder]` serves the page at http://localhost:5174 with a fake host (`ui/dev/shim.js` +
 the server) that answers every method above from a data folder (default `/tmp/mac-ref-data`); writes stay in memory.
 URL options: `#home` … `#help`, `?open=first` (open the first recording), `?dark=1`, `?firstRun=1`,
-`?platform=windows|linux`, `?locale=en-GB`, `?recording=1`, `?now=2026-10-23T19:00:00` (the page's clock).
+`?platform=windows|linux`, `?material=glass`, `?locale=en-GB`, `?recording=1`, `?now=2026-10-23T19:00:00` (the page's clock).
 
 Renders: `ui/dev/render-all.sh` (WKWebView, `ui/dev/snap.swift`) writes every page in light and dark to
 `/tmp/shared-ui/<page>-<mode>.png` (860 × 620 @2×, like the Mac's `--render-page`), plus `full/` (860 × 1700),

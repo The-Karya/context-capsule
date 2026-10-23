@@ -122,7 +122,7 @@ const methods = {
     setTimeout(() => emit("state", state), 0);
     return {
       platform, version: "1.4.2", locale: q.get("locale") ?? "en-US", hour12: null, firstWeekday: null,
-      userName: "Saachi Badal", dark: q.get("dark") === "1", firstRun: q.get("firstRun") === "1", page: null,
+      userName: "Saachi Badal", dark: q.get("dark") === "1", material: q.get("material") === "glass" ? "glass" : "none", firstRun: q.get("firstRun") === "1", page: null,
       voiceLanguages: [
         { id: "en-US", name: "English (United States)" }, { id: "en-GB", name: "English (United Kingdom)" },
         { id: "hi-IN", name: "Hindi (India)" }, { id: "es-ES", name: "Spanish (Spain)" },

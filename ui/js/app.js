@@ -156,6 +156,12 @@ function applyLook() {
   document.documentElement.toggleAttribute("data-dark", app.dark);
 }
 
+/** "glass": the host draws the system material behind a transparent page (Mac, Windows 11); else flat fills. */
+function applyMaterial(m) {
+  if (m === "glass") document.documentElement.dataset.material = "glass";
+  else delete document.documentElement.dataset.material;
+}
+
 const media = window.matchMedia("(prefers-color-scheme: dark)");
 media.addEventListener?.("change", () => {
   if (app.hostDark == null) {
@@ -267,6 +273,7 @@ async function start() {
   } else {
     app.systemDark = media.matches;
   }
+  applyMaterial(app.hello.material);
 
   fillIcons();
   for (const a of document.querySelectorAll(".side-row")) {
@@ -293,6 +300,7 @@ async function start() {
     app.systemDark = app.hostDark;
     applyLook();
   });
+  host.on("material", (m) => applyMaterial(m?.material));
   host.on("navigate", (n) => app.go(n?.page || "home"));
   host.on("open-capsule", (c) => actions.continueFrom(app, c?.path || "", c?.text || ""));
   host.on("data-changed", async (d) => {
