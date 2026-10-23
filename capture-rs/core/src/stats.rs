@@ -149,9 +149,13 @@ impl WorkStats {
             .unwrap_or_default()
     }
 
-    /// "1 h 5 min", "12 min", "2 h", "under 1 min": the Timeline's words (`timeline::length`), to the nearest minute.
+    /// "1 h 5 min", "12 min", "2 h", "under 1 min": the Timeline's words (`timeline::length`), to the nearest minute;
+    /// nothing at all is "0 min" (the Mac's `WorkStats.duration`).
     pub fn duration(seconds: f64) -> String {
-        crate::timeline::length(seconds.max(0.0).round() as i64)
+        if seconds < 1.0 {
+            return "0 min".into();
+        }
+        crate::timeline::length(seconds.round() as i64)
     }
 
     /// "Good morning" / "Good afternoon" / "Good evening".

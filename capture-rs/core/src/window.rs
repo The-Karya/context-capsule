@@ -545,7 +545,8 @@ mod tests {
         assert_eq!((none[1].detail.as_str(), none[2].value.as_str()), ("0 capsules", "0 days"));
         let now = SystemTime::now();
         assert_eq!(status_pill(&Status::default(), now, 120.0), "Today 2 min");
-        assert_eq!(status_pill(&Status::default(), now, 0.0), "Today under 1 min");
+        assert_eq!(status_pill(&Status::default(), now, 0.0), "Today 0 min");
+        assert_eq!(status_pill(&Status::default(), now, 30.0), "Today under 1 min");
         assert_eq!(status_pill(&Status::default(), now, 3900.0), "Today 1 h 5 min");
         let rec = Status { recording: true, started_at: Some(now), ..Default::default() };
         assert_eq!(status_pill(&rec, now + std::time::Duration::from_secs(12), 0.0), "● 0:12");

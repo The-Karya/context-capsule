@@ -93,7 +93,8 @@ fn time_per_project() {
     assert_eq!(ids(&by_clue), ["web", "team"], "clues made later count too");
     assert!(
         WorkStats::duration(40.0) == "under 1 min"
-            && WorkStats::duration(0.0) == "under 1 min"
+            && WorkStats::duration(0.0) == "0 min"
+            && WorkStats::duration(1.0) == "under 1 min"
             && WorkStats::duration(720.0) == "12 min"
             && WorkStats::duration(3900.0) == "1 h 5 min"
             && WorkStats::duration(7200.0) == "2 h",
