@@ -31,6 +31,7 @@ mod uia;
 mod update;
 #[cfg_attr(not(feature = "voice"), allow(dead_code))]
 mod voice;
+mod web_window;
 mod windows_list;
 
 #[cfg(windows)]

@@ -981,7 +981,7 @@ fn text_of(h: HWND) -> String {
 }
 
 /// A popup menu of `items` ("-" = a line; `checked` marks one) at `at`. The chosen index, if any.
-fn menu(hwnd: HWND, items: &[String], checked: Option<usize>, at: POINT) -> Option<usize> {
+pub(crate) fn menu(hwnd: HWND, items: &[String], checked: Option<usize>, at: POINT) -> Option<usize> {
     // SAFETY: a popup menu we build, show and destroy here (TrackPopupMenu runs a nested loop; nothing is borrowed).
     unsafe {
         let m = CreatePopupMenu().ok()?;
@@ -1000,7 +1000,7 @@ fn menu(hwnd: HWND, items: &[String], checked: Option<usize>, at: POINT) -> Opti
 }
 
 /// Apps with a window open now (exe file name, display name), for "Never record".
-fn open_apps(listed: &[String]) -> Vec<(String, String)> {
+pub(crate) fn open_apps(listed: &[String]) -> Vec<(String, String)> {
     let own = std::env::current_exe().ok().and_then(|e| e.file_name().map(|f| f.to_string_lossy().into_owned())).unwrap_or_default();
     let mut apps = windows_list::Apps::default();
     let mut out: Vec<(String, String)> = vec![];
@@ -1388,7 +1388,7 @@ fn timeline_deleted(hwnd: HWND, ctx: &Ctx, done: Result<(), tl::Refused>, what: 
 }
 
 /// "Choose…" → an app that isn't open right now.
-const BROWSE: &str = "Find an app…";
+pub(crate) const BROWSE: &str = "Find an app…";
 
 /// Copy file, Copy text, Save a copy…, Show in folder. Sharing first shows "Check before sharing" when
 /// something in the capsule might be private.

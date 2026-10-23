@@ -1,6 +1,7 @@
 # context-capsule — ci: the Windows smoke test (windows-smoke.yml) — runs the real app on a GitHub Windows runner
 # and takes screenshots. -Part shipped: the released exe (install, first run, second copy, uninstall).
-# -Part pages: every page of the window from -Exe, light and dark, with seeded data (windows-smoke-seed.py).
+# -Part pages: every page of the window from -Exe, light and dark, with seeded data (windows-smoke-seed.py); then the
+# shared window (--new-window: ui/ in WebView2), with Mica on Windows 11 and transparency effects off and on.
 # -Part update: install the released exe (-Exe, e.g. 0.2.0), update it to -New (built from this commit) the way the
 # app does, then uninstall: one Start menu shortcut and one Settings → Apps entry, both with the new name.
 param(
@@ -33,6 +34,8 @@ public static class W {
     [DllImport("user32.dll")] public static extern bool SetForegroundWindow(IntPtr h);
     [DllImport("user32.dll")] public static extern bool ShowWindow(IntPtr h, int c);
     [DllImport("user32.dll")] public static extern bool GetWindowRect(IntPtr h, out RECT r);
+    [DllImport("user32.dll")] public static extern bool SetCursorPos(int x, int y);
+    [DllImport("user32.dll")] public static extern void mouse_event(uint f, int dx, int dy, int d, IntPtr e);
     [StructLayout(LayoutKind.Sequential)] public struct RECT { public int Left, Top, Right, Bottom; }
     static string Cls(IntPtr h) { var s = new StringBuilder(256); GetClassName(h, s, 256); return s.ToString(); }
     static string Txt(IntPtr h) { var s = new StringBuilder(512); GetWindowText(h, s, 512); return s.ToString(); }
@@ -98,6 +101,7 @@ function Click($text, [int] $seconds = 20) {
 function Dialogs { $d = [W]::Dialogs(); if ($d) { Note "dialogs: $d" } }
 function Running { @(Get-Process -Name 'context-capsule' -ErrorAction SilentlyContinue) }
 function MainWindow { [W]::FindWindow('ContextCapsuleWindow', [NullString]::Value) }
+function WebWindow { [W]::FindWindow('ContextCapsuleWebWindow', [NullString]::Value) }
 function StopApp {
     Running | Stop-Process -Force -ErrorAction SilentlyContinue
     WaitFor { (Running).Count -eq 0 } 10 | Out-Null
@@ -236,6 +240,54 @@ if ($Part -eq 'shipped') {
     Page 'p13-capsules-small' @('--show', 'capsules') { Size 560 420; Shot 'p13-capsules-small' }
     # An empty day.
     Page 'p14-timeline-empty' @('--show', 'timeline', '2026-01-05')
+
+    # The shared window (ui/ in WebView2): --new-window. Scrolls with the real wheel over the page.
+    function WebPage($name, [string[]] $show, [scriptblock] $then) {
+        StopApp
+        Start-Process -FilePath $Installed -ArgumentList (@('--new-window') + $show)
+        if (-not (WaitFor { (WebWindow) -ne [IntPtr]::Zero } 20)) { Note "${name}: no shared window (custom window: $((MainWindow) -ne [IntPtr]::Zero))"; Dialogs; Shot "$name-nowindow"; return }
+        Start-Sleep -Seconds 4
+        Dialogs
+        Shot $name
+        if ($then) { & $then }
+    }
+    function Wheel($notches) {
+        $h = WebWindow; $r = New-Object W+RECT; [W]::GetWindowRect($h, [ref]$r) | Out-Null
+        [W]::SetForegroundWindow($h) | Out-Null
+        [W]::SetCursorPos([int](($r.Left + $r.Right) / 2 + 100), [int](($r.Top + $r.Bottom) / 2)) | Out-Null
+        for ($i = 0; $i -lt $notches; $i++) { [W]::mouse_event(0x0800, 0, 0, -120, [IntPtr]::Zero); Start-Sleep -Milliseconds 40 }
+        Start-Sleep -Milliseconds 800
+    }
+    function WebSize($w, $h) { [W]::MoveWindow((WebWindow), 0, 0, $w, $h, $true) | Out-Null; Start-Sleep -Milliseconds 1200 }
+    Remove-ItemProperty -Path 'HKCU:\Software\Context Capsule' -Name 'SetupShown' -ErrorAction SilentlyContinue
+    Set-Content -Path $config -Value '{"author":"Saachi"}' -Encoding utf8NoBOM
+    WebPage 'w00-first-run' @()
+    foreach ($look in 'light', 'dark') {
+        Set-Content -Path $config -Value ('{"author":"Saachi","appearance":"' + $look + '"}') -Encoding utf8NoBOM
+        WebPage "w01-home-$look" @('--show', 'home', $day) { Wheel 10; Shot "w01-home-$look-scrolled" }
+        WebPage "w02-timeline-$look" @('--show', 'timeline', $day)
+        WebPage "w03-timeline-open-$look" @('--show', 'timeline', $day, $session) { Wheel 6; Shot "w03-timeline-open-$look-scrolled" }
+        WebPage "w04-capsules-$look" @('--show', 'capsules', $day)
+        WebPage "w05-projects-$look" @('--show', 'projects', $day)
+        WebPage "w06-settings-$look" @('--show', 'settings', $day) { Wheel 8; Shot "w06-settings-$look-scrolled"; Wheel 12; Shot "w06-settings-$look-scrolled2" }
+        WebPage "w07-help-$look" @('--show', 'help', $day) { Wheel 10; Shot "w07-help-$look-scrolled" }
+    }
+    Set-Content -Path $config -Value '{"author":"Saachi","appearance":"light"}' -Encoding utf8NoBOM
+    WebPage 'w10-timeline-sizes' @('--show', 'timeline', $day, $session) { WebSize 640 520; Shot 'w10-timeline-small'; WebSize 1900 1040; Shot 'w10-timeline-large' }
+    # Transparency effects off: flat (material "none"); on again: glass, live.
+    WebPage 'w11-home-transparency' @('--show', 'home', $day) {
+        Shot 'w11-home-glass'
+        $pk = 'HKCU:\Software\Microsoft\Windows\CurrentVersion\Themes\Personalize'
+        if (-not (Test-Path $pk)) { New-Item -Path $pk | Out-Null }
+        Set-ItemProperty -Path 'HKCU:\Software\Microsoft\Windows\CurrentVersion\Themes\Personalize' -Name 'EnableTransparency' -Value 0 -Type DWord
+        Add-Type -Namespace N -Name B -MemberDefinition '[DllImport("user32.dll", CharSet=CharSet.Unicode)] public static extern IntPtr SendMessageTimeout(IntPtr h, uint m, IntPtr w, string l, uint f, uint t, out IntPtr r);'
+        $r = [IntPtr]::Zero; [N.B]::SendMessageTimeout([IntPtr]0xffff, 0x001A, [IntPtr]::Zero, 'ImmersiveColorSet', 2, 3000, [ref]$r) | Out-Null
+        Start-Sleep -Seconds 2; Shot 'w11-home-flat'
+        Set-ItemProperty -Path 'HKCU:\Software\Microsoft\Windows\CurrentVersion\Themes\Personalize' -Name 'EnableTransparency' -Value 1 -Type DWord
+        [N.B]::SendMessageTimeout([IntPtr]0xffff, 0x001A, [IntPtr]::Zero, 'ImmersiveColorSet', 2, 3000, [ref]$r) | Out-Null
+        Start-Sleep -Seconds 2
+    }
+    Note "transparency effects: $((Get-ItemProperty 'HKCU:\Software\Microsoft\Windows\CurrentVersion\Themes\Personalize' -ErrorAction SilentlyContinue).EnableTransparency)"
     Note "still running at the end: $((Running).Count)"
     StopApp
 }

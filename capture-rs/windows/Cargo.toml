@@ -29,6 +29,10 @@ zstd = { version = "0.13", default-features = false }
 
 [target.'cfg(windows)'.dependencies]
 windows-future = "0.3"
+# The shared window (ui/) in WebView2: the page served from inside the exe, its bridge, Mica behind it.
+wry = { version = "0.57", default-features = false }
+raw-window-handle = "0.6"
+webview2-com = "0.39"
 whisper-rs = { version = "0.16", optional = true }
 cpal = { version = "0.18", optional = true }
 

@@ -1,6 +1,6 @@
 # context-capsule — CI: Windows smoke test on a real Windows desktop, with screenshots (capture-rs/ci/windows-smoke.ps1).
 # shipped: the released exe (install, first run, a second copy, uninstall). pages: every page of the window, built
-# from this commit, light and dark, with seeded recordings. update: install the release, update it to this commit, then
+# from this commit, light and dark, with seeded recordings; then the shared window (--new-window, WebView2). update: install the release, update it to this commit, then
 # uninstall (one Start menu shortcut, one Apps entry, the new name). Runs only when asked: `gh workflow run windows-smoke`.
 name: windows-smoke
 on:

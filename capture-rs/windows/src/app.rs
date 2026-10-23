@@ -89,6 +89,10 @@ pub enum UiCmd {
     /// News from an any-AI worker thread (the AI apps, Copy my day, Save from clipboard…).
     Ai(ai::AiEvent),
     EngineDone,
+    /// An answer or event for the shared window's page (JSON).
+    Web(String),
+    /// Something the shared window's bridge needs done on the UI thread (a dialog, the clipboard, hotkeys).
+    Run(Box<dyn FnOnce() + Send>),
 }
 
 /// WM_COPYDATA from a second copy started with `--open <path>`: dwData says what the bytes are (UTF-16 path).
@@ -262,6 +266,7 @@ pub fn run() {
         Ui::of(hwnd).post(UiCmd::OpenCapsule(path));
     } else if let Some(show) = crate::layout::show_arg(&args) {
         // For testing: open the window on a page.
+        crate::web_window::set_query(crate::web_window::show_query(show.date, show.open.as_deref()));
         open_window(hwnd, Some(show.section));
         main_window::show_day(show.date, show.open.as_deref());
     } else if !setup::seen() {
@@ -348,7 +353,7 @@ fn own_app_id() -> Option<String> {
 }
 
 /// The user's locale ("en-US") for voice notes.
-fn user_locale() -> String {
+pub(crate) fn user_locale() -> String {
     let mut buf = [0u16; 85];
     // SAFETY: writes at most buf.len() chars.
     let n = unsafe { GetUserDefaultLocaleName(&mut buf) };
@@ -438,6 +443,7 @@ fn handle(hwnd: HWND, cmd: UiCmd) {
                 a.status = *s;
                 look_tick(hwnd, a);
                 main_window::set_status(&a.status);
+                crate::web_window::set_status(&a.status);
             });
         }
         UiCmd::Toast(text) => {
@@ -487,6 +493,9 @@ fn handle(hwnd: HWND, cmd: UiCmd) {
         UiCmd::Make => make_capsules(hwnd),
         // Outside the app borrow: Connect for Claude may show a dialog.
         UiCmd::Ai(ev) => {
+            if matches!(ev, ai::AiEvent::Clients(_)) {
+                crate::web_window::clients_changed();
+            }
             if let Some(log) = with_app(|a| a.log.clone()) {
                 ai::handle(ev, &Ui::of(hwnd), &log);
             }
@@ -494,6 +503,8 @@ fn handle(hwnd: HWND, cmd: UiCmd) {
         // Quitting: let an open alert (e.g. "Nothing was saved") be read first.
         UiCmd::EngineDone if ALERTS.get() > 0 => CLOSE_PENDING.set(true),
         UiCmd::EngineDone => close(hwnd),
+        UiCmd::Web(json) => crate::web_window::deliver(&json),
+        UiCmd::Run(f) => f(),
     }
 }
 
@@ -529,6 +540,7 @@ fn look_tick(hwnd: HWND, a: &mut App) {
 
 fn close(hwnd: HWND) {
     main_window::close();
+    crate::web_window::close();
     with_app(|a| a.tray.remove());
     // SAFETY: our own window; WM_DESTROY ends the loop.
     unsafe {
@@ -675,6 +687,13 @@ fn new_project(hwnd: HWND, status: &Status) {
     }
 }
 
+/// "New project" from the shared window: the latest sample's clue, then the name dialog.
+pub fn new_project_now(hwnd: HWND) {
+    if let Some(status) = with_app(|a| a.status.clone()) {
+        new_project(hwnd, &status);
+    }
+}
+
 /// The shortcuts changed (Settings → Shortcuts): the engine's messages and the tray name the new ones.
 pub fn shortcuts_changed(h: context_capsule_core::Hotkeys) {
     with_app(|a| {
@@ -691,6 +710,10 @@ fn open_window(hwnd: HWND, section: Option<context_capsule_core::window::Section
     }) else {
         return;
     };
+    let config = std::fs::read(ctx.paths.config()).ok();
+    if crate::web_window::wanted(&std::env::args().collect::<Vec<_>>(), config.as_deref()) && crate::web_window::show(section, ctx.clone(), &status) {
+        return;
+    }
     main_window::show(section, ctx, &status);
 }
 

@@ -52,6 +52,8 @@ pub fn mime(path: &str) -> &'static str {
 pub enum Transport {
     /// WebView2: `chrome.webview.postMessage(obj)`; answers and events arrive as `message` events (JSON objects).
     WebView2,
+    /// wry on WebView2: `window.ipc.postMessage(json text)`; the app runs `capsuleHost._receive(<json>)`.
+    Ipc,
     /// WebKit (GTK, and WKWebView): `webkit.messageHandlers.capsule.postMessage(json text)`; the app runs
     /// `capsuleHost._receive(<json>)`.
     WebKit,
@@ -65,6 +67,7 @@ pub fn shim_js(transport: Transport) -> String {
             "(m) => window.chrome.webview.postMessage(m)",
             "window.chrome.webview.addEventListener('message', (e) => host._receive(e.data));",
         ),
+        Transport::Ipc => ("(m) => window.ipc.postMessage(JSON.stringify(m))", ""),
         Transport::WebKit => ("(m) => window.webkit.messageHandlers.capsule.postMessage(JSON.stringify(m))", ""),
     };
     SHIM.replace("%SEND%", send).replace("%LISTEN%", listen)
@@ -1030,7 +1033,7 @@ mod tests {
         assert!(asset("/tests/smoke.test.js").is_none());
         assert!(asset("/../Cargo.toml").is_none());
         assert!(asset("/BRIDGE.md").is_none());
-        for t in [Transport::WebView2, Transport::WebKit] {
+        for t in [Transport::WebView2, Transport::Ipc, Transport::WebKit] {
             let js = shim_js(t);
             assert!(!js.contains('%'), "placeholders filled");
             assert!(js.contains("capsuleHost") && js.contains("_receive"));
