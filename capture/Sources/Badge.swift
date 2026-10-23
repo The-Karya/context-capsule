@@ -16,6 +16,10 @@ enum MenuBarLook {
         let image = Bundle.main.image(forResource: "MenuBarMark")
             ?? NSImage(systemSymbolName: "circle", accessibilityDescription: nil)
         image?.isTemplate = true
+        // Fixed point size: the PNG's own resolution info would otherwise decide it (a 25 dpi file came out 3× too big).
+        if let image, image.size.height > 0 {
+            image.size = NSSize(width: (18 * image.size.width / image.size.height).rounded(), height: 18)
+        }
         image?.accessibilityDescription = AppName.full
         return image
     }
