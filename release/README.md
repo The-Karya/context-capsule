@@ -22,8 +22,9 @@ Sets it in `capture/build.sh` (Mac), `capture-rs/Cargo.toml` + `Cargo.lock` (Win
   certificate. Keep using the same one: the app only installs updates signed like itself.
 - **Windows:** see [capture-rs/windows/README.md](../capture-rs/windows/README.md); copy the
   result to `dist/Context-Capsule-0.2.0-windows.exe`.
-- **Linux:** see [capture-rs/linux/README.md](../capture-rs/linux/README.md); copy the result to
-  `dist/Context-Capsule-0.2.0-x86_64.AppImage`.
+- **Linux:** on GitHub, which costs the fewest minutes: `gh workflow run ci -f only=linux-file`, then
+  `gh run download <run id> -n context-capsule-linux-appimage -D dist` (or build it locally, see
+  [capture-rs/linux/README.md](../capture-rs/linux/README.md)) → `dist/Context-Capsule-0.2.0-x86_64.AppImage`.
 
 Any subset is fine: a platform left out simply gets no update.
 
