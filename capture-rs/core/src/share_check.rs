@@ -529,9 +529,8 @@ mod tests {
         assert!(!finds.is_empty());
         for case in finds {
             let name = case["name"].as_str().unwrap_or("?");
-            let expect = case["expect"].as_object().expect("expect");
-            let keys: Vec<&str> = Kind::ALL.iter().map(|k| k.key()).collect();
-            assert!(expect.keys().all(|k| keys.contains(&k.as_str())), "{name}: only the four groups");
+            // The shared window checks eight kinds; this window shows the first four.
+            assert!(case["expect"].as_object().is_some(), "{name}: expect");
             let found = find(case["text"].as_str().expect("text"));
             for kind in Kind::ALL {
                 assert_eq!(found.get(kind), strings(&case["expect"][kind.key()]).as_slice(), "{name}: {}", kind.key());

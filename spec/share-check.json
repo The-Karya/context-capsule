@@ -1,5 +1,5 @@
 {
-  "about": "Golden cases for 'Before you share' (see SPEC.md). Flagged: emails, phone numbers, names in the People section, links that look private. The shared window (ui/js/core/sharecheck.js), the Mac (Swift ShareCheck) and Windows/Linux (Rust core::share_check) must give exactly these results.",
+  "about": "Golden cases for sharing a capsule (SPEC.md \"Sharing a capsule\"). Eight kinds: people (Names), emails, phones, links (private links), money, companies, files (file paths), public (public links). The shared window (ui/js/core/sharecheck.js) must give exactly these results. The old windows (Swift ShareCheck on the Mac, Rust core::share_check) check only the first four keys of each case; 'findings' is checked by the shared window only.",
   "find": [
     {
       "name": "everything",
@@ -17,6 +17,18 @@
         ],
         "links": [
           "https://docs.google.com/document/d/1AbCdEfGhIjK/edit?usp=sharing"
+        ],
+        "money": [
+          "$12,000"
+        ],
+        "companies": [
+          "Acme"
+        ],
+        "files": [
+          "~/Documents/pricing.xlsx"
+        ],
+        "public": [
+          "https://acme.com/pricing"
         ]
       }
     },
@@ -27,7 +39,13 @@
         "people": [],
         "emails": [],
         "phones": [],
-        "links": []
+        "links": [],
+        "money": [
+          "$450"
+        ],
+        "companies": [],
+        "files": [],
+        "public": []
       }
     },
     {
@@ -37,7 +55,11 @@
         "people": [],
         "emails": [],
         "phones": [],
-        "links": []
+        "links": [],
+        "money": [],
+        "companies": [],
+        "files": [],
+        "public": []
       }
     },
     {
@@ -50,7 +72,17 @@
         ],
         "emails": [],
         "phones": [],
-        "links": []
+        "links": [],
+        "money": [],
+        "companies": [],
+        "files": [
+          "~/Documents/notes.md"
+        ],
+        "public": [
+          "https://saachis-blog.hashnode.dev/convexity-logistic-loss",
+          "https://saachis-blog.hashnode.dev/",
+          "https://saachis-blog.hashnode.dev/overfitting"
+        ]
       }
     },
     {
@@ -69,6 +101,13 @@
           "https://cdn.acme.com/f.pdf?X-Amz-Signature=9f8e7d6c5b4a39281706f5e4d3c2b1a0",
           "https://drive.google.com/file/d/1xYz/view",
           "https://acme.zoom.us/j/123456789?pwd=Zx9"
+        ],
+        "money": [],
+        "companies": [],
+        "files": [],
+        "public": [
+          "https://en.wikipedia.org/wiki/Logistic_regression",
+          "https://github.com/Saachi26/ML-Journey"
         ]
       }
     },
@@ -82,7 +121,82 @@
           "(020) 7946 0958",
           "415-555-0132"
         ],
-        "links": []
+        "links": [],
+        "money": [],
+        "companies": [],
+        "files": [],
+        "public": []
+      }
+    },
+    {
+      "name": "money",
+      "text": "## In short\nBudget $12,000 (was ₹4,50,000 or 12k USD); Teams $12 a seat, US$5, Rs. 300, EUR 40, $2 million, €3.5M.\nRevenue up 18%, churn 3.1%, version 2.3.1, 40 seats, 2026-10-19, $ alone, 5$.\n",
+      "expect": {
+        "people": [],
+        "emails": [],
+        "phones": [],
+        "links": [],
+        "money": [
+          "$12,000",
+          "₹4,50,000",
+          "12k USD",
+          "$12",
+          "US$5",
+          "Rs. 300",
+          "EUR 40",
+          "$2 million",
+          "€3.5M"
+        ],
+        "companies": [],
+        "files": [],
+        "public": []
+      }
+    },
+    {
+      "name": "companies",
+      "text": "## In short\nDrafted the Acme Q3 report for client Globex. Signed with Initech Pvt Ltd and Hooli Inc. on Friday.\nUsed GitHub, the Blog and a Post on Medium; Figma file for the company website. Stark Industries (client) approved.\n\n## People, links and files\n- **Priya Shah** — head of sales at Acme\n- GitHub: Saachi26/ML-Journey\n",
+      "expect": {
+        "people": [
+          "Priya Shah"
+        ],
+        "emails": [],
+        "phones": [],
+        "links": [],
+        "money": [],
+        "companies": [
+          "Acme",
+          "Globex",
+          "Initech Pvt Ltd",
+          "Initech",
+          "Hooli Inc.",
+          "Hooli",
+          "Stark Industries"
+        ],
+        "files": [],
+        "public": []
+      }
+    },
+    {
+      "name": "file paths and public links",
+      "text": "## Sources\n- `~/karya-build/HANDOFF.md`, /Users/ana/Clients/Acme/Q3.xlsx and C:\\Users\\ana\\notes.txt.\n- Not paths: /usr/local/bin/x, plain/, a/b, 10/24.\n- https://github.com/Saachi26/ML-Journey and https://en.wikipedia.org/wiki/Logistic_regression; private http://localhost:3000/x.\n",
+      "expect": {
+        "people": [],
+        "emails": [],
+        "phones": [],
+        "links": [
+          "http://localhost:3000/x"
+        ],
+        "money": [],
+        "companies": [],
+        "files": [
+          "~/karya-build/HANDOFF.md",
+          "/Users/ana/Clients/Acme/Q3.xlsx",
+          "C:\\Users\\ana\\notes.txt"
+        ],
+        "public": [
+          "https://github.com/Saachi26/ML-Journey",
+          "https://en.wikipedia.org/wiki/Logistic_regression"
+        ]
       }
     }
   ],
@@ -109,6 +223,38 @@
         "removed"
       ],
       "expect": "[removed] [removed]"
+    }
+  ],
+  "findings": [
+    {
+      "name": "every place, offsets into the whole file",
+      "text": "---\ntitle: Call Ana\n---\n\nCall Ana Ruiz about $500 on ana@x.co.\n\n## People, links and files\n- Ana Ruiz — client\n",
+      "expect": [
+        {
+          "kind": "people",
+          "text": "Ana Ruiz",
+          "start": 30,
+          "end": 38
+        },
+        {
+          "kind": "money",
+          "text": "$500",
+          "start": 45,
+          "end": 49
+        },
+        {
+          "kind": "emails",
+          "text": "ana@x.co",
+          "start": 53,
+          "end": 61
+        },
+        {
+          "kind": "people",
+          "text": "Ana Ruiz",
+          "start": 93,
+          "end": 101
+        }
+      ]
     }
   ]
 }
