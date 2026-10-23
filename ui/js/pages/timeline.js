@@ -8,6 +8,7 @@ import { call, why } from "../host.js";
 import * as T from "../core/timeline.js";
 import { dayKey, parseKey, addDays } from "../core/dates.js";
 import * as actions from "../actions.js";
+import { appIcon } from "../appicon.js";
 
 export function mount(root, app, opts = {}) {
   const v = {
@@ -257,7 +258,7 @@ export function mount(root, app, opts = {}) {
           menu(row, [{ text: "Delete this stretch…", destructive: true, action: del_ }]);
         },
       },
-      icon("window", "appicon"),
+      appIcon(s.app, s.bundle, "window", "appicon"),
       h(
         "div",
         { class: "main" },

@@ -553,6 +553,13 @@ final class WebWindow: NSObject, NSWindowDelegate, WKNavigationDelegate, WKUIDel
             for id in ids { out[id] = Preferences.appName(id) }
             ok(out)
 
+        case "apps.icons":
+            let apps = args["apps"] as? [[String: Any]] ?? []
+            DispatchQueue.global(qos: .userInitiated).async {
+                let out = AppIconPNG.answer(apps)
+                DispatchQueue.main.async { ok(out) }
+            }
+
         case "updates":
             switch str("action") {
             case "check": later { self.app.checkForUpdates() }

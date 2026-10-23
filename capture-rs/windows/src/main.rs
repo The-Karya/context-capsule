@@ -6,6 +6,7 @@
 #![cfg_attr(not(windows), allow(dead_code))]
 
 mod ai;
+mod app_icon;
 mod connect;
 mod hotkeys;
 mod input;

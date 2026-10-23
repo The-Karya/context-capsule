@@ -40,7 +40,7 @@ allow-list below.
 
 ## Methods
 
-22 methods. "Has code" says where each host already does this today (Swift `capture/Sources`, Rust
+23 methods. "Has code" says where each host already does this today (Swift `capture/Sources`, Rust
 `capture-rs/core` = shared crate, `windows/`, `linux/`).
 
 ### Starting up
@@ -166,6 +166,17 @@ panel for a received capsule (.md). The page checks `isCapsule` and opens your A
 **`apps.pick`** `{}` → `{ "id": "com.example.app", "name": "Example" }` or `null` — choose an app never to record
 (Mac: /Applications; Windows: an .exe; Linux: a .desktop app).
 **`apps.names`** `{ "ids": ["com.tinyspeck.slackmacgap"] }` → `{ "<id>": "Slack" }` — names for the Never record list.
+**`apps.icons`** `{ "apps": [{ "app": "Safari", "bundle": "com.apple.Safari" }] }` →
+`{ "<bundle, else app>": "data:image/png;base64,…" | null }` — each app's own icon, 64 × 64 px (drawn at 32 pt @2×),
+for the Timeline's stretches and the Your AI rows. `app` and `bundle` are as events store them (`bundle`: Mac bundle
+id, Windows exe name like `chrome.exe`, Linux desktop id or exe name). null: not found — the page keeps its glyph in
+the same box. At most 200 apps a call; the host looks each app up once and keeps the answer (found or not) while it
+runs; the page asks for the apps it draws in one call and keeps answers too (`ui/js/core/appicons.js`).
+Mac: NSWorkspace by bundle id, else a running app or `<app>.app` in the Applications folders. Windows: the exe of a
+running process, else App Paths, else the Windows folders; the shell's icon. Linux: the .desktop file by desktop id,
+StartupWMClass, Exec or name; its Icon= from the GTK icon theme.
+Has code: Swift `AppIconPNG`; Rust `core::app_icons` (cache, PNG), `windows/app_icon.rs`, `linux/icon_match.rs` +
+`window/web.rs`.
 
 ### Updates
 

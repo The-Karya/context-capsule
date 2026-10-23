@@ -364,6 +364,16 @@ enum WebCheck {
         check(call("capsule.share", "{file: 'capsules/nope.md', how: 'copy-file'}") == "refused: gone", "capsule.share: gone")
         check(call("capsule.pick") == "null" && call("apps.pick") == "null", "capsule.pick / apps.pick (panels not opened in tests)")
         check(call("apps.names", "{ids: ['com.apple.Safari']}") == #"{"com.apple.Safari":"Safari"}"#, "apps.names")
+        let icons = call("apps.icons", "{apps: [{app: 'Safari', bundle: 'com.apple.Safari'}, {app: 'Notes', bundle: ''}, {app: 'No Such App', bundle: 'com.example.none'}]}")
+        let iconsObj = (try? JSONSerialization.jsonObject(with: Data(icons.utf8))) as? [String: Any] ?? [:]
+        let safari = (iconsObj["com.apple.Safari"] as? String) ?? ""
+        let safariRep = Data(base64Encoded: String(safari.dropFirst("data:image/png;base64,".count))).flatMap { NSBitmapImageRep(data: $0) }
+        check(safari.hasPrefix("data:image/png;base64,") && safariRep?.pixelsWide == 64 && safariRep?.pixelsHigh == 64,
+              "apps.icons: Safari by bundle id, 64 px PNG", String(icons.prefix(120)))
+        check((iconsObj["Notes"] as? String)?.hasPrefix("data:image/png") == true, "apps.icons: Notes by name")
+        check(iconsObj["com.example.none"] is NSNull, "apps.icons: an app that isn't here is null")
+        let again = call("apps.icons", "{apps: [{app: 'Safari', bundle: 'com.apple.Safari'}]}")
+        check(again == "{\"com.apple.Safari\":\"\(safari)\"}", "apps.icons: the same answer again (cached)")
         check(call("nope").hasPrefix("refused: unknown method"), "unknown methods refused")
 
         // Pages that load nothing from outside: only capsule:// was asked for

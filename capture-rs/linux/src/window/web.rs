@@ -6,9 +6,10 @@
 //! The window's buttons sit over the page's top band, which also moves the window.
 
 use super::{apply_appearance, Ctx};
-use crate::{autostart, connect, ui};
+use crate::{autostart, connect, icon_match, ui};
 use adw::prelude::*;
 use context_capsule_core::anyai::Launch;
+use context_capsule_core::app_icons;
 use context_capsule_core::bridge::{self, Hello, Host, Transport};
 use context_capsule_core::claude::new_chat_url;
 use context_capsule_core::settings::Appearance;
@@ -18,6 +19,7 @@ use context_capsule_core::{Hotkeys, Msg, Paths, Status};
 use gtk::{gdk, gio, glib};
 use serde_json::{json, Map, Value};
 use std::cell::{Cell, RefCell};
+use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 use std::rc::Rc;
 use std::sync::mpsc::Sender;
@@ -664,6 +666,11 @@ impl Host for LinuxHost {
         .unwrap_or_default()
     }
 
+    fn app_icon(&self, app: &str, bundle: &str) -> Option<Vec<u8>> {
+        let (app, bundle, classes) = (app.to_string(), bundle.to_string(), wm_classes());
+        on_main_now(move |_| app_icon_png(&app, &bundle, &classes)).flatten()
+    }
+
     fn updates(&self, _action: &str) -> Result<(), String> {
         // Checking; a ready update asks to restart in its own message (update.rs).
         crate::update::check_now();
@@ -678,6 +685,73 @@ impl Host for LinuxHost {
             }
         });
     }
+}
+
+/// StartupWMClass of every installed .desktop file by desktop id (read off the main thread; kept a minute, as
+/// the page asks for many apps at once).
+fn wm_classes() -> Arc<HashMap<String, String>> {
+    type Kept = Mutex<Option<(Instant, Arc<HashMap<String, String>>)>>;
+    static KEPT: std::sync::OnceLock<Kept> = std::sync::OnceLock::new();
+    let mut kept = KEPT.get_or_init(Default::default).lock().unwrap();
+    if let Some((at, m)) = kept.as_ref() {
+        if at.elapsed() < Duration::from_secs(60) {
+            return m.clone();
+        }
+    }
+    let var = |k: &str| std::env::var(k).ok();
+    let dirs = icon_match::desktop_dirs(var("XDG_DATA_HOME").as_deref(), var("HOME").as_deref(), var("XDG_DATA_DIRS").as_deref());
+    let m = Arc::new(icon_match::wm_classes(&dirs));
+    *kept = Some((Instant::now(), m.clone()));
+    m
+}
+
+/// The app's icon as a PNG of `app_icons::SIZE` pixels (main thread): the installed app it is (icon_match), its
+/// icon from the icon theme or its file; else an icon in the theme named like the program. None: no icon.
+fn app_icon_png(app: &str, bundle: &str, classes: &HashMap<String, String>) -> Option<Vec<u8>> {
+    let mut infos = gio::AppInfo::all();
+    // Apps shown in menus win a tie over hidden helpers.
+    infos.sort_by_key(|a| !a.should_show());
+    let installed: Vec<icon_match::Installed> = infos
+        .iter()
+        .map(|a| {
+            let id = a.id().map(|i| ui::desktop_app_id(i.as_str())).unwrap_or_default();
+            icon_match::Installed {
+                wm_class: classes.get(&id).cloned().unwrap_or_default(),
+                exec: a.commandline().map(|c| icon_match::exec_name(&c.to_string_lossy())).unwrap_or_default(),
+                name: a.display_name().to_string(),
+                id,
+            }
+        })
+        .collect();
+    let theme = gtk::IconTheme::for_display(&gdk::Display::default()?);
+    let icon: gio::Icon = match icon_match::best(&installed, app, bundle) {
+        Some(i) => infos[i].icon()?,
+        None => {
+            let name = bundle.trim();
+            if name.is_empty() || name.contains('/') || !theme.has_icon(name) {
+                return None;
+            }
+            gio::ThemedIcon::new(name).upcast()
+        }
+    };
+    icon_png(&theme, &icon)
+}
+
+/// A gio icon as PNG bytes about `app_icons::SIZE` pixels on its long side (SVGs drawn at that size).
+fn icon_png(theme: &gtk::IconTheme, icon: &gio::Icon) -> Option<Vec<u8>> {
+    let size = app_icons::SIZE as i32;
+    let file = match icon.downcast_ref::<gio::FileIcon>() {
+        Some(f) => f.file(),
+        None => {
+            if !theme.has_gicon(icon) {
+                return None;
+            }
+            theme.lookup_by_gicon(icon, size, 1, gtk::TextDirection::None, gtk::IconLookupFlags::empty()).file()?
+        }
+    };
+    let stream = file.read(gio::Cancellable::NONE).ok()?;
+    let pixbuf = gtk::gdk_pixbuf::Pixbuf::from_stream_at_scale(&stream, size, size, true, gio::Cancellable::NONE).ok()?;
+    pixbuf.save_to_bufferv("png", &[]).ok()
 }
 
 /// A file chooser that answers once: the file, or None (cancelled, closed).

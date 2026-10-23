@@ -168,6 +168,7 @@ button, input, select { font: inherit; color: inherit; }
 
 .ic { display: inline-flex; width: 16px; height: 16px; flex: none; align-items: center; justify-content: center; }
 .ic svg { width: 100%; height: 100%; display: block; overflow: visible; }
+.ic img { width: 100%; height: 100%; display: block; object-fit: contain; }
 
 .secondary { color: var(--secondary); }
 .tnum { font-variant-numeric: tabular-nums; }

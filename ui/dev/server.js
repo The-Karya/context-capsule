@@ -218,8 +218,20 @@ const methods = {
   "capsule.pick": () => null,
   "apps.pick": () => null,
   "apps.names": ({ ids }) => Object.fromEntries((ids ?? []).map((id) => [id, id])),
+  "apps.icons": ({ apps }) =>
+    Object.fromEntries((apps ?? []).map(({ app = "", bundle = "" }) => [bundle || app, sampleIcon(bundle || app)])),
   updates: () => ({}),
 };
+
+// A few made-up icons (a rounded square in a colour, the first letter); every other app has none (the glyph).
+function sampleIcon(key) {
+  const colours = { chrome: "#1a73e8", safari: "#0a84ff", figma: "#a259ff", code: "#007acc", notes: "#f5c400", slack: "#4a154b", claude: "#d97757" };
+  const name = Object.keys(colours).find((k) => key.toLowerCase().includes(k));
+  if (!name) return null;
+  const svg = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64"><rect x="6" y="6" width="52" height="52" rx="12" fill="${colours[name]}"/>` +
+    `<text x="32" y="43" font-family="Helvetica, Arial" font-size="28" font-weight="600" fill="#fff" text-anchor="middle">${name[0].toUpperCase()}</text></svg>`;
+  return "data:image/svg+xml;base64," + Buffer.from(svg).toString("base64");
+}
 
 async function bridge(req) {
   let body;

@@ -122,7 +122,7 @@ pub fn exe_file_name(path: &str) -> &str {
 }
 
 #[cfg(windows)]
-pub use win::{front, monitor_handles, monitors, on_screen, title, Apps};
+pub use win::{exe_path, front, monitor_handles, monitors, on_screen, title, Apps};
 
 #[cfg(windows)]
 mod win {
@@ -305,7 +305,8 @@ mod win {
         }
     }
 
-    fn exe_path(pid: u32) -> Option<String> {
+    /// The full path of a process's exe. None: no such process, or it can't be opened.
+    pub fn exe_path(pid: u32) -> Option<String> {
         if pid == 0 {
             return None;
         }

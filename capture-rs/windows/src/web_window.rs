@@ -826,6 +826,10 @@ mod win {
             ids.iter().map(|id| (id.clone(), Value::String(exe_name(id)))).collect()
         }
 
+        fn app_icon(&self, app: &str, bundle: &str) -> Option<Vec<u8>> {
+            crate::app_icon::icon(app, bundle)
+        }
+
         fn updates(&self, action: &str) -> Result<(), String> {
             if action == "check" {
                 crate::update::check_now();

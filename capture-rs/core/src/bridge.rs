@@ -271,6 +271,12 @@ pub trait Host: Send + Sync {
     fn pick_app(&self) -> Option<(String, String)>;
     /// Names for the Never record list (ids it doesn't know are left out).
     fn app_names(&self, ids: &[String]) -> Map<String, Value>;
+    /// The app's icon as a PNG of 64 × 64 pixels (`app_icons::SIZE`), by its id as events store it (`bundle`:
+    /// Windows the exe name, Linux the desktop id) else its name; None: not found. Each app is asked once (the
+    /// bridge caches answers).
+    fn app_icon(&self, _app: &str, _bundle: &str) -> Option<Vec<u8>> {
+        None
+    }
     /// "check" | "restart"; progress comes in `state.update`.
     fn updates(&self, action: &str) -> Result<(), String>;
     /// Send an event to the page (any thread).
@@ -673,6 +679,10 @@ pub fn dispatch(paths: &Paths, host: &dyn Host, method: &str, args: &Value) -> R
                 args.get("ids").and_then(Value::as_array).map(|a| a.iter().filter_map(|v| v.as_str().map(String::from)).collect()).unwrap_or_default();
             Ok(Value::Object(host.app_names(&ids)))
         }
+        "apps.icons" => {
+            let apps = crate::app_icons::parse(args);
+            Ok(Value::Object(crate::app_icons::shared().answer(&apps, &|app, bundle| host.app_icon(app, bundle))))
+        }
         "updates" => {
             let action = need(args, "action")?;
             if action != "check" && action != "restart" {
@@ -781,6 +791,10 @@ mod tests {
         }
         fn app_names(&self, ids: &[String]) -> Map<String, Value> {
             ids.iter().map(|i| (i.clone(), Value::String(i.to_uppercase()))).collect()
+        }
+        fn app_icon(&self, app: &str, bundle: &str) -> Option<Vec<u8>> {
+            self.log(format!("icon {app}|{bundle}"));
+            (bundle == "bridge-test.exe").then(|| vec![0x89, b'P'])
         }
         fn updates(&self, action: &str) -> Result<(), String> {
             self.log(format!("updates {action}"));
@@ -997,6 +1011,12 @@ mod tests {
         assert_eq!(call(&p, &host, "capsule.pick", json!({})).unwrap(), Value::Null);
         assert_eq!(call(&p, &host, "apps.pick", json!({})).unwrap(), json!({"id": "firefox", "name": "Firefox"}));
         assert_eq!(call(&p, &host, "apps.names", json!({"ids": ["slack"]})).unwrap(), json!({"slack": "SLACK"}));
+        let apps = json!({"apps": [{"app": "Bridge Test", "bundle": "bridge-test.exe"}, {"app": "Bridge Nothing", "bundle": ""}]});
+        let icons = call(&p, &host, "apps.icons", apps.clone()).unwrap();
+        assert_eq!(icons, json!({"bridge-test.exe": "data:image/png;base64,iVA=", "Bridge Nothing": null}));
+        assert_eq!(call(&p, &host, "apps.icons", apps).unwrap(), icons);
+        assert_eq!(host.calls().iter().filter(|c| c.starts_with("icon ")).count(), 2, "cached: one lookup per app");
+        assert_eq!(call(&p, &host, "apps.icons", json!({})).unwrap(), json!({}));
         call(&p, &host, "updates", json!({"action": "check"})).unwrap();
         assert!(call(&p, &host, "updates", json!({"action": "rm"})).is_err());
         assert!(call(&p, &host, "nope", json!({})).is_err());

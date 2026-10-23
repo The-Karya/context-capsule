@@ -6,6 +6,7 @@ import { call, why } from "../host.js";
 import * as AI from "../core/yourai.js";
 import * as Keys from "../core/shortcuts.js";
 import * as actions from "../actions.js";
+import { appIcon } from "../appicon.js";
 
 /** The set-up steps' words, by platform (the host only says which steps there are and which are done). */
 function stepWords(id, platform) {
@@ -225,7 +226,7 @@ export function mount(root, app) {
         more.addEventListener("click", () => menu(more, [{ text: AI.words.disconnect, action: () => actions.disconnect(app, c) }]));
         right = [h("span", { role: "img", "aria-label": "Connected" }, icon("check", "done")), more];
       } else right = button(AI.words.connect, () => actions.connect(app, c), { size: "small", disabled: app.ai.busy != null, label: `Connect ${c.name}` });
-      out.push(h("div", { class: "ai-row" }, icon("terminal", "app"), h("span", { class: "label" }, c.name), right));
+      out.push(h("div", { class: "ai-row" }, appIcon(c.name, "", "terminal", "app"), h("span", { class: "label" }, c.name), right));
     }
     if (missing.length) {
       out.push(sep("in48"));
