@@ -79,6 +79,7 @@ pub fn is_session_id(id: &str) -> bool {
 /// The `---` front matter of a capsule file: simple `key: value` lines (comments after " #" and quotes
 /// dropped), like the Mac's `CapsuleSummary.parse`. Empty when there is none.
 pub fn front_matter(text: &str) -> Vec<(String, String)> {
+    let text = text.replace("\r\n", "\n");
     let Some(rest) = text.strip_prefix("---\n") else { return vec![] };
     let Some(end) = rest.find("\n---") else { return vec![] };
     let spaces = |s: &str| s.trim_matches([' ', '\t']).to_string();

@@ -28,6 +28,8 @@ pub const SUFFIX: &str = ".capsule.md";
 impl CapsuleSummary {
     /// Reads `---` front matter (simple `key: value` lines) and the lines under `## In short`.
     pub fn parse(text: &str, path: &Path) -> CapsuleSummary {
+        // Saved on Windows (Notepad, the clipboard): "\r\n" line ends.
+        let text = &text.replace("\r\n", "\n");
         let front = front_matter(text);
         let get = |k: &str| front.iter().rev().find(|(key, _)| key == k).map(|(_, v)| v.clone()).unwrap_or_default();
         // The body starts after the closing "\n---" (front_matter found it, so this does too).
@@ -181,6 +183,14 @@ fn find_ignoring_case(hay: &str, needle: &str) -> Option<usize> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn windows_line_ends() {
+        let text = "---\r\ncapsule: 1\r\ntitle: Pricing page\r\nproject: website\r\nkind: daily\r\ndate: 2026-10-19\r\n---\r\n\r\n## In short\r\nTeams moves to $12.\r\n\r\n## Next steps\r\n- Build it.\r\n";
+        let c = CapsuleSummary::parse(text, Path::new("/c/website-2026-10-19.capsule.md"));
+        assert_eq!((c.title.as_str(), c.project.as_str(), c.kind.as_str(), c.date.as_str()), ("Pricing page", "website", "daily", "2026-10-19"));
+        assert_eq!(c.in_short, "Teams moves to $12.");
+    }
 
     fn cap(project: &str, kind: &str, date: &str, created: &str) -> CapsuleSummary {
         CapsuleSummary {
