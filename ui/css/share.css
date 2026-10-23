@@ -24,6 +24,12 @@
 }
 .share-count { font-size: 12px; color: var(--muted, var(--secondary)); white-space: nowrap; margin-right: 2px; font-variant-numeric: tabular-nums; }
 .share-bar .more { padding: 0 8px; letter-spacing: 1px; }
+/* Very narrow: the title gets its own line under the buttons. */
+@container share (max-width: 460px) {
+  .share-bar { flex-wrap: wrap; row-gap: 2px; }
+  .share-count { margin-left: auto; }
+  .share-title { order: 5; flex-basis: 100%; margin: 0; }
+}
 
 /* Text on the left, kinds on the right; stacked (kinds first) when narrow. */
 .share-grid {
