@@ -105,7 +105,7 @@ mod win {
         CreateWindowExW, DefWindowProcW, DestroyWindow, GetClientRect, GetCursorPos, KillTimer, LoadCursorW, RegisterClassW,
         SendMessageW, SetForegroundWindow, SetTimer, SetWindowPos, ShowWindow, SystemParametersInfoW, HICON, ICON_BIG, ICON_SMALL,
         IDC_ARROW, MINMAXINFO, SPI_GETWORKAREA, SWP_NOACTIVATE, SWP_NOZORDER, SW_RESTORE, SW_SHOW, SYSTEM_PARAMETERS_INFO_UPDATE_FLAGS,
-        WINDOW_EX_STYLE, WM_CLOSE, WM_DESTROY, WM_DPICHANGED, WM_ERASEBKGND, WM_GETMINMAXINFO, WM_SETFOCUS, WM_SETICON, WM_SETTINGCHANGE,
+        WINDOW_EX_STYLE, WS_EX_NOREDIRECTIONBITMAP, WM_CLOSE, WM_DESTROY, WM_DPICHANGED, WM_ERASEBKGND, WM_GETMINMAXINFO, WM_SETFOCUS, WM_SETICON, WM_SETTINGCHANGE,
         WM_SIZE, WM_TIMER, WNDCLASSW, WS_CLIPCHILDREN, WS_OVERLAPPEDWINDOW,
     };
     use wry::dpi::{PhysicalPosition, PhysicalSize};
@@ -213,12 +213,12 @@ mod win {
         setup::mark_seen();
         let host = HOST.get_or_init(|| Arc::new(WinHost::new(&ctx))).clone();
         *host.start.lock().unwrap() = Start { page: section.map(|s| page_of(s).to_string()).or(first_run.then(|| "settings".into())), first_run };
-        let Some(hwnd) = create() else {
+        let mica = build() >= MICA_BUILD;
+        let Some(hwnd) = create(mica) else {
             ctx.log.write("window: cannot open");
             return false;
         };
         let dark = dark_for(&ctx.paths);
-        let mica = build() >= MICA_BUILD;
         frame(hwnd, dark, mica);
         let webview = match make_webview(hwnd, &ctx, host, dark, mica) {
             Ok(w) => w,
@@ -378,7 +378,8 @@ mod win {
         }
     }
 
-    fn create() -> Option<HWND> {
+    /// `mica`: no GDI surface (WS_EX_NOREDIRECTIONBITMAP), so the backdrop shows wherever the page is transparent.
+    fn create(mica: bool) -> Option<HWND> {
         static REGISTER: std::sync::Once = std::sync::Once::new();
         // SAFETY: registering our class once and creating a top-level window of it.
         unsafe {
@@ -401,7 +402,7 @@ mod win {
             let (ww, wh) = (ww.min(work.right - work.left), wh.min(work.bottom - work.top));
             let (x, y) = (work.left + (work.right - work.left - ww) / 2, work.top + (work.bottom - work.top - wh) / 2);
             CreateWindowExW(
-                WINDOW_EX_STYLE(0),
+                if mica { WS_EX_NOREDIRECTIONBITMAP } else { WINDOW_EX_STYLE(0) },
                 &class,
                 &HSTRING::from(context_capsule_core::window::APP_NAME),
                 WS_OVERLAPPEDWINDOW | WS_CLIPCHILDREN,

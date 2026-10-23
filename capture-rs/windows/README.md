@@ -201,6 +201,21 @@ arcs, which GDI+ refuses: the page stayed black, and only dark mode looked right
 between light and dark, the accent, or the Appearance setting repaints everything at once. Text boxes are real edit controls; choices are standard
 popup menus. Keyboard: Tab / Shift+Tab, Enter or Space, arrows and Page Up / Down scroll.
 
+## The shared window (trying it)
+
+The same page as the Mac's window (`ui/` at the repo root) can open instead of the custom-drawn one: start with
+`--new-window`, or put `"new_window": true` in config.json. It is off by default until it replaces the old window.
+
+- **WebView2.** The page is shown in WebView2 (through `wry`), served from inside the exe at
+  `https://capsule.localhost/` (no network, no files on disk); its bridge is `core::bridge` (ui/BRIDGE.md), answered
+  off the UI thread (`web_window.rs`). WebView2's own files go to `%LOCALAPPDATA%\Context Capsule\WebView2`.
+- **No WebView2 runtime** (possible on Windows 10 without a recent Edge): the custom-drawn window opens instead, as
+  before (app.log says so). Windows 11 always has it.
+- **Glass.** On Windows 11 22H2 and later the window has Mica behind a transparent page, and the page is told
+  `material: "glass"`; with Settings → Personalization → Colors → Transparency effects off it is told `"none"` (and
+  again live when that changes). Windows 10: flat.
+- The title bar and its buttons, the tray, hotkeys, the picker and the dialogs stay Windows'.
+
 ## Any AI
 
 Context Capsule works with any AI (SPEC *Any AI*), through `context-capsule-mcp.exe` (inside the
