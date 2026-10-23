@@ -829,9 +829,6 @@ impl Win {
                 paint::node(mem, &mut self.fonts, &t, &self.placed[i].0, HEADER - self.scroll, feel);
             }
             let _ = RestoreDC(mem, saved);
-            if self.scroll > 0.5 {
-                paint::Shapes::on(mem).fill([self.px(SIDEBAR) as f32, self.px(HEADER) as f32 - 1.0, cw as f32, 1.0], 0.0, t.divider);
-            }
             for i in 0..self.placed.len() {
                 if self.placed[i].1 == Region::Content {
                     continue;

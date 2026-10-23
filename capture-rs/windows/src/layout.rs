@@ -80,7 +80,7 @@ impl Font {
         match self {
             Font::Display => (32.0, 400, true),
             Font::Title => (22.0, 600, true),
-            Font::Stat => (28.0, 600, true),
+            Font::Stat => (28.0, 700, true),
             Font::Subtitle => (17.0, 600, true),
             Font::Strong => (14.0, 600, false),
             Font::Body => (14.0, 400, false),
@@ -344,8 +344,8 @@ pub mod glyph {
     pub const MIC: &str = "\u{E720}";
     pub const LINK: &str = "\u{E71B}";
     pub const POWER: &str = "\u{E7E8}";
-    pub const HISTORY: &str = "\u{E81C}";
     pub const CLOCK: &str = "\u{E121}";
+    pub const TIMELINE: &str = "\u{E8FD}";
     pub const SEARCH: &str = "\u{E721}";
     pub const UP_SMALL: &str = "\u{E96D}";
     pub const DOWN_SMALL: &str = "\u{E96E}";
@@ -356,7 +356,7 @@ pub mod glyph {
 pub fn section_icon(s: Section) -> &'static str {
     match s {
         Section::Home => glyph::HOME,
-        Section::Timeline => glyph::HISTORY,
+        Section::Timeline => glyph::TIMELINE,
         Section::Capsules => glyph::CAPSULE,
         Section::Projects => glyph::FOLDER,
         Section::Settings => glyph::SETTINGS,
@@ -595,7 +595,7 @@ const LARGE_H: f64 = 28.0;
 const SEARCH_H: f64 = 26.0;
 const SIDE_GAP: f64 = 20.0;
 /// The space under a page's title.
-const TITLE_GAP: f64 = 16.0;
+const TITLE_GAP: f64 = 8.0;
 
 /// Builds nodes top to bottom in one column.
 struct Col<'m> {
@@ -1695,7 +1695,7 @@ fn more_button(x: f64, w: f64, y: f64, action: Action) -> Node {
 
 fn projects_page(col: &mut Col, v: &View) {
     col.para(w::PROJECTS_INTRO, Font::Body, Ink::Secondary);
-    col.gap(16.0);
+    col.gap(8.0);
     if v.data.projects.is_empty() {
         col.para(w::NO_PROJECTS, Font::Body, Ink::Secondary);
         return;
@@ -1774,6 +1774,7 @@ fn updates_section(col: &mut Col, v: &View) {
 fn settings_page(col: &mut Col, v: &View) {
     let c = &v.data.config;
 
+    col.gap(16.0);
     col.caption(w::YOU);
     col.card(|out, x, w, top, m| {
         let fw = (w * 0.45).clamp(140.0, 220.0);
@@ -2049,6 +2050,7 @@ pub fn app_label(app: &str) -> String {
 // MARK: Help
 
 fn help_page(col: &mut Col, v: &View) {
+    col.gap(16.0);
     col.caption(w::SHORTCUTS);
     let lines = w::shortcuts(v.keys, &v.ai.kind());
     col.card(|out, x, w, top, m| {
@@ -2751,7 +2753,7 @@ mod tests {
         assert_eq!(without_year("yyyy年M月d日"), "M月d日");
         assert_eq!(without_year("dddd d. MMMM yyyy"), "dddd d. MMMM");
         assert_eq!(section_icon(Section::Help), glyph::HELP);
-        assert_eq!(section_icon(Section::Timeline), glyph::HISTORY);
+        assert_eq!(section_icon(Section::Timeline), glyph::TIMELINE);
         assert_eq!((initial("chrome.exe").as_str(), initial(" ").as_str(), initial("éclair").as_str()), ("C", "·", "É"));
     }
 }
