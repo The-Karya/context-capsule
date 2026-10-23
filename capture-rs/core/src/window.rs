@@ -67,7 +67,7 @@ impl Section {
 
 /// The sidebar's two groups.
 pub const GROUP_WORK: &str = "Your work";
-pub const GROUP_APP: &str = "Context Capsule";
+pub const GROUP_APP: &str = "Karya Context Capsule";
 
 /// Window sizes, in device-independent pixels: content is centered and never wider than this.
 pub const MAX_CONTENT: f64 = 760.0;
@@ -562,7 +562,7 @@ mod tests {
         assert_eq!(content_width(800.0), (760.0, false));
         assert_eq!(content_width(1400.0), (980.0, true));
         assert_eq!(Section::ALL.map(|s| s.title()), ["Home", "Timeline", "Capsules", "Projects", "Settings", "Help"]);
-        assert_eq!(Section::ALL.map(|s| s.group()), ["Your work", "Your work", "Your work", "Your work", "Context Capsule", "Context Capsule"]);
+        assert_eq!(Section::ALL.map(|s| s.group()), ["Your work", "Your work", "Your work", "Your work", "Karya Context Capsule", "Karya Context Capsule"]);
         let p = Project { id: "web".into(), name: "Website".into(), clues: vec!["acme.com".into(), "figma".into()] };
         assert_eq!(found_by(&p), "Found by: acme.com, figma");
         assert_eq!(delete_question(&p), "Delete “Website”?");
