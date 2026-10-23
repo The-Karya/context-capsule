@@ -48,6 +48,13 @@ final class WebWindow: NSObject, NSWindowDelegate, WKNavigationDelegate, WKUIDel
     var setShortcuts: (Shortcut, Shortcut) -> String? = { _, _ in nil }
     /// Open on Settings with nothing set up (the first launch).
     var firstRun = false
+    /// Automatic capsules (auto.status, auto.run). The app sets its own; renders and tests get a quiet one.
+    lazy var auto: AutoRunner = {
+        let a = AutoRunner(paths: paths) { false }
+        a.quiet = true
+        a.fixedAgent = .some(nil)
+        return a
+    }()
 
     private(set) var window: NSWindow?
     private(set) var web: WKWebView?
@@ -114,6 +121,12 @@ final class WebWindow: NSObject, NSWindowDelegate, WKNavigationDelegate, WKUIDel
     func dataChanged(_ what: [String]) {
         guard helloDone, !what.isEmpty else { return }
         emit("data-changed", ["what": what])
+    }
+
+    /// Automatic capsules changed (a run started or ended, the tools or settings changed): the `auto` event.
+    func autoChanged() {
+        guard helloDone else { return }
+        emit("auto", auto.status())
     }
 
     /// The window and its web view, not shown yet (shared by show() and the renders).
@@ -569,6 +582,13 @@ final class WebWindow: NSObject, NSWindowDelegate, WKNavigationDelegate, WKUIDel
                 DispatchQueue.main.async { ok(out) }
             }
 
+        case "auto.status":
+            ok(auto.status())
+
+        case "auto.run":
+            if let why = auto.runNow() { return no(why) }
+            ok(["started": true])
+
         case "updates":
             switch str("action") {
             case "check": later { self.app.checkForUpdates() }
@@ -630,6 +650,9 @@ final class WebWindow: NSObject, NSWindowDelegate, WKNavigationDelegate, WKUIDel
         case "ai":
             AIState.shared.dayLine = nil
             AIState.shared.updateChoice()
+            auto.settingChanged() // Your AI picks which tool a run uses
+        case "make_capsules", "remind_at":
+            auto.settingChanged()
         case "author":
             app.name = Preferences.name(from: paths.config).split(separator: " ").first.map(String.init) ?? ""
         default: break

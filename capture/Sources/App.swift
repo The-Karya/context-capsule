@@ -23,6 +23,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     private var iconTimer: Timer?
     private let toast = Toast()
     private lazy var daily = DailyJobs(paths: paths) { [weak self] in self?.recorder.isRecording ?? false }
+    /// Automatic capsules: runs `make` at the time (or on a click) with a local AI command-line tool.
+    private lazy var auto = AutoRunner(paths: paths) { [weak self] in self?.recorder.isRecording ?? false }
     private let appModel = AppModel()
     private lazy var main: MainWindow = {
         let window = MainWindow(app: appModel, paths: paths)
@@ -42,6 +44,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
             self?.refresh()
         }
         w.setShortcuts = { [weak self] record, voice in self?.setShortcuts(record: record, voice: voice) }
+        w.auto = auto
         return w
     }()
 
@@ -188,7 +191,20 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
             showWindow(.settings)
         }
         daily.onMake = { [weak self] in self?.makeCapsules() }
+        daily.makesByItself = { [weak self] in self?.auto.makesByItself ?? false }
         daily.start()
+        auto.onChange = { [weak self] in
+            guard let self, self.useWeb else { return }
+            self.web.autoChanged()
+        }
+        auto.onSaved = { [weak self] in
+            guard let self else { return }
+            if self.useWeb { self.web.dataChanged(["capsules"]); return }
+            self.main.library.reload()
+            self.main.refreshStats()
+        }
+        auto.openCapsules = { [weak self] in self?.showWindow(.capsules) }
+        auto.start()
 
         appModel.version = Updater.currentVersion
         appModel.checkForUpdates = { [weak self] in self?.updater.check(manual: true) }
@@ -257,6 +273,16 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         if recorder.isRecording && !recorder.listening {
             AppLog.shared.write("stop: make today's capsules")
             recorder.stop()
+        }
+        // With an AI command-line tool here (Automatic capsules), it makes them in the background.
+        if auto.agent != nil {
+            switch auto.runNow() {
+            case nil: toast.show("Making today's capsules. This takes a few minutes.", under: statusItem.button, seconds: 5)
+            case "running": toast.show("Already making today's capsules.", under: statusItem.button, seconds: 4)
+            case "nothing": toast.show("Nothing recorded today yet.", under: statusItem.button, seconds: 4)
+            default: AIState.shared.makeTodaysCapsules()
+            }
+            return
         }
         AIState.shared.makeTodaysCapsules()
     }

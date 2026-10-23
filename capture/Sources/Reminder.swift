@@ -11,6 +11,8 @@ final class DailyJobs {
     private var panel: NSPanel?
     private var lastCleanup: String?
     var onMake: () -> Void = {}
+    /// Automatic capsules make them by themselves (Automatically, with a tool here): no evening reminder.
+    var makesByItself: () -> Bool = { false }
 
     init(paths: Paths, isRecording: @escaping () -> Bool) {
         self.paths = paths
@@ -35,7 +37,7 @@ final class DailyJobs {
         let now = Date()
         let minutes = cal.component(.hour, from: now) * 60 + cal.component(.minute, from: now)
         let asked = UserDefaults.standard.string(forKey: "remindedDay") == day
-        guard panel == nil,
+        guard panel == nil, !makesByItself(),
               Reminder.due(now: minutes, at: config.remindAt, recordedToday: recordedToday(day),
                            capsuleToday: capsuleToday(day), askedToday: asked, recording: isRecording()) else { return }
         UserDefaults.standard.set(day, forKey: "remindedDay")
@@ -43,11 +45,14 @@ final class DailyJobs {
         show()
     }
 
-    private func recordedToday(_ day: String) -> Bool {
-        let ids = (try? FileManager.default.contentsOfDirectory(atPath: paths.sessions.path)) ?? []
+    private func recordedToday(_ day: String) -> Bool { Self.recorded(on: day, sessions: paths.sessions) }
+
+    /// Something was recorded that day ("yyyyMMdd"): a recording with events.
+    static func recorded(on day: String, sessions: URL) -> Bool {
+        let ids = (try? FileManager.default.contentsOfDirectory(atPath: sessions.path)) ?? []
         return ids.contains { id in
             guard id.hasPrefix(day) else { return false }
-            let events = paths.sessions.appendingPathComponent(id).appendingPathComponent("events.jsonl")
+            let events = sessions.appendingPathComponent(id).appendingPathComponent("events.jsonl")
             return ((try? FileManager.default.attributesOfItem(atPath: events.path))?[.size] as? Int ?? 0) > 0
         }
     }

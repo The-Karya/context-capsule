@@ -107,12 +107,17 @@ export function menu(anchor, items, label = "More") {
           m.append(h("hr", { role: "separator" }));
           continue;
         }
+        if (it.heading) {
+          m.append(h("div", { class: "menu-heading", role: "presentation" }, it.heading));
+          continue;
+        }
         m.append(
           h("button", {
             type: "button",
             role: "menuitem",
             class: it.destructive ? "destructive" : "",
             tabindex: "-1",
+            disabled: it.disabled || null,
             onclick: () => {
               close();
               it.action();

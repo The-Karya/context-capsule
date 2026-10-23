@@ -24,6 +24,8 @@ pub enum UiMsg {
     SaveFromClipboard,
     /// Your AI's state changed (`ai::update`): show it.
     AiChanged,
+    /// An event for the shared window's page (name, JSON payload): Automatic capsules' `auto`, `data-changed`.
+    Event(String, String),
     /// The engine stopped: close everything.
     Quit,
 }
@@ -67,6 +69,11 @@ impl WindowLink {
 
     pub fn status(&self, status: &Status) {
         self.send(UiMsg::Status(Box::new(status.clone())));
+    }
+
+    /// An event for the shared window's page (nothing without it).
+    pub fn event(&self, event: &str, payload: &serde_json::Value) {
+        self.send(UiMsg::Event(event.to_string(), payload.to_string()));
     }
 
     pub fn quit(&self) {

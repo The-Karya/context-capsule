@@ -7,6 +7,7 @@
 
 mod ai;
 mod app_icon;
+mod auto;
 mod connect;
 mod hotkeys;
 mod input;

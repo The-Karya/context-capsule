@@ -151,8 +151,9 @@ mod win {
     };
     use windows::Win32::UI::HiDpi::{GetDpiForMonitor, GetDpiForWindow, GetSystemMetricsForDpi, MDT_EFFECTIVE_DPI};
     use windows::Win32::UI::Shell::{
-        Shell_NotifyIconGetRect, Shell_NotifyIconW, NIF_ICON, NIF_MESSAGE, NIF_SHOWTIP, NIF_TIP, NIM_ADD, NIM_DELETE, NIM_MODIFY,
-        NIM_SETVERSION, NOTIFYICONDATAW, NOTIFYICONIDENTIFIER, NOTIFYICON_VERSION_4,
+        Shell_NotifyIconGetRect, Shell_NotifyIconW, NIF_ICON, NIF_INFO, NIF_MESSAGE, NIF_SHOWTIP, NIF_TIP, NIIF_NONE,
+        NIIF_RESPECT_QUIET_TIME, NIM_ADD, NIM_DELETE, NIM_MODIFY, NIM_SETVERSION, NOTIFYICONDATAW, NOTIFYICONIDENTIFIER,
+        NOTIFYICON_VERSION_4,
     };
     use windows::Win32::UI::WindowsAndMessaging::{CreateIconIndirect, DestroyIcon, FindWindowW, HICON, ICONINFO, SM_CXSMICON};
 
@@ -233,6 +234,26 @@ mod win {
             // SAFETY: as in `add`.
             unsafe {
                 let _ = Shell_NotifyIconW(NIM_MODIFY, &self.data());
+            }
+        }
+
+        /// A Windows notification from the tray icon (title and body; it stays in the notification centre). Clicking
+        /// it sends NIN_BALLOONUSERCLICK to the callback.
+        pub fn notify(&self, title: &str, body: &str) {
+            let mut d = self.data();
+            d.uFlags |= NIF_INFO;
+            d.dwInfoFlags = NIIF_NONE | NIIF_RESPECT_QUIET_TIME;
+            for (dst, src) in d.szInfoTitle.iter_mut().zip(title.encode_utf16().take(63)) {
+                *dst = src;
+            }
+            // Windows wants some text in the body.
+            let body = if body.is_empty() { " " } else { body };
+            for (dst, src) in d.szInfo.iter_mut().zip(body.encode_utf16().take(255)) {
+                *dst = src;
+            }
+            // SAFETY: as in `add`.
+            unsafe {
+                let _ = Shell_NotifyIconW(NIM_MODIFY, &d);
             }
         }
 

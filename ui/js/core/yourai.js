@@ -38,8 +38,6 @@ export const words = {
   saveFailed: "Couldn't save",
   removeInClaude: "Remove it in Claude",
   removeInClaudeBody: "In Claude, open Settings → Extensions and remove Context Capsule.",
-  askYourAI: "Ask your AI",
-  askClaude: "Ask Claude",
 };
 
 // The id in use: the saved one, else Claude if it's connected, else the first connected app, else "any".
@@ -122,11 +120,6 @@ export function settingsLine(kind, name) {
   return usesCopy(kind)
     ? `Make today's capsules copies your day to paste into ${name}, then you save its reply.`
     : `Make today's capsules opens ${name} with the request.`;
-}
-
-// "Ask Claude" when Your AI is Claude, else "Ask your AI".
-export function askButton(kind) {
-  return kind.type === "claude" ? words.askClaude : words.askYourAI;
 }
 
 // Help → Shortcuts, "Make my capsules for today".

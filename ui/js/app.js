@@ -19,6 +19,7 @@ import * as settings from "./pages/settings.js";
 import * as help from "./pages/help.js";
 import * as capsule from "./pages/capsule.js";
 import * as actions from "./actions.js";
+import * as Auto from "./core/auto.js";
 
 const PAGES = { home, timeline, capsules, projects, settings, help, capsule };
 const TITLES = { home: "Home", timeline: "Timeline", capsules: "Capsules", projects: "Projects", settings: "Settings", help: "Help" };
@@ -42,6 +43,8 @@ export const app = {
   streak: 0,
   weekCapsules: 0,
   ai: { dayLine: null, working: false, busy: null, note: null },
+  // Automatic capsules (auto.status); null until the host answers (older hosts never do: the button stays)
+  auto: null,
   page: "home",
   dark: false,
   systemDark: false,
@@ -142,6 +145,14 @@ app.loadClients = async () => {
     app.clients = [{ id: "claude", name: "Claude", installed: false, connected: false, how: "extension" }];
   }
   app.clientsLoaded = true;
+};
+
+app.loadAuto = async () => {
+  try {
+    app.auto = Auto.parseStatus(await host.call("auto.status"));
+  } catch {
+    app.auto = null;
+  }
 };
 
 app.loadSetup = async () => {
@@ -295,7 +306,7 @@ async function start() {
   }
   sidebarKeys();
 
-  await Promise.all([app.loadConfig(), app.loadProjects(), app.loadCapsules(), app.loadSessions(), app.loadSetup()]);
+  await Promise.all([app.loadConfig(), app.loadProjects(), app.loadCapsules(), app.loadSessions(), app.loadSetup(), app.loadAuto()]);
   await app.loadStats();
 
   host.on("state", (s) => {
@@ -312,6 +323,10 @@ async function start() {
     applyLook();
   });
   host.on("material", (m) => applyMaterial(m?.material));
+  host.on("auto", (st) => {
+    app.auto = Auto.parseStatus(st);
+    app.refresh("auto");
+  });
   host.on("navigate", (n) => app.go(n?.page || "home"));
   host.on("open-capsule", (c) => actions.received(app, c?.path || "", c?.text || ""));
   host.on("data-changed", async (d) => {
@@ -326,6 +341,7 @@ async function start() {
       await app.loadSessions();
     }
     if (what.has("clients")) await app.loadClients();
+    if (what.has("config")) await app.loadAuto();
     if (what.has("sessions") || what.has("projects") || what.has("capsules")) await app.loadStats();
     for (const w of what) app.refresh(w);
   });

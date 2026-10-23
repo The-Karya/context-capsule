@@ -551,6 +551,10 @@ impl Host for LinuxHost {
         crate::ai::launch()
     }
 
+    fn auto(&self) -> Option<Arc<context_capsule_core::auto::Auto>> {
+        crate::auto::get()
+    }
+
     fn ai_open(&self, id: &str, prompt: &str) -> Result<bool, String> {
         let (id, prompt) = (id.to_string(), prompt.to_string());
         on_main_now(move |w| {

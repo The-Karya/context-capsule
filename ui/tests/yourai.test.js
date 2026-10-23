@@ -46,8 +46,6 @@ test("order and choice", () => {
   expect(A.choiceName(A.kindOf("any"), [])).toBe("your AI");
   expect(A.homeLine(A.kindOf("any"), "your AI")).toBe("Your AI: any AI");
   expect(A.homeLine(A.kindOf("cursor"), "Cursor")).toBe("Your AI: Cursor");
-  expect(A.askButton(A.kindOf("claude"))).toBe("Ask Claude");
-  expect(A.askButton(A.kindOf("any"))).toBe("Ask your AI");
 
   expect(A.firstConnectedBecomesChoice(null, [client("a", true, false)])).toBe(true);
   expect(A.firstConnectedBecomesChoice("any", [])).toBe(false);

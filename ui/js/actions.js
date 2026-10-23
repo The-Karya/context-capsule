@@ -4,6 +4,7 @@
 import { call, why, read } from "./host.js";
 import { alert, toast, h } from "./dom.js";
 import * as AI from "./core/yourai.js";
+import * as Auto from "./core/auto.js";
 import * as Caps from "./core/capsules.js";
 import * as Check from "./core/sharecheck.js";
 import { sessionPrompt } from "./core/timeline.js";
@@ -49,8 +50,29 @@ export async function open(app, prompt, whyText, again) {
   await call("ai.open", { id: AI.claudeID, prompt }).catch((e) => alert({ title: "Couldn't open Claude", message: why(e) }));
 }
 
-/** Make today's capsules, the way Your AI works. */
-export function makeTodays(app) {
+/** Make today's capsules: in the background with an AI tool on this computer when there is one (SPEC "Automatic
+ * capsules"), else the way Your AI works. */
+export async function makeTodays(app) {
+  if (app.auto?.running) return;
+  if (app.auto?.agent) {
+    try {
+      await call("auto.run");
+      app.auto = { ...app.auto, running: true };
+      app.refresh("auto");
+      return;
+    } catch (e) {
+      const w = why(e);
+      if (w === "running") return;
+      if (w === "nothing") return toast(Auto.words.nothingToday);
+      if (w !== "none") return alert({ title: "Couldn't make today's capsules", message: AI.failureMessage(w) });
+      // no tool after all: Your AI, as before
+    }
+  }
+  return makeWithYourAI(app);
+}
+
+/** Make today's capsules with Your AI: open it with the request, or Copy my day. */
+export function makeWithYourAI(app) {
   const kind = app.kind();
   if (AI.usesCopy(kind)) return copyDay(app, null);
   return open(app, Caps.dayPrompt, "to read your day", "click Make today's capsules again");
@@ -60,12 +82,6 @@ export function makeTodays(app) {
 export function makeCapsule(app, session, date) {
   if (AI.usesCopy(app.kind())) return copyDay(app, date);
   return open(app, sessionPrompt(session), "to read your recording", "click Make a capsule from this again");
-}
-
-/** Ask your capsules (the Capsules page). */
-export function ask(app, question) {
-  if (!question.trim()) return;
-  return open(app, Caps.searchPrompt(question), "to search your capsules", "click Ask again");
 }
 
 /** Copy my day: the day as one message on the clipboard; the website opens; then Save from clipboard. */
@@ -169,6 +185,7 @@ export async function setChoice(app, id) {
   app.config = { ...app.config, ai: id };
   app.ai.dayLine = null;
   await call("config.set", { key: "ai", value: id }).catch(() => {});
+  await app.loadAuto(); // the tool that makes capsules may follow Your AI
   changed(app);
 }
 

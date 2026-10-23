@@ -6,7 +6,8 @@ import { call } from "../host.js";
 import * as Stats from "../core/stats.js";
 import * as AI from "../core/yourai.js";
 import { palette } from "../core/timeline.js";
-import { capsuleRow } from "./capsules.js";
+import { capsuleRow, makeControl } from "./capsules.js";
+import * as Auto from "../core/auto.js";
 import * as actions from "../actions.js";
 
 export function mount(root, app) {
@@ -172,16 +173,22 @@ function side(app, keys) {
   const name = app.aiName();
   const enter = app.platform === "mac" ? "Return" : "Enter";
   const make = h("section", { class: "card side-card make", "aria-labelledby": "h-make" }, h("h3", { id: "h-make" }, "Make today's capsules"));
-  make.append(h("p", null, AI.makeLine(kind, name, app.ai.dayLine, enter)));
-  if (AI.usesCopy(kind)) {
+  if (app.auto?.agent || app.auto?.running) {
+    // a tool on this computer makes them in the background (SPEC "Automatic capsules")
+    const c = Auto.control(app.auto, app.now(), (ms) => app.dates.time(ms));
+    if (c.kind === "button") make.append(h("p", null, Auto.homeLine(app.auto)));
+    make.append(makeControl(app, { full: true }));
+  } else if (AI.usesCopy(kind)) {
+    make.append(h("p", null, AI.makeLine(kind, name, app.ai.dayLine, enter)));
     make.append(
       button("Copy my day", () => actions.makeTodays(app), { size: "large", prominent: true, full: true, disabled: app.ai.working }),
       button("Save from clipboard", () => actions.saveFromClipboard(app), { size: "large", full: true, disabled: app.ai.working }),
     );
   } else {
+    make.append(h("p", null, AI.makeLine(kind, name, app.ai.dayLine, enter)));
     make.append(button("Make capsules", () => actions.makeTodays(app), { size: "large", prominent: true, full: true }));
   }
-  make.append(h("div", { class: "your-ai" }, h("span", null, AI.homeLine(kind, name)), h("button", { class: "link", type: "button", onclick: () => app.go("settings") }, "Change")));
+  make.append(h("div", { class: "your-ai" }, h("span", null, app.auto?.agent ? `With ${app.auto.agent.name}` : AI.homeLine(kind, name)), h("button", { class: "link", type: "button", onclick: () => app.go("settings") }, "Change")));
 
   return h("div", { class: "home-side" }, shortcuts, working, make);
 }

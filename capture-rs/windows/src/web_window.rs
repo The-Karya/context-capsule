@@ -728,6 +728,10 @@ mod win {
             self.launch.get_or_init(|| crate::program::launch(&|l: &str| log.write(l))).clone()
         }
 
+        fn auto(&self) -> Option<Arc<context_capsule_core::auto::Auto>> {
+            crate::auto::get()
+        }
+
         fn ai_open(&self, id: &str, prompt: &str) -> Result<bool, String> {
             if id == "claude" {
                 // Blocking (it may ask): this worker thread is its own.

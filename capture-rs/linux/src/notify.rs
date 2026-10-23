@@ -135,6 +135,21 @@ impl Notifier {
         });
     }
 
+    /// A notification that stays in the list, with `actions` (key, label; "default" = clicking it). `on` gets the
+    /// key the user picked, on a thread of its own; nothing when it's dismissed or the desktop has no actions.
+    pub fn notify_actions(&self, title: &str, body: &str, actions: Vec<(String, String)>, on: impl FnOnce(String) + Send + 'static) {
+        let (title, body) = (title.to_string(), body.to_string());
+        self.rt.spawn(async move {
+            match notify_and_wait(&title, &body, &actions).await {
+                Ok(Some(action)) => {
+                    std::thread::spawn(move || on(action));
+                }
+                Ok(None) => {}
+                Err(e) => eprintln!("Context Capsule: {title} (no notification: {e})"),
+            }
+        });
+    }
+
     /// A message the user must dismiss: a dialog if we can, else a notification that stays.
     pub fn alert(&self, title: &str, body: &str) {
         if let Some(d) = Dialogs::find() {
@@ -227,6 +242,35 @@ async fn notify_on(
     hints.insert("urgency", Value::U8(urgency));
     hints.insert("desktop-entry", Value::from(crate::APP_ID));
     p.call("Notify", &(APP, replaces, ICON, summary, body, actions.to_vec(), hints, timeout)).await
+}
+
+/// Show a notification with actions and wait (up to a day) for one to be picked. None: closed without one.
+async fn notify_and_wait(title: &str, body: &str, actions: &[(String, String)]) -> zbus::Result<Option<String>> {
+    use futures_util::StreamExt;
+    let bus = zbus::Connection::session().await?;
+    let p = proxy(&bus).await?;
+    let mut invoked = p.receive_signal("ActionInvoked").await?;
+    let mut closed = p.receive_signal("NotificationClosed").await?;
+    let flat: Vec<&str> = actions.iter().flat_map(|(k, l)| [k.as_str(), l.as_str()]).collect();
+    let id = notify_on(&bus, title, body, 0, 0, 1, &flat).await?;
+    let answer = async {
+        loop {
+            tokio::select! {
+                Some(m) = invoked.next() => {
+                    if let Ok((nid, action)) = m.body().deserialize::<(u32, String)>() {
+                        if nid == id { return Some(action); }
+                    }
+                }
+                Some(m) = closed.next() => {
+                    if let Ok((nid, _)) = m.body().deserialize::<(u32, u32)>() {
+                        if nid == id { return None; }
+                    }
+                }
+                else => return None,
+            }
+        }
+    };
+    Ok(tokio::time::timeout(std::time::Duration::from_secs(24 * 3600), answer).await.unwrap_or(None))
 }
 
 async fn ask_by_notification(title: &str, body: &str, yes: &str, no: &str) -> zbus::Result<bool> {

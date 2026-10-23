@@ -165,6 +165,8 @@ pub struct Engine<P: Platform> {
     new_lines: NewLines,
     /// The evening reminder and the clean-up of old recordings.
     daily: DailyJobs,
+    /// Automatic capsules (the app sets it): checked with the daily jobs; it also hides the evening reminder.
+    auto: Option<Arc<crate::auto::Auto>>,
     /// When the mouse last moved (between samples) in this recording, and where it was last sample.
     pointer_activity: Option<SystemTime>,
     last_pointer: Option<(f64, f64)>,
@@ -203,6 +205,7 @@ impl<P: Platform> Engine<P> {
             every_screen_shared: false,
             new_lines: NewLines::new(),
             daily: DailyJobs::new(),
+            auto: None,
             pointer_activity: None,
             last_pointer: None,
         }
@@ -218,6 +221,11 @@ impl<P: Platform> Engine<P> {
     /// Called on the voice engine's thread after each reply; send `Msg::VoiceReady` from it.
     pub fn set_voice_wake(&mut self, wake: Arc<dyn Fn() + Send + Sync>) {
         self.voice.set_wake(wake);
+    }
+
+    /// Automatic capsules: checked once a minute from here (it knows whether we're recording).
+    pub fn set_auto(&mut self, auto: Arc<crate::auto::Auto>) {
+        self.auto = Some(auto);
     }
 
     pub fn platform(&self) -> &P {
@@ -336,8 +344,13 @@ impl<P: Platform> Engine<P> {
                     self.changed(); // the tray's project list
                 }
                 let (clock_now, recording) = ((self.now)(), self.is_recording());
-                if self.daily.poll(&self.paths, clock_now, recording, &self.log) {
+                let auto = self.auto.clone();
+                let replaced = || auto.as_ref().is_some_and(|a| a.replaces_reminder());
+                if self.daily.poll(&self.paths, clock_now, recording, &replaced, &self.log) {
                     self.platform.remind();
+                }
+                if let Some(a) = &self.auto {
+                    a.poll(recording);
                 }
                 next_poll = now + POLL;
             }
@@ -409,7 +422,8 @@ impl<P: Platform> Engine<P> {
     /// The evening reminder and clean-up, now (the run loop does this once a minute). true: reminded.
     pub fn daily_now(&mut self) -> bool {
         let (now, recording) = ((self.now)(), self.is_recording());
-        let due = self.daily.run(&self.paths, now, recording, &self.log);
+        let auto = self.auto.clone();
+        let due = self.daily.run(&self.paths, now, recording, &|| auto.as_ref().is_some_and(|a| a.replaces_reminder()), &self.log);
         if due {
             self.platform.remind();
         }

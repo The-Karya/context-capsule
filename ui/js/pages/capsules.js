@@ -1,10 +1,47 @@
-// context-capsule — ui: Capsules — search your capsules, ask your AI, open one someone sent, Copy my day / Save from
-// clipboard, and every capsule by project (share, open)
+// context-capsule — ui: Capsules — search your capsules and every capsule by project (share, open); the header has
+// the make control (Make today's capsules, or Automatic capsules' status) and ••• (open a capsule file, Copy my day /
+// Save capsules from clipboard for an AI on the web)
 
 import { h, icon, button, iconButton, menu } from "../dom.js";
 import * as Caps from "../core/capsules.js";
 import * as AI from "../core/yourai.js";
+import * as Auto from "../core/auto.js";
 import * as actions from "../actions.js";
+
+/** The make control (Capsules header, Home): the blue Make today's capsules button, a quiet status line (Automatic
+ * capsules), or "Making today's capsules…" with a spinner while a run goes. `opts.full`: Home's wide button. */
+export function makeControl(app, opts = {}) {
+  const c = Auto.control(app.auto, app.now(), (ms) => app.dates.time(ms));
+  const size = opts.full ? { size: "large", full: true } : {};
+  if (c.kind === "running" && opts.full) {
+    const b = button("", null, { prominent: true, disabled: true, ...size });
+    b.append(h("span", { class: "spinner", "aria-hidden": "true" }), c.text);
+    return h("div", { role: "status" }, b);
+  }
+  if (c.kind === "running") {
+    return h("div", { class: "make-status", role: "status" }, h("span", { class: "spinner", "aria-hidden": "true" }), h("span", null, c.text));
+  }
+  if (c.kind === "line") {
+    return h(
+      "div",
+      { class: "make-status" + (opts.full ? " full" : ""), role: "status", title: !opts.full && c.detail ? c.detail : null },
+      h("span", null, opts.full && c.detail ? `${c.text}. ${c.detail}` : c.text),
+      c.action ? h("button", { class: "link", type: "button", onclick: () => actions.makeTodays(app) }, c.actionText) : null,
+    );
+  }
+  return button(opts.full ? Auto.words.makeCapsules : Auto.words.make, () => actions.makeTodays(app), { prominent: true, disabled: app.ai.working, ...size });
+}
+
+/** ••• on the Capsules page. */
+function moreMenu(app, anchor) {
+  menu(anchor, [
+    { text: "Open a capsule file…", action: () => actions.pickCapsule(app) },
+    "-",
+    { heading: "Using ChatGPT or another AI on the web?" },
+    { text: "Copy my day", action: () => actions.copyDay(app, null), disabled: app.ai.working },
+    { text: "Save capsules from clipboard", action: () => actions.saveFromClipboard(app), disabled: app.ai.working },
+  ], "More");
+}
 
 /** One capsule: icon, its name (the day, "Whole project" or its title), In short, and Share / Open. */
 export function capsuleRow(app, c) {
@@ -52,11 +89,9 @@ export function mount(root, app) {
   let query = "";
   const content = h("div", { class: "content" });
   const field = h("input", { type: "search", placeholder: "Search your capsules", "aria-label": "Search your capsules", spellcheck: false, autocomplete: "off" });
-  const askBtn = button("Ask your AI", () => actions.ask(app, query), { help: "Your AI searches all your capsules for this." });
   field.addEventListener("input", () => {
     query = field.value;
     drawList();
-    askBtn.disabled = !query.trim();
   });
   field.addEventListener("keydown", (e) => {
     if (e.key === "Escape" && field.value) {
@@ -64,28 +99,18 @@ export function mount(root, app) {
       field.dispatchEvent(new Event("input"));
     }
   });
-  askBtn.disabled = true;
 
-  const top = h(
-    "div",
-    { class: "title-row" },
-    h("h1", { class: "title" }, "Capsules"),
-    button("Open a capsule…", () => actions.pickCapsule(app), { help: "Open a capsule someone sent you. Your AI carries on from it." }),
-    button("Make today's capsules", () => actions.makeTodays(app)),
-  );
-  const search = h("div", { class: "search-row", role: "search" }, h("div", { class: "search" }, icon("search"), field), askBtn);
-  const web = h("div", { class: "web-row" });
+  const make = h("div", { class: "make-slot" });
+  const more = iconButton("ellipsisCircle", "More", (e) => moreMenu(app, e.currentTarget), "more-btn");
+  more.setAttribute("aria-haspopup", "menu");
+  const top = h("div", { class: "title-row" }, h("h1", { class: "title" }, "Capsules"), make, more);
+  const search = h("div", { class: "search-row", role: "search" }, h("div", { class: "search" }, icon("search"), field));
   const list = h("div", { class: "group-list", "aria-live": "polite" });
-  content.append(top, search, web, list);
+  content.append(top, search, list);
   root.append(content);
 
-  function drawWeb() {
-    askBtn.textContent = AI.askButton(app.kind());
-    web.replaceChildren(
-      h("p", null, app.ai.dayLine ?? AI.words.onTheWeb),
-      button("Copy my day", () => actions.copyDay(app, null), { disabled: app.ai.working, help: AI.words.copyMyDayHelp }),
-      button("Save from clipboard", () => actions.saveFromClipboard(app), { disabled: app.ai.working, help: AI.words.saveHelp }),
-    );
+  function drawMake() {
+    make.replaceChildren(makeControl(app));
   }
 
   function drawList() {
@@ -94,7 +119,7 @@ export function mount(root, app) {
       out.push(h("p", { class: "body" }, `No capsules yet. Start contextualizing (${app.keys().record}), then make today's capsules.`));
     } else {
       const groups = Caps.groups(app.capsules, query, (id) => app.projectName(id));
-      if (!groups.length) out.push(h("p", { class: "body" }, "No titles match. Ask your AI to look inside every capsule."));
+      if (!groups.length) out.push(h("p", { class: "body" }, "No titles match. Your AI can search inside every capsule."));
       for (const g of groups) {
         const id = "g-" + Math.random().toString(36).slice(2);
         const card = h("div", { class: "card", role: "list", "aria-labelledby": id });
@@ -108,12 +133,17 @@ export function mount(root, app) {
     list.replaceChildren(...out);
   }
 
-  drawWeb();
+  drawMake();
   drawList();
+  // "Next: today at 6:00 PM" turns into the button when the time comes
+  const timer = setInterval(drawMake, 30_000);
   return {
-    refresh() {
-      drawWeb();
-      drawList();
+    refresh(what) {
+      drawMake();
+      if (what !== "auto" && what !== "ai") drawList();
+    },
+    unmount() {
+      clearInterval(timer);
     },
   };
 }

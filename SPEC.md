@@ -393,9 +393,11 @@ opens your AI by itself.
 
 ## Ask your capsules
 
-The Capsules page has a search field (filters titles and "In short" as you type) and **Ask Claude**, which
-opens Claude with: `Use Context Capsule to search my capsules: <question>`. Claude uses the `search_capsules`
+The Capsules page has a search field ("Search your capsules": filters titles and "In short" as you type). Asking
+happens in your AI: "Use Context Capsule to search my capsules: <question>" makes it use the `search_capsules`
 tool (mcp/), which ranks every saved capsule section by the question's words and cites capsule, date and section.
+The page header has the make control (see "Automatic capsules") and a **•••** menu: Open a capsule file…, then
+under "Using ChatGPT or another AI on the web?": Copy my day, Save capsules from clipboard.
 
 ## Your own shortcuts (all recorders)
 
@@ -506,3 +508,59 @@ Today updates by itself every few seconds while recording, keeping what is open 
 
 The Claude side (`get_day_activity`, `get_session_activity`) also lists gaps in one short line each, so the AI
 knows what wasn't seen.
+
+## Automatic capsules (all recorders)
+
+Settings → Every day → **Make capsules**: **Automatically** (at a time you pick) or **When I click**. Both use a local
+AI command-line tool when one is installed, in the background, with nothing to paste; without one, Automatically
+says what it needs ("Needs Claude Code, Codex or Gemini CLI on this computer") and the button works as in "Any AI".
+
+**config.json:** `"make_capsules": "auto" | "click"` (missing = `"click"`). The time is `remind_at` (`"18:00"`; missing
+or `false` = 18:00 for Automatically). In Automatically mode with a tool installed, the evening reminder isn't shown.
+
+**The tools**, found by `context-capsule-mcp agents` (`{"agents":[{"id","name"}],"use":{"id","name"}|null}`) on the
+PATH and in the usual install folders (apps don't get the shell's PATH: `~/.local/bin`, `~/.claude/local`,
+`/opt/homebrew/bin`, `/usr/local/bin`, npm / bun / volta / nvm folders; Windows `%APPDATA%\npm`, `.exe` before `.cmd`).
+Order: **Claude Code** (`claude`), **Codex** (`codex`), **Gemini CLI** (`gemini`); the one matching Your AI
+(`codex`/`chatgpt` → Codex, `gemini` → Gemini CLI, `claude` → Claude Code) goes first.
+
+**One run** = `context-capsule-mcp make [--date D] [--by auto|click]` → `{"ok","day","status","ai","name","capsules","reason"}`
+(`status`: `done`, `failed`, `running` = one is already going, `none` = no tool, `nothing` = nothing recorded that day).
+It runs the tool headless in `<data>/auto/` (an empty folder: no project files) with the make_day_capsules request for
+that date, at low priority, stopped after **10 minutes**. The tool gets **only** our MCP server, started as
+`context-capsule-mcp serve --make-only`, which has only the tools that write a day's capsules (prepare_day,
+finish_day, get_day_activity, get_session_activity, get_moment, list_sessions, list_projects, create_project,
+assign_project, list_capsules, get_capsule, save_capsule, search_capsules: nothing that records, exports or imports).
+Done = the tool ended well and at least one `.capsule.md` was saved or changed; the count is the capsules saved.
+
+| tool | restricted with |
+|---|---|
+| Claude Code | `claude -p <request> --strict-mcp-config --mcp-config <data>/auto/mcp.json --tools "" --allowedTools "mcp__context-capsule__*" --permission-mode dontAsk --disable-slash-commands --no-session-persistence --output-format json`: no built-in tools at all (no Bash, Read, Edit, WebFetch, WebSearch), no other MCP servers, anything not allowed is refused without asking |
+| Codex | `codex exec --ignore-user-config --ignore-rules --skip-git-repo-check --ephemeral --sandbox read-only -c approval_policy=never -c web_search=disabled -c include_apply_patch_tool=false --disable shell_tool --disable unified_exec …` (apps, plugins, browser and computer use, image generation, sub-agents, hooks, view_image, goals, memories off) `-c mcp_servers.context-capsule.…`: no shell, no web, writes refused by the read-only sandbox, none of the user's other servers |
+| Gemini CLI | `gemini -p <request> --output-format json --approval-mode default --extensions none --allowed-mcp-server-names context-capsule --policy P --admin-policy P` with `<data>/auto/.gemini/settings.json` (`tools.core: []` = no built-in tools, our server `trust: true`) and policy P: every tool denied except `mcpName = "context-capsule"`; `GEMINI_CLI_TRUST_WORKSPACE=true` |
+
+**auto.json** (data folder; written by `make`, read by every app — the one place that says what ran):
+```json
+{"auto_day": "2026-10-23",
+ "last": {"day": "2026-10-23", "by": "auto", "status": "done", "ai": "claude-code",
+          "started_at": "2026-10-23T17:00:04Z", "finished_at": "2026-10-23T17:04:40Z", "capsules": 3}}
+```
+`auto_day` = the day an automatic run last started (set when it starts, so it never starts twice for a day, even if
+it was cut off). `last.status` `running` (with `pid`), `done` or `failed` (with `reason`: plain words, never content,
+e.g. "Claude Code isn't signed in. Open it once and sign in."). A `running` entry is over when its `pid` is gone or
+after 15 minutes. app.log gets one line when a run starts and one when it ends (tool, capsule count, minutes).
+
+**When (the apps, every minute, at launch and when the computer wakes):** start an automatic run when all hold:
+Make capsules is Automatically; a tool is installed; it is past the time today (local); `auto_day` isn't today; no
+run for today started at or after the time (a click run then counts); something was recorded today; not recording
+right now; no run going. So a Mac asleep or off at 6 PM runs at the next wake or launch the same day; never the next
+day; never twice a day; a day with no recordings is skipped. Swift `AutoRun.due`, Rust `core::auto::due`, the same
+cases in both test suites.
+
+**After a run:** done → a notification "3 capsules ready" (click: the Capsules page). Failed → a quiet notification
+"Couldn't make today's capsules" with the reason and **Try again** (a click run). Nothing is retried by itself.
+
+**The window:** bridge `auto.status`, `auto.run`, event `auto` (ui/BRIDGE.md). Capsules page header and Home's card
+show **Make today's capsules** (When I click, or no tool), or a quiet line — "Next: today at 6:00 PM" with **Make
+now**, "Made automatically at 6:04 PM", "Couldn't make them: <reason>" with **Try again** — and, while a run goes,
+"Making today's capsules…" with a spinner (buttons off).

@@ -387,6 +387,40 @@ enum WebCheck {
         check(iconsObj["com.example.none"] is NSNull, "apps.icons: an app that isn't here is null")
         let again = call("apps.icons", "{apps: [{app: 'Safari', bundle: 'com.apple.Safari'}]}")
         check(again == "{\"com.apple.Safari\":\"\(safari)\"}", "apps.icons: the same answer again (cached)")
+        // Automatic capsules: never runs anything here (the runner is quiet)
+        let runner = w.auto
+        let autoFile = runner.autoFile
+        try? fm.removeItem(at: autoFile)
+        func autoStatus() -> [String: Any] {
+            (try? JSONSerialization.jsonObject(with: Data(call("auto.status").utf8))) as? [String: Any] ?? [:]
+        }
+        let st = autoStatus()
+        let wantAt = (config()["remind_at"] as? String).flatMap { Reminder.parse($0) == nil ? nil : $0 } ?? "18:00"
+        check(Set(st.keys) == ["mode", "at", "agent", "running", "autoDay", "last"] && st["mode"] as? String == "click"
+              && st["at"] as? String == wantAt && st["agent"] is NSNull && st["running"] as? Bool == false
+              && st["autoDay"] is NSNull && st["last"] is NSNull, "auto.status: shape, nothing run yet", "\(st)")
+        check(call("auto.run") == "refused: none", "auto.run: no tool here says none")
+        _ = call("config.set", "{key: 'make_capsules', value: 'auto'}")
+        check(autoStatus()["mode"] as? String == "auto", "auto.status: make_capsules auto")
+        _ = call("config.set", "{key: 'make_capsules', value: null}")
+        runner.fixedAgent = .some(["id": "claude-code", "name": "Claude Code"])
+        runner.refreshAgents()
+        check((autoStatus()["agent"] as? [String: Any])?["name"] as? String == "Claude Code", "auto.status: the tool a run would use")
+        let realToday = runner.today
+        runner.today = { "2000-01-01" }
+        check(call("auto.run") == "refused: nothing", "auto.run: nothing recorded today says nothing")
+        runner.today = realToday
+        let runningJSON = #"{"auto_day":"2026-10-23","last":{"day":"2026-10-23","by":"click","status":"running","ai":"claude-code","started_at":"\#(Clock.iso(Date()))","pid":\#(getpid())}}"#
+        try? writeAtomically(runningJSON, to: autoFile)
+        let rst = autoStatus()
+        let rlast = rst["last"] as? [String: Any] ?? [:]
+        check(rst["running"] as? Bool == true && rst["autoDay"] as? String == "2026-10-23" && rlast["status"] as? String == "running"
+              && rlast["pid"] == nil, "auto.status: a run going (from auto.json, no pid)", "\(rst)")
+        check(call("auto.run") == "refused: running", "auto.run: a run going says running")
+        try? fm.removeItem(at: autoFile)
+        runner.fixedAgent = .some(nil)
+        runner.refreshAgents()
+
         check(call("nope").hasPrefix("refused: unknown method"), "unknown methods refused")
 
         // Pages that load nothing from outside: only capsule:// was asked for

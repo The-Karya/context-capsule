@@ -46,6 +46,9 @@ signed and checked, and install when you click **Restart now**.
 5. At the end of the day, click **Make today's capsules**. Your AI opens with the request (Claude: typed in,
    press Return; other apps: paste it in a new chat). Your AI sorts your day into projects and writes the capsules.
    With a website or any other AI: **Copy my day**, paste it in, copy its whole reply, then **Save from clipboard**.
+   Or let it happen by itself: Settings → **Make capsules** → **Automatically**, at a time you pick. That needs
+   Claude Code, Codex or Gemini CLI on your computer; it runs in the background with only Context Capsule's tools
+   (no files, no commands, no web), and a notification says when your capsules are ready.
 6. **Share** a capsule from **Capsules**: copy it into WhatsApp, Slack or email, or AirDrop it.
 
 ## The Context Capsule window
@@ -104,7 +107,9 @@ didn't share is never read, and picking a screen that's already shared is refuse
 ## Every day
 
 - **Opens at login** (turn it off in Settings or your system's login items).
-- **Evening reminder** (6 pm by default): if you contextualized today and made no capsules,
+- **Capsules made automatically** if you choose (6 pm by default): if the computer was asleep or off then, it
+  happens when it wakes, the same day. Once a day at most, and only on days you contextualized.
+- **Evening reminder** otherwise (6 pm by default): if you contextualized today and made no capsules,
   a small box asks *Make today's capsules?*
 - **Old recordings are deleted after 30 days** (change it in Settings). Capsules are kept.
 

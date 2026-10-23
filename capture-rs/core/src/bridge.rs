@@ -277,6 +277,10 @@ pub trait Host: Send + Sync {
     fn app_icon(&self, _app: &str, _bundle: &str) -> Option<Vec<u8>> {
         None
     }
+    /// Automatic capsules (None: this app doesn't make them: `auto.status` from the files, `auto.run` → "none").
+    fn auto(&self) -> Option<std::sync::Arc<crate::auto::Auto>> {
+        None
+    }
     /// "check" | "restart"; progress comes in `state.update`.
     fn updates(&self, action: &str) -> Result<(), String>;
     /// Send an event to the page (any thread).
@@ -304,8 +308,19 @@ pub fn state_json(status: &Status, several_screens: bool, update_line: &str, upd
 // MARK: paths
 
 /// The keys `config.set` may write (shortcuts go through `shortcuts.set`).
-pub const CONFIG_KEYS: [&str; 10] =
-    ["appearance", "share_screens", "auto_update", "remind_at", "keep_recordings_days", "sounds", "voice_locale", "exclude_apps", "author", "ai"];
+pub const CONFIG_KEYS: [&str; 11] = [
+    "appearance",
+    "share_screens",
+    "auto_update",
+    "remind_at",
+    "keep_recordings_days",
+    "sounds",
+    "voice_locale",
+    "exclude_apps",
+    "author",
+    "ai",
+    crate::auto::KEY_MAKE,
+];
 
 /// Names Windows keeps for devices ("CON.md" is not a file there).
 fn is_device_name(name: &str) -> bool {
@@ -556,6 +571,9 @@ pub fn dispatch(paths: &Paths, host: &dyn Host, method: &str, args: &Value) -> R
             let value = args.get("value").cloned().unwrap_or(Value::Null);
             set_config(paths, key, &value)?;
             host.config_changed(key, &value);
+            if let Some(auto) = host.auto() {
+                auto.config_changed(key); // look for the tools again, check now
+            }
             changed("config");
             empty()
         }
@@ -682,6 +700,11 @@ pub fn dispatch(paths: &Paths, host: &dyn Host, method: &str, args: &Value) -> R
         "apps.icons" => {
             let apps = crate::app_icons::parse(args);
             Ok(Value::Object(crate::app_icons::shared().answer(&apps, &|app, bundle| host.app_icon(app, bundle))))
+        }
+        "auto.status" => Ok(host.auto().map_or_else(|| crate::auto::status_from_files(paths), |a| a.status())),
+        "auto.run" => {
+            let auto = host.auto().ok_or("none")?;
+            auto.run_click().map(|()| json!({ "started": true }))
         }
         "updates" => {
             let action = need(args, "action")?;
@@ -917,6 +940,16 @@ mod tests {
         assert!(call(&p, &host, "projects.save", json!({"text": "nope"})).is_err());
         assert!(call(&p, &host, "projects.save", json!({"text": "[]"})).is_err());
         assert!(host.calls().contains(&"projects".to_string()));
+    }
+
+    #[test]
+    fn automatic_capsules() {
+        let p = folder("auto");
+        let host = Fake::default();
+        call(&p, &host, "config.set", json!({"key": "make_capsules", "value": "auto"})).unwrap();
+        let s = call(&p, &host, "auto.status", json!({})).unwrap();
+        assert_eq!(s, json!({"mode": "auto", "at": "18:00", "agent": null, "running": false, "autoDay": null, "last": null}));
+        assert_eq!(call(&p, &host, "auto.run", json!({})), Err("none".into()), "no tool in this app");
     }
 
     #[test]

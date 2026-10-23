@@ -5,6 +5,7 @@
 mod ai;
 mod apps;
 mod appimage;
+mod auto;
 mod autostart;
 mod atspi_front;
 mod atspi_text;
@@ -241,6 +242,9 @@ fn main() {
         let _ = quit.send(Msg::Quit);
     });
 
+    // Automatic capsules: the engine checks once a minute (the first time right away). Linux has no wake signal
+    // here: the minute check after a suspend catches up (it compares the wall clock).
+    let auto = auto::start(paths.clone(), notifier.clone(), link.clone());
     let opts =
         Options { own_app_id: Some("context-capsule".into()), text: PlatformText::LINUX.with_shortcuts(&keys), locale: locale.clone() };
     let wake = tx.clone();
@@ -259,6 +263,7 @@ fn main() {
         engine.set_voice_wake(Arc::new(move || {
             let _ = wake.send(Msg::VoiceReady);
         }));
+        engine.set_auto(auto);
         engine.run(rx);
         engine.platform().tray.shutdown();
         engine_done.quit(); // the window's loop returns

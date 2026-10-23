@@ -33,6 +33,7 @@ function page(app) {
     text([
       "While you work, Context Capsule saves the text of the screen you picked, and what you say in voice notes.",
       "At the end of the day, your AI sorts it into projects and writes a capsule for each: what you did, what you decided and why, and what's next.",
+      "With Claude Code, Codex or Gemini CLI on this computer, that can happen by itself at a time you pick (Settings → Make capsules).",
       "Any AI works. Apps like Claude or Cursor connect in Settings. For any other AI, such as a website: Copy my day, paste it in, then Save from clipboard.",
       "Send a capsule to anyone. Their AI reads it and can carry on your work.",
     ]),
@@ -41,7 +42,7 @@ function page(app) {
       `Recordings stay on ${computer}. No account, no cloud.`,
       "Only text is saved: no screenshots, no audio.",
       "Password managers, WhatsApp, Signal and password fields are never recorded.",
-      "Text goes to your AI only when you ask it to make or read a capsule, or paste your day into it yourself.",
+      "Text goes to your AI only when it makes or reads capsules (by itself only if you chose Automatically), or when you paste your day into it.",
     ]),
   );
 }

@@ -878,14 +878,16 @@ fn daily_jobs_ask_once_and_clean_up() {
     std::fs::write(paths.config(), r#"{"remind_at": "00:00"}"#).unwrap();
     let log = AppLog::stderr_only();
     let mut daily = DailyJobs::new();
-    assert!(!daily.run(&paths, now, true, &log), "not while recording");
+    let no = || false;
+    assert!(!daily.run(&paths, now, true, &no, &log), "not while recording");
     assert!(!paths.session_dir(old).exists() && paths.session_dir(&today).exists(), "old recording removed, today's kept");
-    assert!(daily.run(&paths, now, false, &log), "due: recorded today, no capsule yet");
+    assert!(!daily.run(&paths, now, false, &|| true, &log), "not when Automatic capsules make them");
+    assert!(daily.run(&paths, now, false, &no, &log), "due: recorded today, no capsule yet");
     assert_eq!(std::fs::read_to_string(paths.reminded()).unwrap(), day, "remembered as asked");
-    assert!(!DailyJobs::new().run(&paths, now, false, &log), "once a day, even after a restart");
+    assert!(!DailyJobs::new().run(&paths, now, false, &no, &log), "once a day, even after a restart");
     std::fs::remove_file(paths.reminded()).unwrap();
     std::fs::write(paths.config(), r#"{"remind_at": false}"#).unwrap();
-    assert!(!DailyJobs::new().run(&paths, now, false, &log), "reminder off");
+    assert!(!DailyJobs::new().run(&paths, now, false, &no, &log), "reminder off");
     let _ = std::fs::remove_dir_all(&dir);
 }
 

@@ -29,7 +29,7 @@ use windows::Win32::System::DataExchange::COPYDATASTRUCT;
 use windows::Win32::System::LibraryLoader::GetModuleHandleW;
 use windows::Win32::System::Threading::CreateMutexW;
 use windows::Win32::UI::HiDpi::{SetProcessDpiAwarenessContext, DPI_AWARENESS_CONTEXT_PER_MONITOR_AWARE_V2};
-use windows::Win32::UI::Shell::{NINF_KEY, NIN_SELECT};
+use windows::Win32::UI::Shell::{NINF_KEY, NIN_BALLOONUSERCLICK, NIN_SELECT};
 use windows::Win32::UI::WindowsAndMessaging::{
     AllowSetForegroundWindow, AppendMenuW, CreatePopupMenu, CreateWindowExW, DefWindowProcW, DestroyMenu, DestroyWindow,
     DispatchMessageW, FindWindowW, GetCursorPos, GetMessageW, PostMessageW, PostQuitMessage, RegisterClassW, RegisterWindowMessageW,
@@ -37,6 +37,7 @@ use windows::Win32::UI::WindowsAndMessaging::{
     MF_SEPARATOR, MF_STRING, MSG, TPM_BOTTOMALIGN, TPM_NONOTIFY, TPM_RETURNCMD, TPM_RIGHTBUTTON, WINDOW_EX_STYLE, WM_APP, WM_CLOSE,
     WM_CONTEXTMENU, WM_COPYDATA, WM_DESTROY, WM_DISPLAYCHANGE, WM_DPICHANGED, WM_ENDSESSION, WM_HOTKEY, WM_NULL,
     WM_QUERYENDSESSION, WM_SETTINGCHANGE, WM_TIMER, WNDCLASSW, WS_EX_TOOLWINDOW, WS_POPUP, KillTimer, SetTimer,
+    PBT_APMRESUMEAUTOMATIC, PBT_APMRESUMESUSPEND, WM_POWERBROADCAST,
 };
 
 const WM_TRAY: u32 = WM_APP + 1;
@@ -86,6 +87,8 @@ pub enum UiCmd {
     OpenCapsule(PathBuf),
     /// Make today's capsules with Your AI (the window, or the evening reminder's Make).
     Make,
+    /// A tray notification (title, body): Automatic capsules finished. Clicking it opens the Capsules page.
+    Notify(String, String),
     /// News from an any-AI worker thread (the AI apps, Copy my day, Save from clipboard…).
     Ai(ai::AiEvent),
     EngineDone,
@@ -234,13 +237,15 @@ pub fn run() {
     let (tx, rx) = channel();
     let capture = Capture::new(tx.clone());
     let ui = Ui::of(hwnd);
+    // Automatic capsules: the engine checks once a minute (the first time right away).
+    let auto = crate::auto::start(paths.clone(), log.clone(), ui.clone());
 
     let taken = hotkeys::register(hwnd, context_capsule_core::Hotkeys::load(&paths.config()));
     let mut tray = Tray::new(hwnd, WM_TRAY);
     tray.set_tip(tray::tooltip(&Status::default(), SystemTime::now(), &hotkeys::current()));
     tray.add();
     changes::install();
-    let engine = spawn_engine(paths.clone(), ui, capture.clone(), tx.clone(), rx, log.clone());
+    let engine = spawn_engine(paths.clone(), ui, capture.clone(), tx.clone(), rx, log.clone(), auto);
     setup::open_at_login_once(&log);
     crate::update::start(hwnd, log.clone());
     main_window::apply_menu_mode(&paths);
@@ -327,6 +332,7 @@ fn spawn_engine(
     tx: Sender<Msg>,
     rx: Receiver<Msg>,
     log: AppLog,
+    auto: Arc<context_capsule_core::auto::Auto>,
 ) -> std::thread::JoinHandle<()> {
     std::thread::Builder::new()
         .name("engine".into())
@@ -340,6 +346,7 @@ fn spawn_engine(
             engine.set_voice_wake(Arc::new(move || {
                 let _ = tx.send(Msg::VoiceReady);
             }));
+            engine.set_auto(auto);
             engine.run(rx);
             ui.post(UiCmd::EngineDone);
         })
@@ -384,6 +391,9 @@ extern "system" fn proc(hwnd: HWND, msg: u32, wp: WPARAM, lp: LPARAM) -> LRESULT
             let event = (lp.0 & 0xFFFF) as u32;
             if event == WM_CONTEXTMENU || event == NIN_SELECT || event == NIN_SELECT | NINF_KEY {
                 show_menu(hwnd);
+            } else if event == NIN_BALLOONUSERCLICK {
+                // Our only notifications are Automatic capsules': their page.
+                open_window(hwnd, Some(context_capsule_core::window::Section::Capsules));
             }
         }
         WM_HOTKEY => {
@@ -395,6 +405,13 @@ extern "system" fn proc(hwnd: HWND, msg: u32, wp: WPARAM, lp: LPARAM) -> LRESULT
             // SAFETY: `Ui::post` boxed this command and handed it to us.
             let cmd = unsafe { Box::from_raw(lp.0 as *mut UiCmd) };
             handle(hwnd, *cmd);
+        }
+        // Woke from sleep: Automatic capsules checks now (a run missed while asleep starts the same day).
+        WM_POWERBROADCAST if wp.0 as u32 == PBT_APMRESUMEAUTOMATIC || wp.0 as u32 == PBT_APMRESUMESUSPEND => {
+            if let Some(auto) = crate::auto::get() {
+                auto.wake();
+            }
+            return LRESULT(1);
         }
         WM_TIMER if wp.0 == LOOK_TIMER => {
             with_app(|a| look_tick(hwnd, a));
@@ -491,6 +508,9 @@ fn handle(hwnd: HWND, cmd: UiCmd) {
             }
         }
         UiCmd::Make => make_capsules(hwnd),
+        UiCmd::Notify(title, body) => {
+            with_app(|a| a.tray.notify(&title, &body));
+        }
         // Outside the app borrow: Connect for Claude may show a dialog.
         UiCmd::Ai(ev) => {
             if matches!(ev, ai::AiEvent::Clients(_)) {

@@ -132,11 +132,11 @@ const methods = {
     };
   },
   "data.list": ({ dir }) => (dir === "sessions" || dir === "capsules" ? list(dir) : refuse(`can't list ${dir}`)),
-  "data.read": ({ files }) => {
+  "data.read": ({ files }, q) => {
     if (!Array.isArray(files)) refuse("files must be a list");
     const bad = files.find((f) => !allowed(f));
     if (bad !== undefined) refuse(`not allowed: ${bad}`);
-    return Object.fromEntries(files.map((f) => [f, read(f)]));
+    return Object.fromEntries(files.map((f) => [f, f === "config.json" && q.get("auto") ? withAuto(read(f)) : read(f)]));
   },
   "config.set": ({ key, value }) => {
     if (typeof key !== "string" || !key) refuse("no key");
@@ -221,7 +221,56 @@ const methods = {
   "apps.icons": ({ apps }) =>
     Object.fromEntries((apps ?? []).map(({ app = "", bundle = "" }) => [bundle || app, sampleIcon(bundle || app)])),
   updates: () => ({}),
+  "auto.status": (_, q) => autoStatus(q),
+  "auto.run": (_, q) => {
+    const st = autoStatus(q);
+    if (!st.agent) refuse("none");
+    if (st.running) refuse("running");
+    auto.running = true;
+    emit("auto", autoStatus(q));
+    setTimeout(() => {
+      const t = new Date(pageNow(q)).toISOString();
+      auto.running = false;
+      auto.last = { day: dayOf(pageNow(q)), by: "click", status: "done", ai: "claude-code", started_at: t, finished_at: t, capsules: 3 };
+      emit("auto", autoStatus(q));
+      emit("data-changed", { what: ["capsules"] });
+    }, 3000);
+    return { started: true };
+  },
 };
+
+// Automatic capsules. URL: ?auto=next|made|failed|running (Automatically, with the state), ?agent=none (no tool).
+const auto = { running: false, last: null };
+const pageNow = (q) => (q.get("now") ? Date.parse(q.get("now")) : Date.now());
+const dayOf = (ms) => {
+  const d = new Date(ms);
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+};
+/** ?auto=…: config.json says Make capsules Automatically. */
+function withAuto(text) {
+  let c = {};
+  try { c = JSON.parse(text ?? "{}") ?? {}; } catch {}
+  return JSON.stringify({ ...c, make_capsules: "auto" });
+}
+function autoStatus(q) {
+  let config = {};
+  try { config = JSON.parse(read("config.json") ?? "{}") ?? {}; } catch {}
+  const pick = q.get("auto");
+  const at = typeof config.remind_at === "string" ? config.remind_at : "18:00";
+  const day = dayOf(pageNow(q));
+  const iso = (hhmm) => new Date(`${day}T${hhmm}:00`).toISOString();
+  let last = auto.last;
+  if (!last && pick === "made") last = { day, by: "auto", status: "done", ai: "claude-code", started_at: iso("18:00"), finished_at: iso("18:04"), capsules: 3 };
+  if (!last && pick === "failed") last = { day, by: "auto", status: "failed", ai: "claude-code", started_at: iso("18:00"), finished_at: iso("18:01"), capsules: 0, reason: "Claude Code isn't signed in. Open it once and sign in." };
+  return {
+    mode: pick ? "auto" : config.make_capsules === "auto" ? "auto" : "click",
+    at,
+    agent: q.get("agent") === "none" ? null : { id: "claude-code", name: "Claude Code" },
+    running: auto.running || pick === "running",
+    autoDay: pick === "made" || pick === "failed" ? day : null,
+    last,
+  };
+}
 
 // A few made-up icons (a rounded square in a colour, the first letter); every other app has none (the glyph).
 function sampleIcon(key) {

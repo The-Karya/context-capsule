@@ -173,17 +173,19 @@ impl DailyJobs {
     }
 
     /// Call often; runs at most once a minute. true: show the reminder now (it is marked as asked).
-    pub fn poll(&mut self, paths: &Paths, now: SystemTime, recording: bool, log: &AppLog) -> bool {
+    /// `auto_makes`: Automatic capsules will make them (Automatically, with a tool here): no reminder then; only
+    /// asked when the reminder would otherwise show.
+    pub fn poll(&mut self, paths: &Paths, now: SystemTime, recording: bool, auto_makes: &dyn Fn() -> bool, log: &AppLog) -> bool {
         let at = Instant::now();
         if self.next.is_some_and(|n| at < n) {
             return false;
         }
         self.next = Some(at + Self::EVERY);
-        self.run(paths, now, recording, log)
+        self.run(paths, now, recording, auto_makes, log)
     }
 
     /// One check, now.
-    pub fn run(&mut self, paths: &Paths, now: SystemTime, recording: bool, log: &AppLog) -> bool {
+    pub fn run(&mut self, paths: &Paths, now: SystemTime, recording: bool, auto_makes: &dyn Fn() -> bool, log: &AppLog) -> bool {
         let config = Config::load(&paths.config());
         let day: String = clock::session_id(now).chars().take(8).collect();
         if self.last_cleanup.as_deref() != Some(day.as_str()) {
@@ -197,7 +199,7 @@ impl DailyJobs {
         if !Reminder::due(minutes, config.remind_at.as_deref(), true, false, asked, recording) {
             return false;
         }
-        if !recorded_on(&paths.sessions(), &day) || capsule_on(&paths.capsules(), &day) {
+        if !recorded_on(&paths.sessions(), &day) || capsule_on(&paths.capsules(), &day) || auto_makes() {
             return false;
         }
         let _ = crate::json::write_atomically(&paths.reminded(), &day);

@@ -40,7 +40,7 @@ allow-list below.
 
 ## Methods
 
-23 methods. "Has code" says where each host already does this today (Swift `capture/Sources`, Rust
+25 methods. "Has code" says where each host already does this today (Swift `capture/Sources`, Rust
 `capture-rs/core` = shared crate, `windows/`, `linux/`).
 
 ### Starting up
@@ -89,7 +89,7 @@ Has code: trivially (read a file). Both hosts already read every one of these.
 **`config.set`** `{ "key": "appearance", "value": "dark" }` → `{}` — merge one key into config.json (`null`
 removes it), keeping other keys and their order; then apply it at once where the host must: `appearance` (window
 look), `share_screens` (Mac: ask for Screen Recording), `auto_update`, `remind_at`, `keep_recordings_days`,
-`sounds`, `voice_locale`, `exclude_apps`, `author`, `ai`.
+`sounds`, `voice_locale`, `exclude_apps`, `author`, `ai`, `make_capsules` (re-check Automatic capsules at once).
 Has code: Swift `ConfigFile.set`, `Preferences.save*`; Rust `settings::ConfigFile::set`.
 
 **`projects.save`** `{ "text": "<projects.json>" }` → `{}` — write projects.json (atomically) and tell the
@@ -144,6 +144,25 @@ Has code: Swift `AIBridge.run`; Rust `anyai.rs` + windows/linux `program.rs`, `a
 put `prompt` on the clipboard and open that AI app on a new chat (Claude: `claude://claude.ai/new`). `opened:false`
 when the app can't be found. The page decides first whether it is installed / connected and what to say.
 Has code: Swift `Claude.open`, `AIState.open`, `appURL`; Rust windows/linux `link.rs`, `connect.rs`.
+
+### Automatic capsules (SPEC "Automatic capsules")
+
+**`auto.status`** `{}` →
+```json
+{ "mode": "auto" | "click",             // config make_capsules (missing = "click")
+  "at": "18:00",                         // config remind_at, "18:00" when missing or false
+  "agent": { "id": "claude-code", "name": "Claude Code" } | null,   // the tool a run would use; null = none here
+  "running": false,                      // a run is going (this app's, or one in auto.json whose pid is alive)
+  "autoDay": "2026-10-23" | null,        // auto.json auto_day
+  "last": { "day", "by", "status", "ai", "started_at", "finished_at", "capsules", "reason" } | null }  // auto.json last
+```
+The host finds the tools with `context-capsule-mcp agents` (at launch, then at most every 5 minutes, and after
+`config.set ai`). **`auto.run`** `{}` → `{ "started": true }`, or error `"none"` (no tool: the page uses Your AI as
+before), `"nothing"` (nothing recorded today), `"running"` — starts `context-capsule-mcp make --by click` in the
+background. The host also starts `make --by auto` by itself (SPEC "When"), shows the notification when a run ends,
+and sends the **`auto`** event (the same object as `auto.status`) when a run starts or ends or the tools change, then
+`data-changed` `capsules`.
+Has code: Swift `AutoRun`, Rust `core::auto` + windows/linux `auto.rs`.
 
 ### Clipboard, links, files
 
@@ -205,6 +224,8 @@ Has code: Swift `Updater`; Rust `update.rs`.
 every 4 s; the page re-reads only what it shows.
 
 **`material`** `{ "material": "glass" | "none" }` — reduce transparency was switched on or off (see `host.hello`).
+
+**`auto`** — Automatic capsules changed (see `auto.status`).
 
 **`navigate`** `{ "page": "home" | "timeline" | "capsules" | "projects" | "settings" | "help" }` — the tray asked
 for a page.

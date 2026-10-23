@@ -193,6 +193,8 @@ struct Config {
     /// "share_screens": "all" = starting shares every screen at once, with no picker (needs Screen Recording);
     /// anything else = the picker, one screen or window.
     var shareAllScreens = false
+    /// "make_capsules": "auto" = Automatic capsules at remindAt (18:00 when off); anything else = "click".
+    var makeCapsules = "click"
 
     /// Reads `{"exclude_apps": [...], "voice_locale": "en-GB"}`; a missing or broken file means defaults.
     static func load(from url: URL) -> Config {
@@ -208,7 +210,8 @@ struct Config {
                       askProject: obj["ask_project"] as? Bool ?? false,
                       remindAt: remind, keepDays: max(0, keep), sounds: obj["sounds"] as? Bool ?? true,
                       autoUpdate: obj["auto_update"] as? Bool ?? true, updateFeed: obj["update_feed"] as? String,
-                      shareAllScreens: (obj["share_screens"] as? String) == "all")
+                      shareAllScreens: (obj["share_screens"] as? String) == "all",
+                      makeCapsules: (obj["make_capsules"] as? String) == "auto" ? "auto" : "click")
     }
 }
 
@@ -1436,6 +1439,95 @@ enum Cleanup {
         let cut = Clock.sessionID(cutoff, timeZone: timeZone)
         return ids.filter { $0.count == 15 && $0 < cut }
     }
+}
+
+// MARK: - Automatic capsules (SPEC "Automatic capsules"): when to start a run, and auto.json
+
+enum AutoRun {
+    /// The time when Make capsules is Automatically: remind_at, or 18:00 when it's missing, off or not a time.
+    static let defaultAt = "18:00"
+    /// A "running" entry older than this was cut off (the computer slept, the app quit…).
+    static let staleSeconds: TimeInterval = 15 * 60
+
+    static func atMinutes(_ at: String?) -> Int {
+        at.flatMap(Reminder.parse) ?? Reminder.parse(defaultAt)!
+    }
+
+    /// Start an automatic run now? Make capsules is Automatically, a tool is installed, it's past the time today,
+    /// no automatic run started today, no run for today started at or after the time (a click run counts),
+    /// something was recorded today, not recording, no run going. Days are "yyyy-MM-dd" (local).
+    static func due(nowMinutes: Int, today: String, mode: String, at: String?, hasAgent: Bool, autoDay: String?,
+                    lastDay: String?, lastStartMinutes: Int?, recordedToday: Bool, recording: Bool, running: Bool) -> Bool {
+        let target = atMinutes(at)
+        guard mode == "auto", hasAgent, nowMinutes >= target, autoDay != today else { return false }
+        if lastDay == today, let started = lastStartMinutes, started >= target { return false }
+        return recordedToday && !recording && !running
+    }
+
+    /// auto.json, as `make` writes it.
+    struct State {
+        var autoDay: String?
+        /// `last` as it is in the file, without `pid` (the page gets it as it is).
+        var last: [String: Any]?
+        var lastDay: String? { last?["day"] as? String }
+        var lastStatus: String? { last?["status"] as? String }
+        var lastBy: String? { last?["by"] as? String }
+        var startedAt: Date? { (last?["started_at"] as? String).flatMap { ISO8601DateFormatter().date(from: $0) } }
+        var pid: Int32?
+
+        /// Local minutes after midnight when the last run started.
+        func lastStartMinutes(timeZone: TimeZone = .current) -> Int? {
+            guard let d = startedAt else { return nil }
+            var cal = Calendar(identifier: .gregorian)
+            cal.timeZone = timeZone
+            return cal.component(.hour, from: d) * 60 + cal.component(.minute, from: d)
+        }
+
+        /// A run is going: status running, started under 15 minutes ago, and its process is still there.
+        func running(now: Date = Date(), alive: (Int32) -> Bool) -> Bool {
+            guard lastStatus == "running", let started = startedAt, now.timeIntervalSince(started) < AutoRun.staleSeconds,
+                  let pid, pid > 0 else { return false }
+            return alive(pid)
+        }
+    }
+
+    /// Reads auto.json (`{"auto_day", "last": {day, by, status, ai, started_at, finished_at, capsules, reason, pid}}`);
+    /// missing or broken = nothing yet.
+    static func parse(_ data: Data?) -> State {
+        guard let data, let obj = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else { return State() }
+        var s = State()
+        s.autoDay = obj["auto_day"] as? String
+        if var last = obj["last"] as? [String: Any] {
+            s.pid = (last["pid"] as? NSNumber)?.int32Value
+            last.removeValue(forKey: "pid")
+            s.last = last
+        }
+        return s
+    }
+
+    /// Config make_capsules: "auto" or "click" (missing or anything else = "click").
+    static func mode(config url: URL) -> String {
+        guard let data = try? Data(contentsOf: url),
+              let obj = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else { return "click" }
+        return obj["make_capsules"] as? String == "auto" ? "auto" : "click"
+    }
+
+    /// The bridge's auto.status (ui/BRIDGE.md). `agent` is `{"id","name"}` or nil.
+    static func status(mode: String, at: String?, agent: [String: String]?, running: Bool, state: State) -> [String: Any] {
+        let time = at.flatMap { Reminder.parse($0) == nil ? nil : $0 } ?? defaultAt
+        return ["mode": mode == "auto" ? "auto" : "click", "at": time, "agent": agent ?? NSNull(), "running": running,
+                "autoDay": state.autoDay ?? NSNull(), "last": state.last ?? NSNull()]
+    }
+
+    /// `context-capsule-mcp agents` → the tool a run would use (`use`), nil when none.
+    static func agentInUse(_ data: Data) -> [String: String]? {
+        guard let obj = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+              let use = obj["use"] as? [String: Any], let id = use["id"] as? String, let name = use["name"] as? String else { return nil }
+        return ["id": id, "name": name]
+    }
+
+    /// "3 capsules ready" / "1 capsule ready".
+    static func readyTitle(_ n: Int) -> String { n == 1 ? "1 capsule ready" : "\(n) capsules ready" }
 }
 
 // MARK: - Only what's new on screen

@@ -4,6 +4,7 @@
 import { h, icon, button, menu } from "../dom.js";
 import { call, why } from "../host.js";
 import * as AI from "../core/yourai.js";
+import * as Auto from "../core/auto.js";
 import * as Keys from "../core/shortcuts.js";
 import * as actions from "../actions.js";
 import { appIcon } from "../appicon.js";
@@ -376,21 +377,49 @@ export function mount(root, app) {
     const r = app.config.remind_at;
     const remindOn = !(r === false || r === null);
     const at = typeof r === "string" && /^\d{1,2}:\d{2}$/.test(r) ? r.padStart(5, "0") : "18:00";
+    const auto = app.config.make_capsules === "auto";
+    const st = app.auto;
     const keep = Number.isFinite(app.config.keep_recordings_days) ? Math.max(0, app.config.keep_recordings_days) : 30;
     const keepOpts = [[7, "1 week"], [30, "30 days"], [90, "90 days"], [0, "Never"]];
     if (!keepOpts.some(([v]) => v === keep)) keepOpts.splice(3, 0, [keep, `${keep} days`]);
-    const card = h("div", { class: "card" }, row("Remind me to make capsules", toggle(remindOn, async (on) => {
-      await set("remind_at", on ? at : false);
+    const mode = popup([["auto", Auto.words.automatically], ["click", Auto.words.whenIClick]], auto ? "auto" : "click", async (v) => {
+      if (v === "auto" && !remindOn) await set("remind_at", at);
+      await set("make_capsules", v === "auto" ? "auto" : null);
+      await app.loadAuto();
       redraw("day");
-    }, "Remind me to make capsules")));
-    if (remindOn) card.append(sep(), row("At", timeStepper(app, at, (v) => set("remind_at", v))));
+      app.refresh("auto");
+    }, 180);
+    const card = h("div", { class: "card" }, row(Auto.words.makeCapsules, mode));
+    if (auto) {
+      if (st && !st.agent) {
+        card.append(
+          h(
+            "div",
+            { class: "card-note flush" },
+            Auto.words.needs + " ",
+            h("button", { class: "link", type: "button", onclick: () => call("open.url", { url: Auto.words.learnMoreUrl }).catch(() => {}) }, Auto.words.learnMore),
+          ),
+        );
+      }
+      card.append(sep(), row("At", timeStepper(app, at, (v) => set("remind_at", v).then(() => app.loadAuto()).then(() => app.refresh("auto")))));
+    } else {
+      card.append(
+        sep(),
+        row("Remind me", toggle(remindOn, async (on) => {
+          await set("remind_at", on ? at : false);
+          redraw("day");
+        }, "Remind me")),
+      );
+      if (remindOn) card.append(sep(), row("At", timeStepper(app, at, (v) => set("remind_at", v))));
+    }
     card.append(
       sep(),
       row("Delete old recordings after", popup(keepOpts, keep, (v) => set("keep_recordings_days", Number(v)))),
       sep(),
       row("Sounds", toggle(app.config.sounds !== false, (on) => set("sounds", on), "Sounds")),
     );
-    return [h("h2", { class: "caption" }, "Every day"), card, h("p", { class: "note" }, "Capsules are never deleted.")];
+    const note = [Auto.settingsNote(auto ? st : null), "Capsules are never deleted."].filter(Boolean).join(" ");
+    return [h("h2", { class: "caption" }, "Every day"), card, h("p", { class: "note" }, note)];
   });
 
   // Voice notes
@@ -472,6 +501,8 @@ export function mount(root, app) {
         redraw("ai");
       } else if (what === "config") {
         for (const n of ["ai", "keys", "screens", "look", "day", "voice", "never"]) if (!parts[n].el.contains(document.activeElement)) redraw(n);
+      } else if (what === "auto") {
+        if (!parts.day.el.contains(document.activeElement)) redraw("day");
       } else if (what === "state") redraw("updates");
       else if (what === "layout" || what === "keys") redraw("keys");
     },

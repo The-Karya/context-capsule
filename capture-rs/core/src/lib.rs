@@ -8,6 +8,7 @@
 pub mod anyai;
 pub mod app_icons;
 pub mod applog;
+pub mod auto;
 pub mod bridge;
 pub mod capsules;
 pub mod claude;

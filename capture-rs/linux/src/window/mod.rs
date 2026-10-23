@@ -242,6 +242,8 @@ impl Ui {
                     w.set_ai();
                 }
             }
+            // Only the shared window's page listens.
+            UiMsg::Event(..) => {}
             UiMsg::Quit => self.app.quit(),
         }
     }
@@ -291,6 +293,11 @@ impl Ui {
             UiMsg::AiChanged => {
                 if let Some(w) = web::WebWindow::get() {
                     w.emit("data-changed", serde_json::json!({ "what": ["clients"] }));
+                }
+            }
+            UiMsg::Event(event, payload) => {
+                if let (Some(w), Ok(payload)) = (web::WebWindow::get(), serde_json::from_str(&payload)) {
+                    w.emit(&event, payload);
                 }
             }
             UiMsg::Quit => self.app.quit(),

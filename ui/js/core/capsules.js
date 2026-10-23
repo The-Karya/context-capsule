@@ -28,11 +28,6 @@ export function showLabel(platform) {
   return platform === "mac" ? "Show in Finder" : platform === "linux" ? "Show in Files" : "Show in folder";
 }
 
-/** Ask your capsules (the Capsules page). */
-export function searchPrompt(question) {
-  return `Use Context Capsule to search my capsules: ${String(question).trim()}`;
-}
-
 const spaces = (s) => s.replace(/^[ \t]+|[ \t]+$/g, "");
 
 /** Lower case, accents removed: what the search box compares. */

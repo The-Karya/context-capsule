@@ -1511,5 +1511,64 @@ for bad in ["/../config.json", "/js/../../config.json", "/%2e%2e/config.json", "
 check(BridgeFiles.mime("js") == "text/javascript; charset=utf-8", "ui files: modules are JavaScript")
 try? FileManager.default.removeItem(at: br)
 
+// MARK: Automatic capsules (SPEC "Automatic capsules"; the same cases as Rust core::auto)
+
+func autoDue(now: Int = 18 * 60 + 5, mode: String = "auto", at: String? = "18:00", agent: Bool = true, autoDay: String? = nil,
+             lastDay: String? = nil, lastStart: Int? = nil, recorded: Bool = true, recording: Bool = false,
+             running: Bool = false) -> Bool {
+    AutoRun.due(nowMinutes: now, today: "2026-10-23", mode: mode, at: at, hasAgent: agent, autoDay: autoDay, lastDay: lastDay,
+                lastStartMinutes: lastStart, recordedToday: recorded, recording: recording, running: running)
+}
+check(!autoDue(now: 17 * 60 + 59), "auto: not before the time")
+check(autoDue(now: 18 * 60), "auto: exactly at the time")
+check(autoDue(now: 18 * 60 + 5), "auto: after the time")
+check(autoDue(now: 22 * 60 + 40), "auto: woke long after the time, not run yet: runs now")
+check(!autoDue(autoDay: "2026-10-23"), "auto: once a day (automatic run started today)")
+check(autoDue(autoDay: "2026-10-22"), "auto: yesterday's run doesn't count")
+check(!autoDue(lastDay: "2026-10-23", lastStart: 18 * 60 + 2), "auto: a click run after the time today counts")
+check(!autoDue(lastDay: "2026-10-23", lastStart: 18 * 60), "auto: a click run at the time today counts")
+check(autoDue(lastDay: "2026-10-23", lastStart: 14 * 60), "auto: a click run before the time doesn't count")
+check(autoDue(lastDay: "2026-10-22", lastStart: 19 * 60), "auto: a run for yesterday doesn't count")
+check(!autoDue(recorded: false), "auto: nothing recorded today: skipped")
+check(!autoDue(recording: true), "auto: not while recording")
+check(!autoDue(running: true), "auto: not while a run goes")
+check(!autoDue(agent: false), "auto: no tool here")
+check(!autoDue(mode: "click"), "auto: When I click never runs by itself")
+check(autoDue(now: 18 * 60, at: "nope") && !autoDue(now: 17 * 60 + 59, at: "nope"), "auto: a bad time is 18:00")
+check(autoDue(now: 18 * 60, at: nil) && !autoDue(now: 17 * 60, at: nil), "auto: reminder off is 18:00")
+check(autoDue(now: 7 * 60 + 30, at: "07:30") && !autoDue(now: 7 * 60 + 29, at: "07:30"), "auto: another time")
+
+let autoNow = ISO8601DateFormatter().date(from: "2026-10-23T17:05:00Z")!
+let autoRunning = AutoRun.parse(Data(#"{"auto_day":"2026-10-23","last":{"day":"2026-10-23","by":"auto","status":"running","ai":"claude-code","started_at":"2026-10-23T17:00:04Z","pid":4242}}"#.utf8))
+check(autoRunning.autoDay == "2026-10-23" && autoRunning.lastDay == "2026-10-23" && autoRunning.lastBy == "auto"
+      && autoRunning.pid == 4242 && autoRunning.last?["pid"] == nil, "auto.json: read, pid kept apart")
+check(autoRunning.running(now: autoNow, alive: { $0 == 4242 }), "auto.json: running while its pid lives")
+check(!autoRunning.running(now: autoNow, alive: { _ in false }), "auto.json: pid gone = over")
+check(!autoRunning.running(now: autoNow.addingTimeInterval(15 * 60), alive: { _ in true }), "auto.json: over after 15 minutes")
+check(autoRunning.lastStartMinutes(timeZone: TimeZone(identifier: "UTC")!) == 17 * 60, "auto.json: start time in local minutes")
+let autoDone = AutoRun.parse(Data(#"{"auto_day":"2026-10-23","last":{"day":"2026-10-23","by":"auto","status":"done","ai":"claude-code","started_at":"2026-10-23T17:00:04Z","finished_at":"2026-10-23T17:04:40Z","capsules":3}}"#.utf8))
+check(autoDone.lastStatus == "done" && !autoDone.running(now: autoNow, alive: { _ in true }) && autoDone.last?["capsules"] as? Int == 3,
+      "auto.json: a finished run")
+let autoNone = AutoRun.parse(nil), autoBroken = AutoRun.parse(Data("{nope".utf8))
+check(autoNone.autoDay == nil && autoNone.last == nil && autoBroken.last == nil, "auto.json: missing or broken = nothing yet")
+let autoStatus = AutoRun.status(mode: "auto", at: nil, agent: ["id": "claude-code", "name": "Claude Code"], running: false, state: autoDone)
+check(autoStatus["mode"] as? String == "auto" && autoStatus["at"] as? String == "18:00" && autoStatus["running"] as? Bool == false
+      && (autoStatus["agent"] as? [String: String])?["id"] == "claude-code" && autoStatus["autoDay"] as? String == "2026-10-23"
+      && (autoStatus["last"] as? [String: Any])?["status"] as? String == "done", "auto.status: from config and auto.json")
+let autoEmpty = AutoRun.status(mode: "x", at: "19:30", agent: nil, running: false, state: autoNone)
+check(autoEmpty["mode"] as? String == "click" && autoEmpty["at"] as? String == "19:30" && autoEmpty["agent"] is NSNull
+      && autoEmpty["autoDay"] is NSNull && autoEmpty["last"] is NSNull, "auto.status: nothing yet")
+check(AutoRun.agentInUse(Data(#"{"agents":[{"id":"codex","name":"Codex"}],"use":{"id":"codex","name":"Codex"}}"#.utf8)) == ["id": "codex", "name": "Codex"]
+      && AutoRun.agentInUse(Data(#"{"agents":[],"use":null}"#.utf8)) == nil, "agents: the one a run would use")
+check(AutoRun.readyTitle(1) == "1 capsule ready" && AutoRun.readyTitle(3) == "3 capsules ready", "auto: ready title")
+let autoCfg = FileManager.default.temporaryDirectory.appendingPathComponent("cc-auto-\(getpid()).json")
+try! #"{"make_capsules":"auto","remind_at":false}"#.write(to: autoCfg, atomically: true, encoding: .utf8)
+check(Config.load(from: autoCfg).makeCapsules == "auto" && AutoRun.mode(config: autoCfg) == "auto" && Config.load(from: autoCfg).remindAt == nil,
+      "config: make_capsules auto")
+try! #"{"make_capsules":"sometimes"}"#.write(to: autoCfg, atomically: true, encoding: .utf8)
+check(Config.load(from: autoCfg).makeCapsules == "click" && AutoRun.mode(config: autoCfg) == "click", "config: anything else is click")
+try? FileManager.default.removeItem(at: autoCfg)
+check(Config().makeCapsules == "click", "config: missing make_capsules is click")
+
 print("\(passes) passed, \(failures) failed")
 exit(failures == 0 ? 0 : 1)

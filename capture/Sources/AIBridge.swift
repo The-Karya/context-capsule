@@ -39,21 +39,27 @@ enum AIBridge {
     }
 
     /// Runs the program; `input` goes to its stdin. Gives its stdout, or a plain failure.
-    static func run(_ args: [String], input: Data? = nil, timeout: TimeInterval = 20,
+    /// `lowPriority`: in the background, under `nice -n 10` (Automatic capsules' `make`).
+    static func run(_ args: [String], input: Data? = nil, timeout: TimeInterval = 20, lowPriority: Bool = false,
                     done: @escaping (Result<Data, Failure>) -> Void) {
         let finish: (Result<Data, Failure>) -> Void = { r in DispatchQueue.main.async { done(r) } }
         guard let launch else { finish(.failure(.missing)); return }
-        DispatchQueue.global(qos: .userInitiated).async {
+        DispatchQueue.global(qos: lowPriority ? .utility : .userInitiated).async {
             let p = Process()
+            var command: [String]
             switch launch {
             case .binary(let path):
-                p.executableURL = URL(fileURLWithPath: path)
-                p.arguments = args
+                command = [path] + args
             case .node(let script):
                 guard let node else { finish(.failure(.missing)); return }
-                p.executableURL = URL(fileURLWithPath: node)
-                p.arguments = [script] + args
+                command = [node, script] + args
             }
+            if lowPriority && FileManager.default.isExecutableFile(atPath: "/usr/bin/nice") {
+                command = ["/usr/bin/nice", "-n", "10"] + command
+                p.qualityOfService = .utility
+            }
+            p.executableURL = URL(fileURLWithPath: command[0])
+            p.arguments = Array(command.dropFirst())
             let out = Pipe(), err = Pipe(), inp = Pipe()
             p.standardOutput = out
             p.standardError = err
@@ -123,6 +129,13 @@ enum AIBridge {
     }
     static func save(_ reply: String, _ done: @escaping (Result<AIAnswer.Save, Failure>) -> Void) {
         call(["save"], input: Data(reply.utf8), timeout: 30, parse: AIAnswer.save, done: done)
+    }
+    /// Automatic capsules: the AI command-line tools here (`agents`), and one run (`make`, up to 10 minutes).
+    static func agents(_ done: @escaping (Result<Data, Failure>) -> Void) {
+        run(["agents"], timeout: 15, done: done)
+    }
+    static func make(date: String, by: String, _ done: @escaping (Result<Data, Failure>) -> Void) {
+        run(["make", "--date", date, "--by", by], timeout: 12 * 60, lowPriority: true, done: done)
     }
 }
 

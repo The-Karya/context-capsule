@@ -107,5 +107,4 @@ test("grouped by project", () => {
 test("prompts", () => {
   expect(C.dayPrompt).toBe("Use Context Capsule to make my capsules for today.");
   expect(C.continuePrompt("/a/b.capsule.md")).toBe("Use Context Capsule to continue from the capsule at /a/b.capsule.md.");
-  expect(C.searchPrompt("  why $12?\n")).toBe("Use Context Capsule to search my capsules: why $12?");
 });
