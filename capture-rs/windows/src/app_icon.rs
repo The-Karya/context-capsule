@@ -48,10 +48,10 @@ pub fn icon_rgba(bgra: &[u8], w: u32, h: u32, premultiplied: bool, mask: Option<
     if w == 0 || h == 0 || bgra.len() != count * 4 || mask.is_some_and(|m| m.len() != count) {
         return None;
     }
-    let no_alpha = bgra.chunks_exact(4).all(|p| p[3] == 0);
+    let no_alpha = bgra.as_chunks::<4>().0.iter().all(|p| p[3] == 0);
     // Premultiplied RGBA, so scaling doesn't bleed the colour of transparent pixels.
     let mut px = Vec::with_capacity(bgra.len());
-    for (i, p) in bgra.chunks_exact(4).enumerate() {
+    for (i, p) in bgra.as_chunks::<4>().0.iter().enumerate() {
         let a = if no_alpha {
             if mask.is_some_and(|m| m[i]) {
                 0
@@ -79,7 +79,7 @@ fn mul(c: u8, a: u8) -> u8 {
 
 /// Premultiplied RGBA → straight RGBA, in place.
 pub fn unpremultiply(rgba: &mut [u8]) {
-    for p in rgba.chunks_exact_mut(4) {
+    for p in rgba.as_chunks_mut::<4>().0.iter_mut() {
         let a = p[3] as u32;
         if a == 0 {
             p[..3].fill(0);
@@ -261,7 +261,7 @@ mod win {
             let (bgra, w, h) = color?;
             // The mask as 32 bpp: white = transparent. Only used when it is the colour bitmap's size.
             let mask: Option<Vec<bool>> =
-                mask.filter(|(_, mw, mh)| (*mw, *mh) == (w, h)).map(|(m, _, _)| m.chunks_exact(4).map(|p| p[0] != 0).collect());
+                mask.filter(|(_, mw, mh)| (*mw, *mh) == (w, h)).map(|(m, _, _)| m.as_chunks::<4>().0.iter().map(|p| p[0] != 0).collect());
             icon_rgba(&bgra, w, h, false, mask.as_deref())
         }
     }
@@ -369,7 +369,7 @@ mod tests {
         assert_eq!(at(63, 48), [0, 0, 0, 0]);
         // 256 × 256: half clear, half opaque red, averaged down without darkening the red.
         let mut big = vec![0u8; 256 * 256 * 4];
-        for (i, p) in big.chunks_exact_mut(4).enumerate() {
+        for (i, p) in big.as_chunks_mut::<4>().0.iter_mut().enumerate() {
             if i % 2 == 0 {
                 p.copy_from_slice(&[0, 0, 255, 255]);
             }
