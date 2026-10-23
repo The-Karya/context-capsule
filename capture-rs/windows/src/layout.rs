@@ -51,7 +51,7 @@ impl Rect {
 /// Text styles. Sizes in DIPs (see `Font::size`).
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub enum Font {
-    /// The greeting: large and light.
+    /// The greeting: large, in a serif (the Mac's New York; Georgia here).
     Display,
     /// The page title.
     Title,
@@ -63,29 +63,38 @@ pub enum Font {
     Body,
     Small,
     SmallStrong,
+    /// Small print: hour labels, "You said · 10:14", read times.
+    Tiny,
+    /// The sidebar's group headings.
+    Group,
     /// Segoe Fluent Icons / MDL2 Assets.
     Icon,
     IconSmall,
+    /// The pop-up button's small chevrons.
+    Chevron,
 }
 
 impl Font {
     /// (size in DIPs, weight, display face).
     pub fn spec(self) -> (f64, i32, bool) {
         match self {
-            Font::Display => (34.0, 300, true),
-            Font::Title => (26.0, 600, true),
-            Font::Stat => (24.0, 600, true),
-            Font::Subtitle => (18.0, 600, true),
+            Font::Display => (32.0, 400, true),
+            Font::Title => (22.0, 600, true),
+            Font::Stat => (28.0, 600, true),
+            Font::Subtitle => (17.0, 600, true),
             Font::Strong => (14.0, 600, false),
             Font::Body => (14.0, 400, false),
             Font::Small => (12.0, 400, false),
             Font::SmallStrong => (12.0, 600, false),
+            Font::Tiny => (11.0, 400, false),
+            Font::Group => (11.0, 600, false),
             Font::Icon => (16.0, 400, false),
             Font::IconSmall => (12.0, 400, false),
+            Font::Chevron => (8.0, 400, false),
         }
     }
     pub fn is_icon(self) -> bool {
-        matches!(self, Font::Icon | Font::IconSmall)
+        matches!(self, Font::Icon | Font::IconSmall | Font::Chevron)
     }
 }
 
@@ -104,12 +113,16 @@ pub enum Align {
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Style {
-    /// A plain Windows 11 button.
+    /// A grey rounded button, like the Mac's.
     Standard,
     /// The accent-colored button (one main action per card).
     Accent,
     /// No border until hovered (links, icon buttons).
     Subtle,
+    /// A grey word with no border, the Mac's borderless button ("See all").
+    Plain,
+    /// The Timeline's date: a big title that opens the calendar.
+    Heading,
     /// A sidebar item.
     Nav { selected: bool },
     /// A full-width list row ("Working on").
@@ -120,6 +133,8 @@ pub enum Style {
     Check { on: bool },
     /// A day in the Timeline's calendar: centered, highlighted when it's the day shown.
     Cell { selected: bool },
+    /// A recording's line on the Timeline: a chevron, then the line in semibold.
+    Fold,
 }
 
 /// The text boxes the window shows (real Windows edit controls, placed where the layout says).
@@ -254,6 +269,10 @@ pub enum Action {
 pub enum Node {
     /// A rounded panel.
     Card(Rect),
+    /// The sidebar's rounded panel.
+    Panel(Rect),
+    /// A square-cornered patch of a project's colour (a segment of the Timeline's day bar); None: its track.
+    Segment { r: Rect, colour: Option<Colour> },
     /// A thin line.
     Divider(Rect),
     /// `lines`: 1 = one line, cut with "…"; 0 = wrap as needed; n = wrap, at most n lines.
@@ -264,8 +283,8 @@ pub enum Node {
     Dot { r: Rect, on: bool },
     /// A key on the keyboard ("Alt", "C").
     Key { r: Rect, text: String },
-    /// The small status pill (top right).
-    Pill { r: Rect, text: String, live: bool },
+    /// The small status pill (top right; a clock before today's time), or a small word in a rounded outline.
+    Pill { r: Rect, text: String, live: bool, icon: Option<&'static str> },
     Field { r: Rect, field: Field },
     /// A round app badge with its first letter (Timeline).
     Badge { r: Rect, text: String },
@@ -282,7 +301,7 @@ impl Node {
     }
     pub fn rect(&self) -> Rect {
         match self {
-            Node::Card(r) | Node::Divider(r) | Node::Bubble(r) => *r,
+            Node::Card(r) | Node::Panel(r) | Node::Divider(r) | Node::Bubble(r) => *r,
             Node::Text { r, .. }
             | Node::Button { r, .. }
             | Node::Toggle { r, .. }
@@ -291,6 +310,7 @@ impl Node {
             | Node::Pill { r, .. }
             | Node::Badge { r, .. }
             | Node::Swatch { r, .. }
+            | Node::Segment { r, .. }
             | Node::Field { r, .. } => *r,
         }
     }
@@ -325,6 +345,10 @@ pub mod glyph {
     pub const LINK: &str = "\u{E71B}";
     pub const POWER: &str = "\u{E7E8}";
     pub const HISTORY: &str = "\u{E81C}";
+    pub const CLOCK: &str = "\u{E121}";
+    pub const SEARCH: &str = "\u{E721}";
+    pub const UP_SMALL: &str = "\u{E96D}";
+    pub const DOWN_SMALL: &str = "\u{E96E}";
     pub const HIDE: &str = "\u{ED1A}";
     pub const KEYBOARD: &str = "\u{E765}";
 }
@@ -555,15 +579,23 @@ pub struct Layout {
     pub column: Rect,
 }
 
-pub const SIDEBAR: f64 = 220.0;
-pub const HEADER: f64 = 72.0;
+/// The sidebar, with its rounded panel inset by `INSET` (as the Mac's).
+pub const SIDEBAR: f64 = 198.0;
+pub const INSET: f64 = 8.0;
+/// Above the page: the status pill on the right (the page's title scrolls with it, as on the Mac).
+pub const HEADER: f64 = 52.0;
 const PAD: f64 = 32.0;
 const GAP: f64 = 24.0;
 const CAPTION_GAP: f64 = 8.0;
-const CARD_PAD: f64 = 16.0;
-const ROW: f64 = 48.0;
-const BUTTON_H: f64 = 32.0;
-const SIDE_GAP: f64 = 24.0;
+const CARD_PAD: f64 = 14.0;
+const ROW: f64 = 44.0;
+/// A regular button (a capsule), a large one (the main action), a search box.
+const BUTTON_H: f64 = 24.0;
+const LARGE_H: f64 = 28.0;
+const SEARCH_H: f64 = 26.0;
+const SIDE_GAP: f64 = 20.0;
+/// The space under a page's title.
+const TITLE_GAP: f64 = 16.0;
 
 /// Builds nodes top to bottom in one column.
 struct Col<'m> {
@@ -618,7 +650,7 @@ impl<'m> Col<'m> {
                 action,
                 label: label.into(),
                 icon: None,
-                style: Style::Subtle,
+                style: Style::Plain,
                 enabled: true,
                 check: false,
             });
@@ -628,6 +660,13 @@ impl<'m> Col<'m> {
 
     fn gap(&mut self, h: f64) {
         self.y += h;
+    }
+
+    /// The page's title, and the space under it.
+    fn title(&mut self, text: &str) {
+        let h = self.text_h(text, Font::Title, self.w, 1);
+        self.nodes.push(Node::Text { r: Rect::new(self.x, self.y, self.w, h), text: text.into(), font: Font::Title, ink: Ink::Primary, align: Align::Left, lines: 1 });
+        self.y += h + TITLE_GAP;
     }
 
     /// A card holding rows; `rows` builds them from the card's inner left edge and width, starting at y, and
@@ -652,7 +691,7 @@ impl<'m> Col<'m> {
 
 pub fn button_width(m: &dyn Measure, label: &str, style: Style) -> f64 {
     let extra = if style == Style::Dropdown { 44.0 } else { 24.0 };
-    (m.text(label, Font::Body, 10_000.0, 1).0 + extra).max(if style == Style::Subtle { 0.0 } else { 80.0 })
+    (m.text(label, Font::Body, 10_000.0, 1).0 + extra).max(if matches!(style, Style::Subtle | Style::Plain) { 0.0 } else { 64.0 })
 }
 
 /// One row inside a card: a label on the left (and an optional second line), and something on the right
@@ -669,14 +708,14 @@ fn row(
     help: Option<&str>,
     right_w: f64,
 ) -> (f64, f64) {
-    let left = x + CARD_PAD + if icon.is_some() { 36.0 } else { 0.0 };
+    let left = x + CARD_PAD + if icon.is_some() { 34.0 } else { 0.0 };
     let text_w = (x + w - CARD_PAD - right_w - 12.0 - left).max(40.0);
     let lh = m.text(label, Font::Body, text_w, 1).1;
     let hh = help.map_or(0.0, |h| m.text(h, Font::Small, text_w, 2).1);
     let h = (lh + hh + if help.is_some() { 2.0 } else { 0.0 } + 24.0).max(ROW);
     let mut ty = y + (h - lh - hh - if help.is_some() { 2.0 } else { 0.0 }) / 2.0;
     if let Some(i) = icon {
-        out.push(Node::Text { r: Rect::new(x + CARD_PAD, y, 24.0, h), text: i.into(), font: Font::Icon, ink: Ink::Secondary, align: Align::Center, lines: 1 });
+        out.push(Node::Text { r: Rect::new(x + CARD_PAD, y, 22.0, h), text: i.into(), font: Font::Icon, ink: Ink::Secondary, align: Align::Center, lines: 1 });
     }
     out.push(Node::Text { r: Rect::new(left, ty, text_w, lh), text: label.into(), font: Font::Body, ink: Ink::Primary, align: Align::Left, lines: 1 });
     if let Some(help) = help {
@@ -686,8 +725,9 @@ fn row(
     (y + h, h)
 }
 
+/// A line between rows, from the rows' left edge to the card's right edge (as the Mac's).
 fn divider(out: &mut Vec<Node>, x: f64, w: f64, y: f64) {
-    out.push(Node::Divider(Rect::new(x + CARD_PAD, y, w - 2.0 * CARD_PAD, 1.0)));
+    out.push(Node::Divider(Rect::new(x + CARD_PAD, y, w - CARD_PAD, 1.0)));
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -704,8 +744,8 @@ fn right_button(out: &mut Vec<Node>, m: &dyn Measure, x: f64, w: f64, top: f64, 
     });
 }
 
-const TOGGLE_W: f64 = 40.0;
-const TOGGLE_H: f64 = 20.0;
+const TOGGLE_W: f64 = 46.0;
+const TOGGLE_H: f64 = 24.0;
 
 fn right_toggle(out: &mut Vec<Node>, x: f64, w: f64, top: f64, h: f64, on: bool, action: Action) {
     out.push(Node::Toggle { r: Rect::new(x + w - CARD_PAD - TOGGLE_W, top + (h - TOGGLE_H) / 2.0, TOGGLE_W, TOGGLE_H), action, on });
@@ -719,27 +759,21 @@ pub fn layout(v: &View, width: f64, height: f64, m: &dyn Measure) -> Layout {
     let (cw, wide) = w::content_width(avail);
     let x0 = SIDEBAR + PAD + (avail - cw) / 2.0;
 
-    // The page title, and the pill on the right.
+    // The pill on the right, as in the Mac's toolbar (a clock before today's time; the timer while contextualizing).
     let mut header = vec![];
     let pill = w::status_pill(v.status, v.now, v.data.home.today.seconds);
-    let pw = m.text(&pill, Font::Small, 1000.0, 1).0 + 24.0;
-    let ph = 26.0;
-    header.push(Node::Pill { r: Rect::new(x0 + cw - pw, (HEADER - ph) / 2.0 + 4.0, pw, ph), text: pill, live: v.status.recording });
-    // Home's greeting is its title.
-    let title = if v.share.is_some() { w::CHECK_TITLE } else { v.section.title() };
-    let th = m.text(title, Font::Title, cw - pw - 16.0, 1).1;
-    if v.section != Section::Home || v.share.is_some() {
-        header.push(Node::Text {
-            r: Rect::new(x0, (HEADER - th) / 2.0 + 4.0, cw - pw - 16.0, th),
-            text: title.into(),
-            font: Font::Title,
-            ink: Ink::Primary,
-            align: Align::Left,
-            lines: 1,
-        });
-    }
+    let pw = m.text(&pill, Font::SmallStrong, 1000.0, 1).0 + if v.status.recording { 28.0 } else { 44.0 };
+    let ph = 34.0;
+    let px = (width - 12.0 - pw).max(SIDEBAR);
+    header.push(Node::Pill { r: Rect::new(px, (HEADER - ph) / 2.0, pw, ph), text: pill, live: v.status.recording, icon: (!v.status.recording).then_some(glyph::CLOCK) });
 
-    let mut col = Col::new(x0, cw, 8.0, m);
+    let mut col = Col::new(x0, cw, 16.0, m);
+    // The page's title, at the top of the page (Home's is its greeting, the Timeline's its day; Capsules has its
+    // buttons beside it).
+    let title = if v.share.is_some() { w::CHECK_TITLE } else { v.section.title() };
+    if v.share.is_some() || !matches!(v.section, Section::Home | Section::Timeline | Section::Capsules) {
+        col.title(title);
+    }
     match (v.share, v.section) {
         (Some(share), _) => share_page(&mut col, share),
         (None, Section::Home) => home(&mut col, v, wide),
@@ -753,23 +787,26 @@ pub fn layout(v: &View, width: f64, height: f64, m: &dyn Measure) -> Layout {
     Layout { sidebar, header, content: col.nodes, height, column: Rect::new(x0, 0.0, cw, 0.0) }
 }
 
-fn sidebar(section: Section, _height: f64, m: &dyn Measure) -> Vec<Node> {
-    let mut out = vec![];
-    let (x, w) = (8.0, SIDEBAR - 16.0);
-    let mut y = 16.0;
+/// The sidebar as on the Mac: a rounded panel inset from the window's edges, small grey group headings, and the
+/// pages (the one shown filled with the accent).
+fn sidebar(section: Section, height: f64, m: &dyn Measure) -> Vec<Node> {
+    let mut out = vec![Node::Panel(Rect::new(INSET, INSET, SIDEBAR - INSET, (height - 2.0 * INSET).max(0.0)))];
+    let (x, w) = (INSET + 10.0, SIDEBAR - INSET - 20.0);
+    let top = INSET + 14.0;
+    let mut y = top;
     let mut group = "";
     for s in Section::ALL {
         if s.group() != group {
             group = s.group();
-            if y > 16.0 {
-                y += 12.0;
+            if y > top {
+                y += 18.0;
             }
-            let h = m.text(group, Font::SmallStrong, w, 1).1;
-            out.push(Node::Text { r: Rect::new(x + 12.0, y, w - 12.0, h), text: group.into(), font: Font::SmallStrong, ink: Ink::Secondary, align: Align::Left, lines: 1 });
+            let h = m.text(group, Font::Group, w, 1).1;
+            out.push(Node::Text { r: Rect::new(x + 4.0, y, w - 4.0, h), text: group.into(), font: Font::Group, ink: Ink::Secondary, align: Align::Left, lines: 1 });
             y += h + 6.0;
         }
         out.push(Node::Button {
-            r: Rect::new(x, y, w, 36.0),
+            r: Rect::new(x, y, w, 32.0),
             action: Action::Nav(s),
             label: s.title().into(),
             icon: Some(section_icon(s)),
@@ -777,7 +814,7 @@ fn sidebar(section: Section, _height: f64, m: &dyn Measure) -> Vec<Node> {
             enabled: true,
             check: false,
         });
-        y += 40.0;
+        y += 32.0;
     }
     out
 }
@@ -788,38 +825,43 @@ fn home(col: &mut Col, v: &View, wide: bool) {
     let greeting = w::greeting(v.hour, &v.data.home.first_name);
     let h = col.text_h(&greeting, Font::Display, col.w, 0);
     col.nodes.push(Node::Text { r: Rect::new(col.x, col.y, col.w, h), text: greeting, font: Font::Display, ink: Ink::Primary, align: Align::Left, lines: 0 });
-    col.y += h + 2.0;
+    col.y += h;
     col.para(v.date, Font::Body, Ink::Secondary);
-    col.gap(20.0);
-
-    // The stat strip: three big numbers in one panel.
-    let stats = w::stats(&v.data.home);
-    col.card(|out, x, w, top, m| {
-        let cell = w / 3.0;
-        let lh = m.text("Today", Font::Small, cell, 1).1;
-        let vh = m.text("0 min", Font::Stat, cell, 1).1;
-        for (i, s) in stats.iter().enumerate() {
-            let cx = x + cell * i as f64 + CARD_PAD;
-            let iw = cell - 2.0 * CARD_PAD;
-            let mut y = top + 14.0;
-            out.push(Node::Text { r: Rect::new(cx, y, iw, lh), text: s.label.into(), font: Font::Small, ink: Ink::Secondary, align: Align::Left, lines: 1 });
-            y += lh + 2.0;
-            out.push(Node::Text { r: Rect::new(cx, y, iw, vh), text: s.value.clone(), font: Font::Stat, ink: Ink::Primary, align: Align::Left, lines: 1 });
-            y += vh;
-            out.push(Node::Text { r: Rect::new(cx, y, iw, lh), text: s.detail.clone(), font: Font::Small, ink: Ink::Secondary, align: Align::Left, lines: 1 });
-            if i > 0 {
-                out.push(Node::Divider(Rect::new(x + cell * i as f64, top + 14.0, 1.0, lh * 2.0 + vh + 2.0)));
-            }
-        }
-        top + 14.0 + lh * 2.0 + vh + 2.0 + 14.0
-    });
     col.gap(GAP);
 
+    // As the Mac: the status card, the three numbers, today by project and the recent capsules; the side column
+    // beside them on a wide window, else under them.
     let (x0, total, top) = (col.x, col.w, col.y);
     let main_w = if wide { total - w::SIDE_WIDTH - SIDE_GAP } else { total };
     col.w = main_w;
     status_card(col, v);
     col.gap(GAP);
+
+    // The stat strip: three big numbers in one panel.
+    let stats = w::stats(&v.data.home);
+    col.card(|out, x, w, top, m| {
+        let cell = w / 3.0;
+        let pad = 18.0;
+        let lh = m.text("Today", Font::SmallStrong, cell, 1).1;
+        let vh = m.text("0 min", Font::Stat, cell, 1).1;
+        let dh = m.text("Today", Font::Small, cell, 1).1;
+        for (i, s) in stats.iter().enumerate() {
+            let cx = x + cell * i as f64 + pad;
+            let iw = (cell - 2.0 * pad).max(0.0);
+            let mut y = top + pad;
+            out.push(Node::Text { r: Rect::new(cx, y, iw, lh), text: s.label.into(), font: Font::SmallStrong, ink: Ink::Secondary, align: Align::Left, lines: 1 });
+            y += lh + 2.0;
+            out.push(Node::Text { r: Rect::new(cx, y, iw, vh), text: s.value.clone(), font: Font::Stat, ink: Ink::Primary, align: Align::Left, lines: 1 });
+            y += vh + 2.0;
+            out.push(Node::Text { r: Rect::new(cx, y, iw, dh), text: s.detail.clone(), font: Font::Small, ink: Ink::Secondary, align: Align::Left, lines: 1 });
+            if i > 0 {
+                out.push(Node::Divider(Rect::new(x + cell * i as f64, top + 14.0, 1.0, lh + vh + dh + 4.0 + 2.0 * pad - 28.0)));
+            }
+        }
+        top + pad + lh + vh + dh + 4.0 + pad
+    });
+    col.gap(GAP);
+
     col.caption_with(w::TODAY, Some((tl::SEE_TODAYS_TIMELINE, Action::SeeTimeline)));
     today_card(col, v);
     col.gap(GAP);
@@ -849,7 +891,7 @@ fn status_card(col: &mut Col, v: &View) {
         let pad = 18.0;
         let bw = button_width(m, toggle, Style::Accent);
         let th = m.text(&title, Font::Subtitle, w, 1).1;
-        let line_h = th.max(BUTTON_H);
+        let line_h = th.max(LARGE_H);
         let tx = x + pad + 20.0;
         out.push(Node::Dot { r: Rect::new(x + pad, top + pad + (line_h - 10.0) / 2.0, 10.0, 10.0), on: s.recording });
         out.push(Node::Text {
@@ -861,7 +903,7 @@ fn status_card(col: &mut Col, v: &View) {
             lines: 1,
         });
         out.push(Node::Button {
-            r: Rect::new(x + w - pad - bw, top + pad + (line_h - BUTTON_H) / 2.0, bw, BUTTON_H),
+            r: Rect::new(x + w - pad - bw, top + pad + (line_h - LARGE_H) / 2.0, bw, LARGE_H),
             action: Action::ToggleRecord,
             label: toggle.into(),
             icon: None,
@@ -869,7 +911,7 @@ fn status_card(col: &mut Col, v: &View) {
             enabled: true,
             check: false,
         });
-        let mut y = top + pad + line_h + 8.0;
+        let mut y = top + pad + line_h + 12.0;
         let inner = w - 2.0 * pad;
         let dh = m.text(&detail, Font::Body, inner, 0).1;
         out.push(Node::Text { r: Rect::new(x + pad, y, inner, dh), text: detail, font: Font::Body, ink: Ink::Secondary, align: Align::Left, lines: 0 });
@@ -948,26 +990,29 @@ fn recent(col: &mut Col, v: &View) {
 }
 
 fn side(col: &mut Col, v: &View) {
-    // Shortcuts, with keycaps.
-    col.caption(w::SHORTCUTS);
+    // Shortcuts, with keycaps (each side card's title inside it, as on the Mac).
     let shortcuts = w::home_shortcuts(v.keys);
     col.card(|out, x, w, top, m| {
-        let mut y = top + 12.0;
+        let mut y = top + CARD_PAD;
+        let th = m.text(w::SHORTCUTS, Font::Strong, w, 1).1;
+        out.push(Node::Text { r: Rect::new(x + CARD_PAD, y, w - 2.0 * CARD_PAD, th), text: w::SHORTCUTS.into(), font: Font::Strong, ink: Ink::Primary, align: Align::Left, lines: 1 });
+        y += th + 10.0;
         for (keys, what) in shortcuts {
             let kx = keycaps(out, m, x + CARD_PAD, y, &keys);
             let th = m.text(what, Font::Body, w, 1).1;
             out.push(Node::Text { r: Rect::new(kx + 8.0, y + (24.0 - th) / 2.0, (x + w - CARD_PAD - kx - 8.0).max(20.0), th), text: what.into(), font: Font::Body, ink: Ink::Primary, align: Align::Left, lines: 1 });
             y += 32.0;
         }
-        y - 8.0 + 12.0
+        y - 8.0 + CARD_PAD
     });
-    col.gap(GAP);
+    col.gap(16.0);
 
     // Working on: a list, the chosen one checked.
-    col.caption(w::WORKING_ON);
     let chips = w::chips(v.status);
-    col.card(|out, x, w, top, _m| {
-        let mut y = top + 6.0;
+    col.card(|out, x, w, top, m| {
+        let th = m.text(w::WORKING_ON, Font::Strong, w, 1).1;
+        out.push(Node::Text { r: Rect::new(x + CARD_PAD, top + CARD_PAD, w - 2.0 * CARD_PAD, th), text: w::WORKING_ON.into(), font: Font::Strong, ink: Ink::Primary, align: Align::Left, lines: 1 });
+        let mut y = top + CARD_PAD + th + 6.0;
         for c in chips {
             out.push(Node::Button {
                 r: Rect::new(x + 6.0, y, w - 12.0, 34.0),
@@ -989,9 +1034,9 @@ fn side(col: &mut Col, v: &View) {
             enabled: true,
             check: false,
         });
-        y + 34.0 + 6.0
+        y + 34.0 + 8.0
     });
-    col.gap(GAP);
+    col.gap(16.0);
 
     // Make today's capsules, the way Your AI works: Copy my day and Save from clipboard for a website or any other
     // AI, else one button (Claude or another app opens with the request).
@@ -1009,7 +1054,7 @@ fn side(col: &mut Col, v: &View) {
         out.push(Node::Text { r: Rect::new(x + CARD_PAD, y, inner, hh), text: hint.clone(), font: Font::Small, ink: Ink::Secondary, align: Align::Left, lines: 0 });
         y += hh + 12.0;
         let full = |action: Action, label: &str, style: Style, enabled: bool, y: f64| Node::Button {
-            r: Rect::new(x + CARD_PAD, y, inner, BUTTON_H),
+            r: Rect::new(x + CARD_PAD, y, inner, LARGE_H),
             action,
             label: label.into(),
             icon: None,
@@ -1019,12 +1064,12 @@ fn side(col: &mut Col, v: &View) {
         };
         if kind.uses_copy() {
             out.push(full(Action::Make, anyai::COPY_MY_DAY, Style::Accent, !ai.working, y));
-            y += BUTTON_H + 8.0;
+            y += LARGE_H + 8.0;
             out.push(full(Action::SaveClipboard, anyai::SAVE_FROM_CLIPBOARD, Style::Standard, !ai.working, y));
         } else {
             out.push(full(Action::Make, anyai::MAKE_CAPSULES, Style::Accent, true, y));
         }
-        y += BUTTON_H + 10.0;
+        y += LARGE_H + 10.0;
         // "Your AI: Cursor  Change"
         let lw = button_width(m, anyai::CHANGE, Style::Subtle);
         let yh = m.text(&your, Font::Small, inner, 1).1;
@@ -1062,7 +1107,8 @@ fn capsule_card(col: &mut Col, list: &[CapsuleSummary], today: chrono::NaiveDate
         let mut y = top;
         for (i, c) in list.iter().enumerate() {
             if i > 0 {
-                divider(out, x, w, y);
+                // Past the icon, as the Mac's.
+                out.push(Node::Divider(Rect::new(x + CARD_PAD + 32.0, y, w - CARD_PAD - 32.0, 1.0)));
             }
             let open_w = button_width(m, w::OPEN, Style::Standard);
             let more_w = 36.0;
@@ -1113,17 +1159,34 @@ fn capsule_card(col: &mut Col, list: &[CapsuleSummary], today: chrono::NaiveDate
 }
 
 fn capsules_page(col: &mut Col, v: &View) {
-    let mw = col.button(col.x, w::MAKE_TODAYS, Action::Make, Style::Standard);
-    col.button(col.x + mw + 8.0, w::OPEN_CAPSULE, Action::OpenCapsule, Style::Standard);
-    col.gap(BUTTON_H + 16.0);
+    // The title, with Open a capsule… and Make today's capsules on its right (under it when narrow).
+    let title = Section::Capsules.title();
+    let th = col.text_h(title, Font::Title, col.w, 1);
+    let ow = button_width(col.m, w::OPEN_CAPSULE, Style::Standard);
+    let mw = button_width(col.m, w::MAKE_TODAYS, Style::Standard);
+    let tw = col.text_w(title, Font::Title);
+    if col.w - ow - mw - 8.0 - 16.0 >= tw {
+        let top = col.y;
+        col.nodes.push(Node::Text { r: Rect::new(col.x, top, tw, th), text: title.into(), font: Font::Title, ink: Ink::Primary, align: Align::Left, lines: 1 });
+        col.y = top + (th - BUTTON_H) / 2.0;
+        let right = col.x + col.w;
+        col.button(right - mw - 8.0 - ow, w::OPEN_CAPSULE, Action::OpenCapsule, Style::Standard);
+        col.button(right - mw, w::MAKE_TODAYS, Action::Make, Style::Standard);
+        col.y = top + th.max(BUTTON_H) + 12.0;
+    } else {
+        col.title(title);
+        col.button(col.x, w::OPEN_CAPSULE, Action::OpenCapsule, Style::Standard);
+        col.button(col.x + ow + 8.0, w::MAKE_TODAYS, Action::Make, Style::Standard);
+        col.gap(BUTTON_H + 12.0);
+    }
 
     // Search as you type, or ask your AI (it reads inside every capsule).
     let asking = !v.search.trim().is_empty();
     let ask = anyai::ask_button(&v.ai.kind());
     let aw = button_width(col.m, ask, Style::Accent);
-    col.nodes.push(Node::Field { r: Rect::new(col.x, col.y, (col.w - aw - 8.0).max(80.0), BUTTON_H), field: Field::Search });
+    col.nodes.push(Node::Field { r: Rect::new(col.x, col.y, (col.w - aw - 8.0).max(80.0), SEARCH_H), field: Field::Search });
     col.nodes.push(Node::Button {
-        r: Rect::new(col.x + col.w - aw, col.y, aw, BUTTON_H),
+        r: Rect::new(col.x + col.w - aw, col.y + (SEARCH_H - BUTTON_H) / 2.0, aw, BUTTON_H),
         action: Action::Ask,
         label: ask.into(),
         icon: None,
@@ -1131,9 +1194,9 @@ fn capsules_page(col: &mut Col, v: &View) {
         enabled: asking,
         check: false,
     });
-    col.gap(BUTTON_H + 12.0);
+    col.gap(SEARCH_H + 10.0);
     copy_row(col, v.ai);
-    col.gap(GAP);
+    col.gap(GAP + 4.0);
 
     if v.data.capsules.is_empty() {
         col.para(&w::no_capsules(v.keys), Font::Body, Ink::Secondary);
@@ -1231,19 +1294,27 @@ fn timeline_page(col: &mut Col, v: &View) {
     if let Some((year, month)) = tv.calendar {
         calendar(col, v, year, month);
     }
+    if let Some(day) = tv.day() {
+        col.para(&day.summary(), Font::Body, Ink::Secondary);
+    }
+    // Search this day, under the date (as on the Mac).
+    col.gap(8.0);
+    col.nodes.push(Node::Field { r: Rect::new(col.x, col.y, col.w.min(320.0), SEARCH_H), field: Field::TimelineSearch });
+    col.gap(SEARCH_H + 16.0);
     let (Some(day), Some(shown)) = (tv.day(), tv.shown()) else {
         col.para(tl::LOADING, Font::Body, Ink::Secondary);
         return;
     };
-    col.para(&day.summary(), Font::Small, Ink::Secondary);
-    col.gap(GAP);
     if day.is_empty() {
         col.para(&tl::empty_line(false, tv.date == v.today, &v.keys.record), Font::Body, Ink::Secondary);
         return;
     }
     if let Some(bar) = day.bar() {
-        col.card(|out, x, w, top, m| day_bar(out, m, x, w, top, &bar));
-        col.gap(GAP);
+        // The day bar sits on the page, not in a card.
+        let mut out = vec![];
+        col.y = day_bar(&mut out, col.m, col.x, col.w, col.y, &bar);
+        col.nodes.extend(out);
+        col.gap(20.0);
         col.caption(tl::WHERE_TIME_WENT);
         let shares = day.time_went(&v.data.projects);
         col.card(|out, x, w, top, m| time_went(out, m, x, w, top, &shares));
@@ -1254,30 +1325,47 @@ fn timeline_page(col: &mut Col, v: &View) {
         col.para(tl::NO_MATCHES, Font::Body, Ink::Secondary);
         col.gap(12.0);
     }
+    // Each recording in its own card: its line, and when open, its stretches, notes and gaps under it.
     for b in &shown.blocks {
         let open = tv.is_open(b);
+        let at = col.nodes.len();
+        col.nodes.push(Node::Card(Rect::default()));
+        let (x, w, top) = (col.x, col.w, col.y);
+        (col.x, col.w) = (x + 10.0, w - 20.0);
+        col.gap(10.0);
         // Its line from the whole recording (a search leaves only part of it).
         block_header(col, day.block(&b.session).unwrap_or(b), open, &v.data.projects);
+        (col.x, col.w) = (x, w);
         if open {
             if b.items.is_empty() {
                 let none = if tv.searching() { tl::NO_MATCHES } else { tl::NOTHING_IN_IT };
+                (col.x, col.w) = (x + CARD_PAD + 36.0, (w - 2.0 * CARD_PAD - 36.0).max(40.0));
                 col.para(none, Font::Small, Ink::Secondary);
+                (col.x, col.w) = (x, w);
+                col.gap(12.0);
             } else {
-                col.card(|out, x, w, top, m| timeline_items(out, m, x, w, top, b, day, tv, &v.data.projects));
+                col.nodes.push(Node::Divider(Rect::new(x + CARD_PAD + 36.0, col.y, (w - CARD_PAD - 36.0).max(0.0), 1.0)));
+                let mut out = vec![];
+                col.y = timeline_items(&mut out, col.m, x, w, col.y, b, day, tv, &v.data.projects);
+                col.nodes.extend(out);
             }
-            col.gap(12.0);
         }
-        col.gap(4.0);
+        col.nodes[at] = Node::Card(Rect::new(x, top, w, col.y - top));
+        col.gap(10.0);
     }
 }
 
-/// "‹  Thursday 23 October  ›" (the date opens the calendar), Today when another day is shown, and the search box.
+/// "‹  Thursday 23 October  ›" as the page's title (the date opens the calendar), and Today when another day is
+/// shown.
 fn day_control(col: &mut Col, v: &View) {
     let tv = v.timeline;
     let title = tl::day_title(tv.date, v.today);
-    let mut x = col.x;
+    let (tw, th) = col.m.text(&title, Font::Title, (col.w - 2.0 * BUTTON_H - 120.0).max(80.0), 1);
+    let row = th.max(BUTTON_H) + 4.0;
+    let mut x = col.x - 6.0;
+    let cy = col.y + (row - BUTTON_H) / 2.0;
     let icon = |x: f64, glyph: &'static str, action: Action, enabled: bool| Node::Button {
-        r: Rect::new(x, col.y, BUTTON_H, BUTTON_H),
+        r: Rect::new(x, cy, BUTTON_H, BUTTON_H),
         action,
         label: String::new(),
         icon: Some(glyph),
@@ -1285,28 +1373,20 @@ fn day_control(col: &mut Col, v: &View) {
         enabled,
         check: false,
     };
-    let back = icon(x, glyph::CHEVRON_LEFT, Action::DayBefore, true);
-    col.nodes.push(back);
-    x += BUTTON_H + 4.0;
-    let dw = button_width(col.m, &title, Style::Dropdown);
-    col.nodes.push(Node::Button { r: Rect::new(x, col.y, dw, BUTTON_H), action: Action::Calendar, label: title, icon: None, style: Style::Dropdown, enabled: true, check: false });
-    x += dw + 4.0;
-    let on = icon(x, glyph::CHEVRON_RIGHT, Action::DayAfter, tl::day_after(tv.date, v.today).is_some());
-    col.nodes.push(on);
-    x += BUTTON_H + 8.0;
+    col.nodes.push(icon(x, glyph::CHEVRON_LEFT, Action::DayBefore, true));
+    x += BUTTON_H + 2.0;
+    let dw = tw + 12.0;
+    col.nodes.push(Node::Button { r: Rect::new(x, col.y, dw, row), action: Action::Calendar, label: title, icon: None, style: Style::Heading, enabled: true, check: false });
+    x += dw + 2.0;
+    col.nodes.push(icon(x, glyph::CHEVRON_RIGHT, Action::DayAfter, tl::day_after(tv.date, v.today).is_some()));
+    x += BUTTON_H + 10.0;
     if tv.date != v.today {
-        x += col.button(x, tl::TODAY, Action::DayToday, Style::Standard) + 8.0;
+        let y = col.y;
+        col.y = cy;
+        col.button(x, tl::TODAY, Action::DayToday, Style::Standard);
+        col.y = y;
     }
-    let room = col.x + col.w - x;
-    if room >= 200.0 {
-        let fw = room.min(320.0);
-        col.nodes.push(Node::Field { r: Rect::new(col.x + col.w - fw, col.y, fw, BUTTON_H), field: Field::TimelineSearch });
-        col.gap(BUTTON_H + 8.0);
-    } else {
-        col.gap(BUTTON_H + 8.0);
-        col.nodes.push(Node::Field { r: Rect::new(col.x, col.y, col.w, BUTTON_H), field: Field::TimelineSearch });
-        col.gap(BUTTON_H + 8.0);
-    }
+    col.gap(row + 2.0);
 }
 
 /// Calendar cells.
@@ -1367,10 +1447,10 @@ fn calendar(col: &mut Col, v: &View, year: i32, month: u32) {
 /// The day bar: the stretches in their colours from the first one's hour to the last one's, hour labels under it.
 /// A segment opens its recording.
 fn day_bar(out: &mut Vec<Node>, m: &dyn Measure, x: f64, w: f64, top: f64, bar: &tl::DayBar) -> f64 {
-    let (left, width) = (x + CARD_PAD, w - 2.0 * CARD_PAD);
-    let y = top + CARD_PAD + 4.0;
-    let h = 14.0;
-    out.push(Node::Swatch { r: Rect::new(left, y, width, h), colour: None });
+    let (left, width) = (x, w);
+    let y = top;
+    let h = 18.0;
+    out.push(Node::Segment { r: Rect::new(left, y, width, h), colour: None });
     let mut taken = left;
     for s in &bar.segments {
         let sx = left + s.from * width;
@@ -1378,25 +1458,25 @@ fn day_bar(out: &mut Vec<Node>, m: &dyn Measure, x: f64, w: f64, top: f64, bar: 
         // The click area first (its hover shows around the colour), never over the one before.
         let cx = sx.max(taken);
         if sx + sw - cx >= 1.0 {
-            out.push(Node::Button { r: Rect::new(cx, y - 4.0, sx + sw - cx, h + 8.0), action: Action::OpenStretch(s.key.clone()), label: String::new(), icon: None, style: Style::Subtle, enabled: true, check: false });
+            out.push(Node::Button { r: Rect::new(cx, y - 3.0, sx + sw - cx, h + 6.0), action: Action::OpenStretch(s.key.clone()), label: String::new(), icon: None, style: Style::Subtle, enabled: true, check: false });
             taken = sx + sw;
         }
-        out.push(Node::Swatch { r: Rect::new(sx, y, sw, h), colour: Some(s.colour) });
+        out.push(Node::Segment { r: Rect::new(sx, y, sw, h), colour: Some(s.colour) });
     }
-    let ly = y + h + 6.0;
+    let ly = y + h + 4.0;
     let mut last_right = f64::MIN;
     let mut lh: f64 = 0.0;
     for (at, label) in &bar.hours {
-        let (lw, th) = m.text(label, Font::Small, 100.0, 1);
+        let (lw, th) = m.text(label, Font::Tiny, 100.0, 1);
         let lx = (left + at * width - lw / 2.0).clamp(left, left + width - lw);
         if lx < last_right + 8.0 {
             continue;
         }
-        out.push(Node::Text { r: Rect::new(lx, ly, lw, th), text: label.clone(), font: Font::Small, ink: Ink::Secondary, align: Align::Center, lines: 1 });
+        out.push(Node::Text { r: Rect::new(lx, ly, lw, th), text: label.clone(), font: Font::Tiny, ink: Ink::Secondary, align: Align::Center, lines: 1 });
         last_right = lx + lw;
         lh = lh.max(th);
     }
-    ly + lh + CARD_PAD
+    ly + lh
 }
 
 /// Where your time went: a row per project (or app): its name, a bar in its colour, the time.
@@ -1432,7 +1512,7 @@ fn block_header(col: &mut Col, b: &Block, open: bool, projects: &[Project]) {
         action: Action::ToggleBlock(b.session.clone()),
         label: b.line(projects),
         icon: Some(if open { glyph::CHEVRON } else { glyph::CHEVRON_RIGHT }),
-        style: Style::Row { selected: false },
+        style: Style::Fold,
         enabled: true,
         check: false,
     });
@@ -1444,7 +1524,7 @@ fn block_header(col: &mut Col, b: &Block, open: bool, projects: &[Project]) {
     }
     col.nodes.push(Node::Button { r: Rect::new(right - dw - 4.0 - mw, col.y, mw, BUTTON_H), action: Action::MakeFrom(b.session.clone()), label: tl::MAKE_CAPSULE.into(), icon: None, style: Style::Standard, enabled: true, check: false });
     col.nodes.push(Node::Button { r: Rect::new(right - dw, col.y, dw, BUTTON_H), action: Action::DeleteBlock(b.session.clone()), label: String::new(), icon: Some(glyph::MORE), style: Style::Subtle, enabled: true, check: false });
-    col.gap(BUTTON_H + CAPTION_GAP);
+    col.gap(BUTTON_H + 10.0);
 }
 
 /// The first letter of an app, for its badge.
@@ -1486,8 +1566,8 @@ fn timeline_items(out: &mut Vec<Node>, m: &dyn Measure, x: f64, w: f64, top: f64
                 out.push(Node::Bubble(Rect::new(left, y + 10.0, bw, bh)));
                 out.push(Node::Text { r: Rect::new(left + 12.0, y + 18.0, inner, wh), text: words, font: Font::Body, ink: Ink::Primary, align: Align::Left, lines: 0 });
                 let caption = mo.note_caption();
-                let ch = m.text(&caption, Font::Small, bw - 4.0, 1).1;
-                out.push(Node::Text { r: Rect::new(left + 4.0, y + 10.0 + bh + 4.0, bw - 4.0, ch), text: caption, font: Font::Small, ink: Ink::Secondary, align: Align::Left, lines: 1 });
+                let ch = m.text(&caption, Font::Tiny, bw - 4.0, 1).1;
+                out.push(Node::Text { r: Rect::new(left + 4.0, y + 10.0 + bh + 4.0, bw - 4.0, ch), text: caption, font: Font::Tiny, ink: Ink::Secondary, align: Align::Left, lines: 1 });
                 out.push(more_button(x, w, y + 10.0, Action::DeleteRead(mo.key())));
                 y += 10.0 + bh + 4.0 + ch + 10.0;
             }
@@ -1580,7 +1660,7 @@ fn read_row(out: &mut Vec<Node>, m: &dyn Measure, x: f64, w: f64, left: f64, inn
     let lw = lw.min(room);
     out.push(Node::Text { r: Rect::new(left, y, lw, lh), text: line, font: Font::Small, ink: Ink::Secondary, align: Align::Left, lines: 1 });
     if pill > 0.0 {
-        out.push(Node::Pill { r: Rect::new(left + lw + 8.0, y + (lh - 20.0) / 2.0, pill, 20.0), text: tl::LOOKED_AT.into(), live: false });
+        out.push(Node::Pill { r: Rect::new(left + lw + 8.0, y + (lh - 20.0) / 2.0, pill, 20.0), text: tl::LOOKED_AT.into(), live: false, icon: None });
     }
     let mut ty = y + lh.max(if pill > 0.0 { 20.0 } else { 0.0 });
     let open = tv.expanded.contains(&mo.key());
@@ -1696,7 +1776,7 @@ fn settings_page(col: &mut Col, v: &View) {
 
     col.caption(w::YOU);
     col.card(|out, x, w, top, m| {
-        let fw = (w * 0.45).clamp(140.0, 260.0);
+        let fw = (w * 0.45).clamp(140.0, 220.0);
         let (bottom, h) = row(out, m, x, w, top, None, w::YOUR_NAME, None, fw);
         out.push(Node::Field { r: Rect::new(x + w - CARD_PAD - fw, top + (h - BUTTON_H) / 2.0, fw, BUTTON_H), field: Field::Name });
         bottom
@@ -1714,7 +1794,7 @@ fn settings_page(col: &mut Col, v: &View) {
         let mut y = top;
         for (i, step) in Step::ALL.iter().enumerate() {
             if i > 0 {
-                divider(out, x, w, y);
+                out.push(Node::Divider(Rect::new(x + CARD_PAD + 34.0, y, w - CARD_PAD - 34.0, 1.0)));
             }
             if *step == Step::Claude {
                 y = connect_rows(out, m, x, w, y, done.claude || ai.any_connected(), ai);
@@ -1853,9 +1933,9 @@ fn connect_rows(out: &mut Vec<Node>, m: &dyn Measure, x: f64, w: f64, top: f64, 
     if done {
         out.push(Node::Text { r: Rect::new(x + w - CARD_PAD - 24.0, top, 24.0, h), text: glyph::CHECK.into(), font: Font::Icon, ink: Ink::Secondary, align: Align::Center, lines: 1 });
     }
-    let left = x + CARD_PAD + 36.0;
+    let left = x + CARD_PAD + 34.0;
     let right = x + w - CARD_PAD;
-    let sub_divider = |out: &mut Vec<Node>, y: f64| out.push(Node::Divider(Rect::new(left, y, (right - left).max(0.0), 1.0)));
+    let sub_divider = |out: &mut Vec<Node>, y: f64| out.push(Node::Divider(Rect::new(left, y, (x + w - left).max(0.0), 1.0)));
     const SUB: f64 = 40.0;
     for c in ai.installed() {
         sub_divider(out, y);
@@ -2363,7 +2443,7 @@ mod tests {
         let (ws, wt) = (find(&wide, "Shortcuts").unwrap().rect(), find(&wide, "Not contextualizing").unwrap().rect());
         assert!(ws.x > wt.x + 200.0 && ws.y < wt.y + 100.0, "wide: beside the status card");
         let (ns, nr) = (find(&narrow, "Shortcuts").unwrap().rect(), find(&narrow, "Recent capsules").unwrap().rect());
-        assert!(ns.y > nr.y && (ns.x - nr.x).abs() < 1.0, "narrow: below, same left edge");
+        assert!(ns.y > nr.y && (ns.x - nr.x).abs() <= CARD_PAD, "narrow: below, in line (its title inside its card)");
         assert!(narrow.height > wide.height, "stacked is taller");
     }
 
@@ -2577,12 +2657,18 @@ mod tests {
             let (bg, card, border, text, text2, accent, track) =
                 (hex(t.bg), hex(t.card), hex(t.card_border), hex(t.text), hex(t.text2), hex(t.accent), hex(t.track));
             let (selected, on_accent, field, red) = (hex(t.subtle_selected), hex(t.on_accent), hex(t.field), hex(t.red));
+            let family = |f: Font| if f == Font::Display { "Georgia, serif" } else { "Segoe UI, Helvetica, Arial" };
             let mut out = format!("<svg xmlns='http://www.w3.org/2000/svg' width='{width}' height='{height}' font-family='Segoe UI, Helvetica, Arial'><rect width='100%' height='100%' fill='{bg}'/>");
             let all = l.sidebar.iter().map(|n| (n, 0.0)).chain(l.header.iter().map(|n| (n, 0.0))).chain(l.content.iter().map(|n| (n, HEADER)));
             for (n, dy) in all {
                 let r = n.rect().moved(dy);
                 match n {
-                    Node::Card(_) => out += &format!("<rect x='{}' y='{}' width='{}' height='{}' rx='8' fill='{card}' stroke='{border}'/>", r.x, r.y, r.w, r.h),
+                    Node::Card(_) => out += &format!("<rect x='{}' y='{}' width='{}' height='{}' rx='14' fill='{card}' stroke='{border}'/>", r.x, r.y, r.w, r.h),
+                    Node::Panel(_) => out += &format!("<rect x='{}' y='{}' width='{}' height='{}' rx='16' fill='{}' stroke='{}'/>", r.x, r.y, r.w, r.h, hex(t.sidebar), hex(t.sidebar_border)),
+                    Node::Segment { colour, .. } => {
+                        let fill = colour.map_or(card.clone(), |c| hex(t.colour(c)));
+                        out += &format!("<rect x='{}' y='{}' width='{}' height='{}' rx='{}' fill='{fill}'/>", r.x, r.y, r.w, r.h, if colour.is_some() { 0 } else { 4 });
+                    }
                     Node::Divider(_) => out += &format!("<rect x='{}' y='{}' width='{}' height='1' fill='{border}'/>", r.x, r.y, r.w.max(1.0)),
                     Node::Text { text: t, font, ink, align, .. } => {
                         if font.is_icon() {
@@ -2591,25 +2677,27 @@ mod tests {
                         let (size, weight, _) = font.spec();
                         let (x, anchor) = match align { Align::Left => (r.x, "start"), Align::Center => (r.x + r.w / 2.0, "middle"), Align::Right => (r.right(), "end") };
                         let color = if *ink == Ink::Primary { &text } else { &text2 };
-                        out += &format!("<text x='{x}' y='{}' font-size='{size}' font-weight='{weight}' fill='{color}' text-anchor='{anchor}'>{}</text>", r.y + size, esc(t));
+                        out += &format!("<text x='{x}' y='{}' font-size='{size}' font-weight='{weight}' font-family='{}' fill='{color}' text-anchor='{anchor}'>{}</text>", r.y + size, family(*font), esc(t));
                     }
                     Node::Button { label, style, .. } => {
                         let (fill, ink) = match style {
-                            Style::Accent | Style::Cell { selected: true } => (accent.clone(), on_accent.clone()),
-                            Style::Cell { .. } => ("none".into(), text.clone()),
-                            Style::Nav { selected: true } | Style::Row { selected: true } => (selected.clone(), text.clone()),
+                            Style::Accent | Style::Cell { selected: true } | Style::Nav { selected: true } => (accent.clone(), on_accent.clone()),
+                            Style::Cell { .. } | Style::Fold | Style::Heading => ("none".into(), text.clone()),
                             Style::Nav { .. } | Style::Row { .. } => ("none".into(), text.clone()),
                             Style::Subtle => ("none".into(), accent.clone()),
-                            _ => (card.clone(), text.clone()),
+                            Style::Plain => ("none".into(), text2.clone()),
+                            _ => (hex(t.control), text.clone()),
                         };
-                        let stroke = if matches!(style, Style::Standard | Style::Dropdown) { border.clone() } else { "none".into() };
-                        out += &format!("<rect x='{}' y='{}' width='{}' height='{}' rx='4' fill='{fill}' stroke='{stroke}'/>", r.x, r.y, r.w, r.h);
-                        let (x, anchor) = if matches!(style, Style::Nav { .. }) { (r.x + 44.0, "start") } else if matches!(style, Style::Row { .. } | Style::Dropdown) { (r.x + 12.0, "start") } else { (r.x + r.w / 2.0, "middle") };
+                        let rx = if *style == Style::Accent { r.h / 2.0 } else { 7.0 };
+                        out += &format!("<rect x='{}' y='{}' width='{}' height='{}' rx='{rx}' fill='{fill}'/>", r.x, r.y, r.w, r.h);
+                        let (x, anchor) = if matches!(style, Style::Nav { .. }) { (r.x + 36.0, "start") } else if matches!(style, Style::Fold) { (r.x + 30.0, "start") } else if matches!(style, Style::Row { .. } | Style::Dropdown | Style::Heading) { (r.x + 12.0, "start") } else { (r.x + r.w / 2.0, "middle") };
+                        let size = if *style == Style::Heading { 24 } else { 14 };
+                        let weight = if matches!(style, Style::Heading | Style::Fold) { 600 } else { 400 };
                         if label.is_empty() && matches!(style, Style::Subtle) && r.h < 30.0 {
                             continue; // a day bar segment's click area
                         }
                         let label = if label.is_empty() { "⋯".to_string() } else { label.clone() };
-                        out += &format!("<text x='{x}' y='{}' font-size='14' fill='{ink}' text-anchor='{anchor}'>{}</text>", r.y + r.h / 2.0 + 5.0, esc(&label));
+                        out += &format!("<text x='{x}' y='{}' font-size='{size}' font-weight='{weight}' fill='{ink}' text-anchor='{anchor}'>{}</text>", r.y + r.h / 2.0 + size as f64 / 3.0, esc(&label));
                     }
                     Node::Toggle { on, .. } => out += &format!("<rect x='{}' y='{}' width='{}' height='{}' rx='10' fill='{}' stroke='{text2}'/>", r.x, r.y, r.w, r.h, if *on { &accent } else { "none" }),
                     Node::Dot { on, .. } => out += &format!("<circle cx='{}' cy='{}' r='5' fill='{}' stroke='{text2}'/>", r.x + 5.0, r.y + 5.0, if *on { red.as_str() } else { "none" }),

@@ -1,6 +1,6 @@
-// context-capsule — windows: drawing the Context Capsule window — Windows 11 colors (light and dark, the system
-// accent), Segoe UI Variable (Segoe UI on Windows 10) through GDI with ClearType, and smooth rounded shapes
-// through GDI+. Everything is drawn into an off-screen bitmap, then copied in one go (no flicker).
+// context-capsule — windows: drawing the Context Capsule window in the Mac app's look (its light and dark colors,
+// macOS's blue, rounded grey cards and buttons), in Segoe UI Variable (Segoe UI on Windows 10; Georgia for the
+// greeting, as the Mac's serif) through GDI with ClearType, and smooth rounded shapes through GDI+. Everything is drawn into an off-screen bitmap, then copied in one go (no flicker).
 
 use crate::layout::{Align, Font, Measure, Node, Style};
 use std::collections::HashMap;
@@ -193,6 +193,9 @@ impl Faces {
         if font.is_icon() {
             return self.icons;
         }
+        if font == Font::Display {
+            return "Georgia";
+        }
         match (self.variable, display, weight) {
             (true, true, _) => "Segoe UI Variable Display",
             (true, false, _) => "Segoe UI Variable Text",
@@ -342,9 +345,15 @@ pub fn node(dc: HDC, fonts: &mut Fonts, t: &Theme, n: &Node, dy: f64, feel: Feel
     match n {
         Node::Card(r) => {
             let g = Shapes::on(dc);
-            g.fill(px(*r), 8.0 * k, t.card_border);
             let p = px(*r);
-            g.fill([p[0] + k, p[1] + k, p[2] - 2.0 * k, p[3] - 2.0 * k], 7.0 * k, t.card);
+            g.fill(p, 14.0 * k, t.card_border);
+            g.fill([p[0] + k, p[1] + k, p[2] - 2.0 * k, p[3] - 2.0 * k], 13.0 * k, t.card);
+        }
+        Node::Panel(r) => {
+            let g = Shapes::on(dc);
+            let p = px(*r);
+            g.fill(p, 16.0 * k, t.sidebar_border);
+            g.fill([p[0] + k, p[1] + k, p[2] - 2.0 * k, p[3] - 2.0 * k], 15.0 * k, t.sidebar);
         }
         Node::Divider(r) => {
             let p = px(*r);
@@ -367,53 +376,75 @@ pub fn node(dc: HDC, fonts: &mut Fonts, t: &Theme, n: &Node, dy: f64, feel: Feel
             let p = px(*r);
             {
                 let g = Shapes::on(dc);
-                g.fill(p, 4.0 * k, t.control_bottom);
-                g.fill([p[0] + k, p[1] + k, p[2] - 2.0 * k, p[3] - 3.0 * k], 3.0 * k, t.key);
+                g.fill(p, 6.0 * k, if t.dark { 0xFF55_5555 } else { 0xFFD9_D9D9 });
+                g.fill([p[0] + k, p[1] + k, p[2] - 2.0 * k, p[3] - 2.0 * k], 5.0 * k, t.key);
             }
-            text(dc, fonts, [p[0], p[1], p[2], p[3] - k], s2, Font::SmallStrong, t.text, Align::Center, 1);
+            text(dc, fonts, p, s2, Font::SmallStrong, t.text, Align::Center, 1);
         }
-        Node::Pill { r, text: s2, live } => {
+        Node::Pill { r, text: s2, live, icon } => {
             let p = px(*r);
             {
                 let g = Shapes::on(dc);
-                g.fill(p, p[3] / 2.0, t.card_border);
-                g.fill([p[0] + k, p[1] + k, p[2] - 2.0 * k, p[3] - 2.0 * k], p[3] / 2.0 - k, t.card);
+                // The toolbar's glass capsule, flat: white with a soft edge (dark: grey with a lighter rim).
+                if t.dark {
+                    g.fill(p, p[3] / 2.0, 0xFF4A_4A4A);
+                    g.fill([p[0] + k, p[1] + k, p[2] - 2.0 * k, p[3] - 2.0 * k], p[3] / 2.0 - k, 0xFF39_3939);
+                } else {
+                    g.fill([p[0] - k, p[1], p[2] + 2.0 * k, p[3] + 2.0 * k], p[3] / 2.0 + k, 0xFFF3_F3F3);
+                    g.fill(p, p[3] / 2.0, 0xFFE8_E8E8);
+                    g.fill([p[0] + k, p[1] + k, p[2] - 2.0 * k, p[3] - 2.0 * k], p[3] / 2.0 - k, 0xFFFF_FFFF);
+                }
             }
-            text(dc, fonts, p, s2, Font::Small, if *live { t.red } else { t.text2 }, Align::Center, 1);
+            let ink = if *live { t.red } else { t.text };
+            match icon {
+                Some(i) => {
+                    text(dc, fonts, [p[0] + 12.0 * k, p[1], 14.0 * k, p[3]], i, Font::IconSmall, t.text2, Align::Center, 1);
+                    text(dc, fonts, [p[0] + 32.0 * k, p[1], p[2] - 42.0 * k, p[3]], s2, Font::SmallStrong, ink, Align::Left, 1);
+                }
+                None => text(dc, fonts, p, s2, Font::SmallStrong, if *live { t.red } else { t.text2 }, Align::Center, 1),
+            }
         }
         Node::Toggle { r, on, .. } => {
             let p = px(*r);
             {
+                // The Mac's switch: a capsule track (the accent when on), a white pill knob.
                 let g = Shapes::on(dc);
-                let knob = if feel.hover || feel.pressed { 14.0 } else { 12.0 } * k;
-                let cy = p[1] + p[3] / 2.0 - knob / 2.0;
-                if *on {
-                    g.fill(p, p[3] / 2.0, if feel.hover { mix(t.accent, t.bg, 0.9) } else { t.accent });
-                    g.fill([p[0] + p[2] - p[3] / 2.0 - knob / 2.0, cy, knob, knob], knob / 2.0, t.on_accent);
-                } else {
-                    if feel.hover {
-                        g.fill(p, p[3] / 2.0, t.subtle_hover);
-                    }
-                    g.stroke(p, p[3] / 2.0, t.text2, k);
-                    g.fill([p[0] + p[3] / 2.0 - knob / 2.0, cy, knob, knob], knob / 2.0, t.text2);
-                }
+                let (kw, kh) = (p[2] * 0.6, p[3] - 4.0 * k);
+                let cy = p[1] + 2.0 * k;
+                let off = if t.dark { 0xFF4A_4A4A } else { 0xFFE3_E3E3 };
+                let track = if *on { if feel.pressed { mix(t.accent_fill, 0xFF00_0000, 0.9) } else { t.accent_fill } } else if feel.hover || feel.pressed { mix(off, t.text, 0.92) } else { off };
+                g.fill(p, p[3] / 2.0, track);
+                let kx = if *on { p[0] + p[2] - 2.0 * k - kw } else { p[0] + 2.0 * k };
+                g.fill([kx - 0.5 * k, cy + 0.5 * k, kw + k, kh + k], (kh + k) / 2.0, if t.dark { 0x40000000 } else { 0x22000000 });
+                g.fill([kx, cy, kw, kh], kh / 2.0, 0xFFFF_FFFF);
             }
             focus_ring(dc, t, p, p[3] / 2.0, feel, k);
         }
-        Node::Field { r, .. } => {
+        Node::Field { r, field } => {
             let p = px(*r);
-            let g = Shapes::on(dc);
-            g.fill(p, 4.0 * k, t.control_border);
-            g.fill([p[0] + k, p[1] + k, p[2] - 2.0 * k, p[3] - 2.0 * k], 3.0 * k, t.field);
-            let line = if feel.focused { 2.0 } else { 1.0 } * k;
-            let color = if feel.focused { t.accent } else { t.text3 };
-            g.fill([p[0] + 2.0 * k, p[1] + p[3] - line, p[2] - 4.0 * k, line], 0.0, color);
+            let search = matches!(field, crate::layout::Field::Search | crate::layout::Field::TimelineSearch);
+            // The Mac's search field: a capsule on the page with a hairline rim and a magnifier; its text fields:
+            // a grey rounded box. The keyboard focus: a ring in the accent around it.
+            let radius = if search { p[3] / 2.0 } else { 7.0 * k };
+            {
+                let g = Shapes::on(dc);
+                if search {
+                    g.fill(p, radius, t.control_border);
+                    g.fill([p[0] + k, p[1] + k, p[2] - 2.0 * k, p[3] - 2.0 * k], radius - k, t.search);
+                } else {
+                    g.fill(p, radius, t.field);
+                }
+            }
+            if search {
+                text(dc, fonts, [p[0] + 8.0 * k, p[1], 16.0 * k, p[3]], crate::layout::glyph::SEARCH, Font::IconSmall, t.text2, Align::Center, 1);
+            }
+            focus_ring(dc, t, p, radius, feel, k);
         }
         Node::Badge { r, text: s2 } => {
             let p = px(*r);
             {
                 let g = Shapes::on(dc);
-                g.fill(p, p[2] / 2.0, t.track);
+                g.fill(p, 6.0 * k, t.track);
             }
             text(dc, fonts, p, s2, Font::SmallStrong, t.text2, Align::Center, 1);
         }
@@ -422,9 +453,17 @@ pub fn node(dc: HDC, fonts: &mut Fonts, t: &Theme, n: &Node, dy: f64, feel: Feel
             let g = Shapes::on(dc);
             g.fill(p, p[3].min(p[2]) / 2.0, colour.map_or(t.track, |c| t.colour(c)));
         }
+        Node::Segment { r, colour } => {
+            let p = px(*r);
+            let g = Shapes::on(dc);
+            match colour {
+                Some(c) => g.fill(p, 0.0, t.colour(*c)),
+                None => g.fill(p, 4.0 * k, t.card),
+            }
+        }
         Node::Bubble(r) => {
             let g = Shapes::on(dc);
-            g.fill(px(*r), 12.0 * k, mix(t.accent, t.card, if t.dark { 0.22 } else { 0.12 }));
+            g.fill(px(*r), 12.0 * k, mix(t.accent, t.card, if t.dark { 0.22 } else { 0.13 }));
         }
         Node::Button { r, label, icon, style, enabled, check, .. } => button(dc, fonts, t, px(*r), label, *icon, *style, *enabled, *check, feel, k),
     }
@@ -433,91 +472,116 @@ pub fn node(dc: HDC, fonts: &mut Fonts, t: &Theme, n: &Node, dy: f64, feel: Feel
 fn focus_ring(dc: HDC, t: &Theme, p: [f32; 4], radius: f32, feel: Feel, k: f32) {
     if feel.focused {
         let g = Shapes::on(dc);
-        g.stroke([p[0] - 3.0 * k, p[1] - 3.0 * k, p[2] + 6.0 * k, p[3] + 6.0 * k], radius + 3.0 * k, t.text, 2.0 * k);
+        g.stroke([p[0] - 3.0 * k, p[1] - 3.0 * k, p[2] + 6.0 * k, p[3] + 6.0 * k], radius + 3.0 * k, mix(t.accent, t.bg, 0.6), 3.0 * k);
     }
 }
 
 #[allow(clippy::too_many_arguments)]
 fn button(dc: HDC, fonts: &mut Fonts, t: &Theme, p: [f32; 4], label: &str, icon: Option<&'static str>, style: Style, enabled: bool, check: bool, feel: Feel, k: f32) {
     let mut ink = if enabled { t.text } else { t.text3 };
+    // Buttons are capsules, as on macOS 26.
+    let mut radius = p[3] / 2.0;
     {
         let g = Shapes::on(dc);
+        let hover = |g: &Shapes, r: f32| {
+            if enabled && (feel.hover || feel.pressed) {
+                g.fill(p, r, if feel.pressed { t.subtle_selected } else { t.subtle_hover });
+            }
+        };
         match style {
             Style::Accent => {
+                // The Mac's prominent button: a capsule in the accent.
+                radius = p[3] / 2.0;
                 let fill = if !enabled {
-                    t.track
+                    t.control
                 } else if feel.pressed {
-                    mix(t.accent, t.bg, 0.8)
+                    mix(t.accent_fill, 0xFF00_0000, 0.85)
                 } else if feel.hover {
-                    mix(t.accent, t.bg, 0.9)
+                    mix(t.accent_fill, 0xFF00_0000, 0.93)
                 } else {
-                    t.accent
+                    t.accent_fill
                 };
-                g.fill(p, 4.0 * k, fill);
+                g.fill(p, radius, fill);
                 ink = if enabled { t.on_accent } else { t.text3 };
             }
             Style::Standard | Style::Dropdown => {
-                let fill = if feel.pressed { t.control_pressed } else if feel.hover && enabled { t.control_hover } else { t.control };
-                g.fill(p, 4.0 * k, t.control_bottom);
-                g.fill([p[0], p[1], p[2], p[3] - k], 4.0 * k, t.control_border);
-                g.fill([p[0] + k, p[1] + k, p[2] - 2.0 * k, p[3] - 2.0 * k], 3.0 * k, fill);
-                if feel.pressed {
-                    ink = t.text2;
+                if style == Style::Dropdown {
+                    radius = 7.0 * k; // a pop-up button: a rounded box
                 }
+                let fill = if !enabled {
+                    mix(t.control, t.bg, 0.5)
+                } else if feel.pressed {
+                    t.control_pressed
+                } else if feel.hover {
+                    t.control_hover
+                } else {
+                    t.control
+                };
+                g.fill(p, radius, fill);
             }
             Style::Subtle => {
-                if enabled && (feel.hover || feel.pressed) {
-                    g.fill(p, 4.0 * k, if feel.pressed { t.subtle_selected } else { t.subtle_hover });
-                }
-                if icon.is_none() {
-                    ink = t.accent; // a link, like "See all"
+                hover(&g, 6.0 * k);
+                radius = 6.0 * k;
+                if icon.is_none() && enabled {
+                    ink = t.link; // a link, like "Show what was read"
                 }
             }
+            Style::Plain => {
+                ink = if enabled && (feel.hover || feel.pressed) { t.text } else { t.text2 };
+            }
+            Style::Heading => {
+                hover(&g, 8.0 * k);
+                radius = 8.0 * k;
+            }
+            Style::Fold => {}
             Style::Check { on } => {
-                if feel.hover || feel.pressed {
-                    g.fill(p, 4.0 * k, if feel.pressed { t.subtle_selected } else { t.subtle_hover });
-                }
-                let b = [p[0] + 10.0 * k, p[1] + (p[3] - 18.0 * k) / 2.0, 18.0 * k, 18.0 * k];
+                hover(&g, 6.0 * k);
+                let b = [p[0] + 10.0 * k, p[1] + (p[3] - 16.0 * k) / 2.0, 16.0 * k, 16.0 * k];
                 if on {
-                    g.fill(b, 4.0 * k, t.accent);
+                    g.fill(b, 4.0 * k, t.accent_fill);
                 } else {
-                    g.fill(b, 4.0 * k, t.field);
-                    g.stroke(b, 4.0 * k, t.text2, k);
+                    g.fill(b, 4.0 * k, t.control_border);
+                    g.fill([b[0] + k, b[1] + k, b[2] - 2.0 * k, b[3] - 2.0 * k], 3.0 * k, t.field);
                 }
             }
             Style::Cell { selected } => {
+                radius = p[2].min(p[3]) / 2.0;
+                let d = p[2].min(p[3]);
+                let c = [p[0] + (p[2] - d) / 2.0, p[1] + (p[3] - d) / 2.0, d, d];
                 if selected {
-                    g.fill(p, 4.0 * k, t.accent);
+                    g.fill(c, d / 2.0, t.accent_fill);
                     ink = t.on_accent;
                 } else if enabled && (feel.hover || feel.pressed) {
-                    g.fill(p, 4.0 * k, if feel.pressed { t.subtle_selected } else { t.subtle_hover });
+                    g.fill(c, d / 2.0, if feel.pressed { t.subtle_selected } else { t.subtle_hover });
                 }
             }
-            Style::Nav { selected } | Style::Row { selected } => {
+            Style::Nav { selected } => {
+                // The Mac's sidebar: the page shown filled with the accent.
+                radius = 8.0 * k;
                 if selected {
-                    g.fill(p, 4.0 * k, t.subtle_selected);
+                    g.fill(p, radius, t.selection);
+                    ink = t.on_accent;
                 } else if feel.hover || feel.pressed {
-                    g.fill(p, 4.0 * k, t.subtle_hover);
+                    g.fill(p, radius, if feel.pressed { t.subtle_selected } else { t.subtle_hover });
                 }
-                if selected && matches!(style, Style::Nav { .. }) {
-                    let h = 16.0 * k;
-                    g.fill([p[0], p[1] + (p[3] - h) / 2.0, 3.0 * k, h], 1.5 * k, t.accent);
-                }
+            }
+            Style::Row { .. } => {
+                hover(&g, 6.0 * k);
+                radius = 6.0 * k;
             }
         }
     }
-    let radius = 4.0 * k;
     match style {
         Style::Nav { .. } => {
             if let Some(i) = icon {
-                text(dc, fonts, [p[0] + 12.0 * k, p[1], 20.0 * k, p[3]], i, Font::Icon, ink, Align::Center, 1);
+                text(dc, fonts, [p[0] + 9.0 * k, p[1], 20.0 * k, p[3]], i, Font::Icon, ink, Align::Center, 1);
             }
-            text(dc, fonts, [p[0] + 44.0 * k, p[1], p[2] - 52.0 * k, p[3]], label, Font::Body, ink, Align::Left, 1);
+            text(dc, fonts, [p[0] + 36.0 * k, p[1], p[2] - 44.0 * k, p[3]], label, Font::Body, ink, Align::Left, 1);
         }
         Style::Row { .. } => {
-            let mut x = p[0] + 12.0 * k;
+            let mut x = p[0] + 10.0 * k;
             if let Some(i) = icon {
-                text(dc, fonts, [x, p[1], 16.0 * k, p[3]], i, Font::IconSmall, ink, Align::Center, 1);
+                text(dc, fonts, [x, p[1], 16.0 * k, p[3]], i, Font::IconSmall, t.text2, Align::Center, 1);
                 x += 24.0 * k;
             }
             text(dc, fonts, [x, p[1], p[0] + p[2] - x - 36.0 * k, p[3]], label, Font::Body, ink, Align::Left, 1);
@@ -525,23 +589,35 @@ fn button(dc: HDC, fonts: &mut Fonts, t: &Theme, p: [f32; 4], label: &str, icon:
                 text(dc, fonts, [p[0] + p[2] - 32.0 * k, p[1], 20.0 * k, p[3]], crate::layout::glyph::CHECK, Font::IconSmall, t.accent, Align::Center, 1);
             }
         }
+        Style::Fold => {
+            if let Some(i) = icon {
+                text(dc, fonts, [p[0] + 4.0 * k, p[1], 16.0 * k, p[3]], i, Font::IconSmall, t.text2, Align::Center, 1);
+            }
+            text(dc, fonts, [p[0] + 30.0 * k, p[1], p[2] - 34.0 * k, p[3]], label, Font::Strong, ink, Align::Left, 1);
+        }
+        Style::Heading => {
+            text(dc, fonts, [p[0] + 6.0 * k, p[1], p[2] - 6.0 * k, p[3]], label, Font::Title, ink, Align::Left, 1);
+        }
         Style::Check { on } => {
             if on {
-                text(dc, fonts, [p[0] + 10.0 * k, p[1], 18.0 * k, p[3]], crate::layout::glyph::CHECK, Font::IconSmall, t.on_accent, Align::Center, 1);
+                text(dc, fonts, [p[0] + 10.0 * k, p[1], 16.0 * k, p[3]], crate::layout::glyph::CHECK, Font::IconSmall, t.on_accent, Align::Center, 1);
             }
-            text(dc, fonts, [p[0] + 40.0 * k, p[1], p[2] - 48.0 * k, p[3]], label, Font::Body, ink, Align::Left, 1);
+            text(dc, fonts, [p[0] + 36.0 * k, p[1], p[2] - 44.0 * k, p[3]], label, Font::Body, ink, Align::Left, 1);
         }
         Style::Dropdown => {
-            text(dc, fonts, [p[0] + 12.0 * k, p[1], p[2] - 44.0 * k, p[3]], label, Font::Body, ink, Align::Left, 1);
-            text(dc, fonts, [p[0] + p[2] - 30.0 * k, p[1], 16.0 * k, p[3]], crate::layout::glyph::CHEVRON, Font::IconSmall, t.text2, Align::Center, 1);
+            text(dc, fonts, [p[0] + 12.0 * k, p[1], p[2] - 40.0 * k, p[3]], label, Font::Body, ink, Align::Left, 1);
+            // The Mac's ⌃⌄ on a pop-up button.
+            let (cx, mid) = (p[0] + p[2] - 26.0 * k, p[1] + p[3] / 2.0);
+            text(dc, fonts, [cx, mid - 9.0 * k, 14.0 * k, 10.0 * k], crate::layout::glyph::UP_SMALL, Font::Chevron, ink, Align::Center, 1);
+            text(dc, fonts, [cx, mid - 1.0 * k, 14.0 * k, 10.0 * k], crate::layout::glyph::DOWN_SMALL, Font::Chevron, ink, Align::Center, 1);
         }
         _ => {
             if label.is_empty() {
                 if let Some(i) = icon {
-                    text(dc, fonts, p, i, Font::Icon, ink, Align::Center, 1);
+                    text(dc, fonts, p, i, Font::Icon, if enabled && style == Style::Subtle { t.text2 } else { ink }, Align::Center, 1);
                 }
             } else {
-                let font = if style == Style::Subtle { Font::Small } else { Font::Body };
+                let font = if matches!(style, Style::Subtle | Style::Plain) { Font::Small } else { Font::Body };
                 text(dc, fonts, [p[0] + 4.0 * k, p[1], p[2] - 8.0 * k, p[3]], label, font, ink, Align::Center, 1);
             }
         }

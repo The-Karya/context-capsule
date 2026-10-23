@@ -3,8 +3,8 @@
 // AI), Timeline (a day in stretches: day bar, where the time went, recordings to open; search, delete, make a capsule from a recording), Capsules (with Copy my day / Save from clipboard), Projects, Settings (set up, Connect your AI, Your AI and
 // preferences) and Help. Opens from the tray ("Open Context Capsule"), and by
 // itself on Settings the first time.
-//! A plain Win32 window drawn in code with Windows 11's look (Segoe UI Variable, system colors and accent, light
-//! and dark following Windows or the Appearance setting). `layout` decides what goes where; `paint` draws it.
+//! A plain Win32 window drawn in code with the Mac app's look (its colors and macOS's blue, Segoe UI Variable, light
+//! and dark following Windows or the Appearance setting; the title bar stays Windows'). `layout` decides what goes where; `paint` draws it.
 //! Text boxes are real edit controls; choices are standard popup menus; questions are standard dialogs.
 //! Keyboard: Tab / Shift+Tab between controls, Enter or Space to press, arrows and Page Up / Down to scroll.
 
@@ -121,6 +121,8 @@ struct Win {
     faces: Faces,
     fonts: Fonts,
     field_brush: HBRUSH,
+    /// Search boxes sit on the page (their own color).
+    search_brush: HBRUSH,
     notice: Option<(String, Instant)>,
     /// Capsules' search box.
     search: String,
@@ -212,6 +214,8 @@ pub fn show(section: Option<Section>, ctx: Ctx, status: &Status) {
         faces,
         // SAFETY: a brush we delete when the window goes away.
         field_brush: unsafe { CreateSolidBrush(paint::colorref(theme.field)) },
+        // SAFETY: as above.
+        search_brush: unsafe { CreateSolidBrush(paint::colorref(theme.search)) },
         notice: None,
         search: String::new(),
         share: None,
@@ -346,16 +350,10 @@ fn system_dark() -> bool {
     crate::palette::system_dark_from(win::reg_dword(r"Software\Microsoft\Windows\CurrentVersion\Themes\Personalize", "AppsUseLightTheme"))
 }
 
-/// The accent for this mode, from Windows (AccentDark1 on light, AccentLight2 on dark, as Windows' own buttons).
-fn accent(dark: bool) -> Option<u32> {
-    use windows::UI::ViewManagement::{UIColorType, UISettings};
-    let settings = UISettings::new().ok()?;
-    let c = settings.GetColorValue(if dark { UIColorType::AccentLight2 } else { UIColorType::AccentDark1 }).ok()?;
-    Some(0xFF00_0000 | (c.R as u32) << 16 | (c.G as u32) << 8 | c.B as u32)
-}
-
+/// The window's colors: light or dark as the setting (or Windows) says, with macOS's blue as the accent (the
+/// window looks like the Mac app; Windows' own accent is not used).
 fn theme_for(appearance: Appearance) -> Theme {
-    Theme::for_appearance(appearance, system_dark(), accent)
+    Theme::for_appearance(appearance, system_dark(), |_| None)
 }
 
 fn create() -> Option<HWND> {
@@ -429,6 +427,8 @@ impl Win {
             let _ = DwmSetWindowAttribute(self.hwnd, DWMWINDOWATTRIBUTE(35), &caption as *const COLORREF as *const _, 4);
             let _ = DeleteObject(self.field_brush.into());
             self.field_brush = CreateSolidBrush(paint::colorref(self.theme.field));
+            let _ = DeleteObject(self.search_brush.into());
+            self.search_brush = CreateSolidBrush(paint::colorref(self.theme.search));
         }
         apply_menu_mode(&self.ctx.paths);
     }
@@ -766,10 +766,12 @@ impl Win {
         let line = 20.0;
         for (f, r) in &shown {
             let h = self.field(*f);
-            let (x, y) = (self.px(r.x + 10.0), self.px(r.y + (r.h - line) / 2.0));
+            // Search boxes have a magnifier on the left (drawn by `paint`).
+            let left = if matches!(f, Field::Search | Field::TimelineSearch) { 28.0 } else { 8.0 };
+            let (x, y) = (self.px(r.x + left), self.px(r.y + (r.h - line) / 2.0));
             // SAFETY: our own child control.
             unsafe {
-                let _ = MoveWindow(h, x, y, self.px(r.w - 20.0), self.px(line), true);
+                let _ = MoveWindow(h, x, y, self.px(r.w - left - 12.0), self.px(line), true);
                 let _ = ShowWindow(h, SW_SHOWNOACTIVATE);
             }
         }
@@ -847,7 +849,7 @@ impl Win {
                 let m = GdiMeasure { dc: mem, fonts: RefCell::new(&mut self.fonts) };
                 let tw = layout::Measure::text(&m, text, layout::Font::Body, 600.0, 1).0 + 32.0;
                 let r = layout::Rect::new(self.column.x + (self.column.w - tw) / 2.0, self.size.1 - 64.0, tw, 36.0);
-                let note = Node::Pill { r, text: text.clone(), live: false };
+                let note = Node::Pill { r, text: text.clone(), live: false, icon: None };
                 paint::node(mem, &mut self.fonts, &t, &note, 0.0, Feel::default());
             }
             let _ = BitBlt(screen, 0, 0, cw, ch, Some(mem), 0, 0, SRCCOPY);
@@ -1766,12 +1768,14 @@ extern "system" fn proc(hwnd: HWND, msg: u32, wp: WPARAM, lp: LPARAM) -> LRESULT
         WM_CTLCOLOREDIT => {
             let r = with_win(|w| {
                 let dc = HDC(wp.0 as *mut _);
+                let search = matches!(field_of_hwnd(w, HWND(lp.0 as *mut _)), Some(Field::Search | Field::TimelineSearch));
+                let (color, brush) = if search { (w.theme.search, w.search_brush) } else { (w.theme.field, w.field_brush) };
                 // SAFETY: the edit control's DC, given by Windows for this message.
                 unsafe {
                     SetTextColor(dc, paint::colorref(w.theme.text));
-                    SetBkColor(dc, paint::colorref(w.theme.field));
+                    SetBkColor(dc, paint::colorref(color));
                 }
-                LRESULT(w.field_brush.0 as isize)
+                LRESULT(brush.0 as isize)
             });
             if let Some(r) = r {
                 return r;
@@ -1827,7 +1831,7 @@ extern "system" fn proc(hwnd: HWND, msg: u32, wp: WPARAM, lp: LPARAM) -> LRESULT
             });
         }
         WM_SETTINGCHANGE | WM_THEMECHANGED | WM_SYSCOLORCHANGE | WM_DWMCOLORIZATIONCOLORCHANGED => {
-            // Light / dark or the accent changed in Windows: the theme is read again and everything repainted.
+            // Light / dark changed in Windows: the theme is read again and everything repainted.
             with_win(|w| w.retheme());
             // SAFETY: default handling too (it passes these on as Windows expects).
             return unsafe { DefWindowProcW(hwnd, msg, wp, lp) };
@@ -1852,6 +1856,7 @@ extern "system" fn proc(hwnd: HWND, msg: u32, wp: WPARAM, lp: LPARAM) -> LRESULT
                 // SAFETY: the brush and icons we made; the window is going away.
                 unsafe {
                     let _ = DeleteObject(w.field_brush.into());
+                    let _ = DeleteObject(w.search_brush.into());
                     for i in &w.icons {
                         let _ = DestroyIcon(*i);
                     }
