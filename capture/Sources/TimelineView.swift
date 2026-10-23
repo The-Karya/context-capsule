@@ -28,6 +28,8 @@ final class TimelineModel: ObservableObject {
     @Published private(set) var showingReads: Set<String> = []
     /// The day bar asks the list to scroll to this row.
     @Published var scrollTarget: String?
+    /// Days with a recording ("yyyyMMdd"): the dots in the calendar.
+    @Published private(set) var recordedDays: Set<String> = []
 
     private var generation = 0
     private let queue = DispatchQueue(label: "com.thekarya.contextcapsule.timeline", qos: .userInitiated)
@@ -43,6 +45,13 @@ final class TimelineModel: ObservableObject {
         f.locale = Locale(identifier: "en_US_POSIX")
         f.dateFormat = "yyyy-MM-dd"
         return f.string(from: day)
+    }
+
+    /// ‹ and ›: a day back or forward; never past today.
+    func step(_ days: Int) {
+        let cal = Calendar.current
+        guard let next = cal.date(byAdding: .day, value: days, to: day), next <= Date() else { return }
+        show(next)
     }
 
     func show(_ date: Date) {
@@ -67,8 +76,10 @@ final class TimelineModel: ObservableObject {
             let projects = Projects.load(from: paths.projects)
             let loaded = Timeline.load(day: day, sessions: paths.sessions, projects: projects,
                                        recording: Timeline.recordingSession(state: paths.state))
+            let days = Timeline.recordedDays((try? FileManager.default.contentsOfDirectory(atPath: paths.sessions.path)) ?? [])
             DispatchQueue.main.async {
                 guard let self, gen == self.generation else { return }
+                self.recordedDays = days
                 self.data = loaded
                 self.loaded = true
                 self.refilter()
@@ -364,47 +375,20 @@ struct TimelinePage: View {
                              : "Nothing recorded on this day."
     }
 
-    private var title: String {
-        if model.isToday { return "Today" }
-        if model.isYesterday { return "Yesterday" }
-        return model.day.formatted(.dateTime.day().month(.wide))
-    }
-
-    /// "Thursday 23 October · 1 h 50 min recorded · 3 recordings".
+    /// "1 h 50 min recorded · 3 recordings".
     private var summary: String {
-        let f = DateFormatter()
-        f.setLocalizedDateFormatFromTemplate("EEEEdMMMM")
-        var parts = [f.string(from: model.day)]
-        if model.loaded {
-            let n = model.data.blocks.count
-            if !stretches.isEmpty { parts.append("\(Timeline.length(Timeline.recorded(model.data.blocks))) recorded") }
-            parts.append(n == 0 ? "nothing recorded" : "\(n) recording\(n == 1 ? "" : "s")")
-        }
+        guard model.loaded else { return " " }
+        let n = model.data.blocks.count
+        if n == 0 { return "Nothing recorded" }
+        var parts: [String] = []
+        if !stretches.isEmpty { parts.append("\(Timeline.length(Timeline.recorded(model.data.blocks))) recorded") }
+        parts.append("\(n) recording\(n == 1 ? "" : "s")")
         return parts.joined(separator: " · ")
     }
 
     @ViewBuilder private var header: some View {
         VStack(alignment: .leading, spacing: 6) {
-            HStack(alignment: .firstTextBaseline, spacing: 10) {
-                Title(text: title)
-                Spacer()
-                Picker("", selection: Binding(get: { model.isToday ? 0 : model.isYesterday ? 1 : -1 }, set: { pick in
-                    let cal = Calendar.current
-                    model.show(pick == 0 ? Date() : cal.date(byAdding: .day, value: -1, to: cal.startOfDay(for: Date())) ?? Date())
-                })) {
-                    Text("Today").tag(0)
-                    Text("Yesterday").tag(1)
-                }
-                .pickerStyle(.segmented)
-                .labelsHidden()
-                .fixedSize()
-                DatePicker("", selection: Binding(get: { model.day }, set: { model.show($0) }), in: ...Date(),
-                           displayedComponents: .date)
-                    .labelsHidden()
-                    .datePickerStyle(.field)
-                    .fixedSize()
-                    .help("Pick a day")
-            }
+            DayControl(model: model)
             Text(summary).font(.system(size: 13)).foregroundStyle(.secondary)
             SearchField(text: $model.query, prompt: "Search this day").frame(maxWidth: 320).padding(.top, 8)
         }
@@ -450,6 +434,130 @@ struct TimelinePage: View {
     private func names(_ b: Timeline.Block) -> String {
         let n = Timeline.names(b)
         return (n.byProject ? n.keys.map(projectName) : n.keys).joined(separator: ", ")
+    }
+}
+
+/// "‹  Thursday 23 October  ›": a day back or forward; the date opens a month calendar. Today, when another day shows.
+private struct DayControl: View {
+    @ObservedObject var model: TimelineModel
+    @State private var picking = false
+
+    private var label: String {
+        let cal = Calendar.current
+        let f = DateFormatter()
+        let thisYear = cal.component(.year, from: model.day) == cal.component(.year, from: Date())
+        f.setLocalizedDateFormatFromTemplate(thisYear ? "EEEEdMMMM" : "EEEEdMMMMy")
+        return f.string(from: model.day)
+    }
+
+    var body: some View {
+        HStack(spacing: 4) {
+            Button { model.step(-1) } label: {
+                Image(systemName: "chevron.left").frame(width: 22, height: 22).contentShape(Rectangle())
+            }
+            .help("The day before")
+            Button { picking.toggle() } label: {
+                Text(label).font(.system(size: 22, weight: .semibold)).padding(.horizontal, 4).contentShape(Rectangle())
+            }
+            .help("Pick a day")
+            .popover(isPresented: $picking, arrowEdge: .bottom) {
+                MonthCalendar(selected: model.day, dots: model.recordedDays) { day in
+                    picking = false
+                    model.show(day)
+                }
+                .padding(12)
+            }
+            Button { model.step(1) } label: {
+                Image(systemName: "chevron.right").frame(width: 22, height: 22).contentShape(Rectangle())
+            }
+            .disabled(model.isToday)
+            .help("The next day")
+            if !model.isToday {
+                Button("Today") { model.show(Date()) }
+                    .buttonStyle(.bordered).font(.system(size: 13)).padding(.leading, 10)
+            }
+        }
+        .buttonStyle(.borderless)
+        .font(.system(size: 15, weight: .medium))
+    }
+}
+
+/// A small month calendar: days with a recording have a dot; no future days.
+private struct MonthCalendar: View {
+    let selected: Date
+    let dots: Set<String>
+    let pick: (Date) -> Void
+    @State private var month: Date
+
+    init(selected: Date, dots: Set<String>, pick: @escaping (Date) -> Void) {
+        self.selected = selected
+        self.dots = dots
+        self.pick = pick
+        let cal = Calendar.current
+        _month = State(initialValue: cal.dateInterval(of: .month, for: selected)?.start ?? selected)
+    }
+
+    private var cal: Calendar { Calendar.current }
+
+    /// The month's days, with blanks before the first so it starts on the right weekday.
+    private var cells: [Date?] {
+        guard let range = cal.range(of: .day, in: .month, for: month) else { return [] }
+        let lead = (cal.component(.weekday, from: month) - cal.firstWeekday + 7) % 7
+        return Array(repeating: nil, count: lead) + range.compactMap { cal.date(byAdding: .day, value: $0 - 1, to: month) }
+    }
+
+    private var weekdays: [String] {
+        let s = cal.veryShortStandaloneWeekdaySymbols
+        return Array(s[(cal.firstWeekday - 1)...] + s[..<(cal.firstWeekday - 1)])
+    }
+
+    private var thisMonth: Bool { cal.isDate(month, equalTo: Date(), toGranularity: .month) }
+
+    var body: some View {
+        VStack(spacing: 8) {
+            HStack {
+                Text(month.formatted(.dateTime.month(.wide).year())).font(.system(size: 13, weight: .semibold))
+                Spacer()
+                Button { move(-1) } label: { Image(systemName: "chevron.left") }.help("The month before")
+                Button { move(1) } label: { Image(systemName: "chevron.right") }.disabled(thisMonth).help("The next month")
+            }
+            .buttonStyle(.borderless)
+            let columns = Array(repeating: GridItem(.fixed(28), spacing: 2), count: 7)
+            LazyVGrid(columns: columns, spacing: 2) {
+                ForEach(Array(weekdays.enumerated()), id: \.offset) { _, d in
+                    Text(d).font(.system(size: 11)).foregroundStyle(.secondary).frame(height: 18)
+                }
+                ForEach(Array(cells.enumerated()), id: \.offset) { _, day in
+                    if let day { dayCell(day) } else { Color.clear.frame(height: 30) }
+                }
+            }
+        }
+        .frame(width: 214)
+    }
+
+    private func dayCell(_ day: Date) -> some View {
+        let isSelected = cal.isDate(day, inSameDayAs: selected)
+        let isToday = cal.isDateInToday(day)
+        let future = day > Date()
+        let dot = dots.contains(Timeline.dayKey(day))
+        return Button { pick(day) } label: {
+            VStack(spacing: 1) {
+                Text("\(cal.component(.day, from: day))")
+                    .font(.system(size: 12, weight: isToday ? .semibold : .regular).monospacedDigit())
+                    .foregroundStyle(isSelected ? Color.white : isToday ? Color.accentColor : future ? Color.secondary : Color.primary)
+                Circle().fill(isSelected ? Color.white : Color.secondary).frame(width: 4, height: 4).opacity(dot ? 1 : 0)
+            }
+            .frame(width: 28, height: 30)
+            .background(Circle().fill(isSelected ? Color.accentColor : Color.clear).frame(width: 27, height: 27))
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .disabled(future)
+        .help(dot ? "Recorded this day" : "")
+    }
+
+    private func move(_ months: Int) {
+        if let m = cal.date(byAdding: .month, value: months, to: month) { month = m }
     }
 }
 

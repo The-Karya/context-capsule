@@ -2023,6 +2023,16 @@ enum Timeline {
         return names.filter { isSessionID($0) && ($0.hasPrefix(today) || before.map($0.hasPrefix) == true) }.sorted()
     }
 
+    /// Days with a recording, for the calendar's dots: the local day each session started ("yyyyMMdd", from its id).
+    static func recordedDays(_ names: [String]) -> Set<String> {
+        Set(names.filter(isSessionID).map { String($0.prefix(8)) })
+    }
+
+    /// The day's key for `recordedDays`.
+    static func dayKey(_ day: Date, timeZone: TimeZone = .current) -> String {
+        String(Clock.sessionID(day, timeZone: timeZone).prefix(8))
+    }
+
     /// The session being recorded now, from state.json (nil when not recording).
     static func recordingSession(state: URL) -> String? {
         guard let data = try? Data(contentsOf: state),

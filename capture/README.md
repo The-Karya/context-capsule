@@ -20,7 +20,8 @@ Frames stay in memory and are never written to disk. The file format is in
 time) has everything in one place, with a sidebar:
 - **Home** — Start / Stop contextualizing with a live timer, Speak a note, Add a screen, the
   current project (change it or make a new one), Make today's capsules, See today's timeline.
-- **Timeline** — one day, short enough to read at a glance (Today, Yesterday, or pick a day). Reads are
+- **Timeline** — one day, short enough to read at a glance. "‹ Thursday 23 October ›" moves a day back or
+  forward; the date opens a month calendar (a dot on days with recordings); Today, when another day shows. Reads are
   grouped into stretches: the same app and title in a row (a note, a "Not read" gap or a pause over a minute
   ends one). The header says the date, the time recorded and how many recordings; a day bar shows each
   stretch in its project's colour (click one to see it); **Where your time went** lists time per project

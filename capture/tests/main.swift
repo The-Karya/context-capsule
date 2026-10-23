@@ -1126,6 +1126,9 @@ let tl_oct21 = tl_iso.date(from: "2026-10-21T06:00:00Z")!
 check(Timeline.candidates(["20261020-230000", "20261021-094500", "20261019-100000", "20261022-090000", "x"], dayStart: tlCal.startOfDay(for: tl_oct21),
                           calendar: tlCal) == ["20261020-230000", "20261021-094500"], "timeline: sessions of the day and the day before")
 
+check(Timeline.recordedDays(["20261020-230000", "20261021-094500", "20261021-150000", "not-a-session", "x"])
+      == ["20261020", "20261021"], "calendar dots: the days recordings started")
+check(Timeline.dayKey(tl_oct21, timeZone: tlCal.timeZone) == "20261021", "calendar dots: a day's key")
 try! #"{"recording":true,"session_id":"20261021-094500","pid":1}"#.write(to: tlState, atomically: true, encoding: .utf8)
 check(Timeline.recordingSession(state: tlState) == tl_morning, "timeline: the recording session from state.json")
 var tl_day = Timeline.load(day: tl_oct21, sessions: tlSessions, projects: tlProjects, recording: Timeline.recordingSession(state: tlState),
