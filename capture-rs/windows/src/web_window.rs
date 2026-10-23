@@ -2,13 +2,15 @@
 // the exe (https://capsule.localhost/, no network), its bridge (core::bridge) answered off the UI thread, and the
 // app's events pushed to it (state, appearance, material, data-changed, navigate, open-capsule). Windows 11 shows
 // Mica behind the transparent page ("glass"); Windows 10 is flat. The title bar and caption buttons stay Windows'.
-//! On for now with `--new-window` or config.json "new_window": true; without the WebView2 runtime (some Windows 10
-//! PCs) the custom-drawn window opens instead. The tray, hotkeys, picker and dialogs stay native.
+//! The default window. The custom-drawn one stays as a hidden way back (`--old-window`, or config.json
+//! "new_window": false), and opens by itself without the WebView2 runtime (some Windows 10 PCs). The tray, hotkeys, picker and dialogs stay native.
 
 use context_capsule_core::window::Section;
 
-/// `--new-window`: show the shared window instead of the custom-drawn one.
+/// `--new-window`: the shared window even if config.json says "new_window": false.
 pub const NEW_WINDOW_ARG: &str = "--new-window";
+/// `--old-window`: the custom-drawn window instead of the shared one.
+pub const OLD_WINDOW_ARG: &str = "--old-window";
 /// config.json key for the same.
 pub const NEW_WINDOW_KEY: &str = "new_window";
 /// Mica (the system backdrop) needs Windows 11 22H2.
@@ -16,13 +18,16 @@ pub const MICA_BUILD: u32 = 22621;
 /// The page's address (wry maps the `capsule` scheme to https://capsule.localhost/ on WebView2).
 pub const ORIGIN: &str = "https://capsule.localhost/";
 
-/// Is the shared window asked for (the flag, or config.json "new_window": true)?
+/// The shared window, unless `--old-window` or config.json "new_window": false asks for the old one.
 pub fn wanted(args: &[String], config: Option<&[u8]>) -> bool {
+    if args.iter().any(|a| a == OLD_WINDOW_ARG) {
+        return false;
+    }
     args.iter().any(|a| a == NEW_WINDOW_ARG)
         || config
             .and_then(|d| serde_json::from_slice::<serde_json::Value>(d).ok())
             .and_then(|v| v.get(NEW_WINDOW_KEY).and_then(serde_json::Value::as_bool))
-            .unwrap_or(false)
+            .unwrap_or(true)
 }
 
 /// The glass look: Windows 11 22H2 or later with transparency effects on (Personalize "EnableTransparency"; missing
@@ -843,11 +848,13 @@ mod tests {
     #[test]
     fn switch() {
         let args = |a: &[&str]| a.iter().map(|s| s.to_string()).collect::<Vec<_>>();
-        assert!(!wanted(&args(&["cc"]), None), "off by default");
-        assert!(wanted(&args(&["cc", "--new-window"]), None));
-        assert!(wanted(&args(&["cc"]), Some(br#"{"new_window": true}"#)));
-        assert!(!wanted(&args(&["cc"]), Some(br#"{"new_window": "yes"}"#)));
-        assert!(!wanted(&args(&["cc"]), Some(b"not json")));
+        assert!(wanted(&args(&["cc"]), None), "on by default");
+        assert!(wanted(&args(&["cc"]), Some(b"{}")));
+        assert!(wanted(&args(&["cc"]), Some(br#"{"new_window": "yes"}"#)));
+        assert!(wanted(&args(&["cc"]), Some(b"not json")));
+        assert!(!wanted(&args(&["cc"]), Some(br#"{"new_window": false}"#)), "the way back");
+        assert!(!wanted(&args(&["cc", "--old-window"]), None));
+        assert!(wanted(&args(&["cc", "--new-window"]), Some(br#"{"new_window": false}"#)));
     }
 
     #[test]

@@ -1,7 +1,7 @@
 // context-capsule — capture: the shared window — the same page as Windows and Linux (ui/, copied into
 // Contents/Resources/ui) in a WKWebView, served from capsule://app/ (never the network), and the bridge it talks to
-// (ui/BRIDGE.md), done with the app's own Swift code. Behind a switch for now: config.json "new_window": true or
-// --new-window (BridgeFiles.newWindow). The screen picker, file panels, the share menu, the app picker and permission
+// (ui/BRIDGE.md), done with the app's own Swift code. The default window; the old SwiftUI one only with
+// --old-window or config.json "new_window": false (BridgeFiles.newWindow). The screen picker, file panels, the share menu, the app picker and permission
 // prompts stay native.
 
 import AppKit

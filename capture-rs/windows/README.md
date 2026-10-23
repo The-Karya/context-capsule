@@ -201,10 +201,11 @@ arcs, which GDI+ refuses: the page stayed black, and only dark mode looked right
 between light and dark, the accent, or the Appearance setting repaints everything at once. Text boxes are real edit controls; choices are standard
 popup menus. Keyboard: Tab / Shift+Tab, Enter or Space, arrows and Page Up / Down scroll.
 
-## The shared window (trying it)
+## The shared window
 
-The same page as the Mac's window (`ui/` at the repo root) can open instead of the custom-drawn one: start with
-`--new-window`, or put `"new_window": true` in config.json. It is off by default until it replaces the old window.
+The window is the same page as the Mac's (`ui/` at the repo root). The old custom-drawn window is kept as a hidden
+way back: start with `--old-window`, or put `"new_window": false` in config.json. It also opens by itself when the
+WebView2 runtime is missing.
 
 - **WebView2.** The page is shown in WebView2 (through `wry`), served from inside the exe at
   `https://capsule.localhost/` (no network, no files on disk); its bridge is `core::bridge` (ui/BRIDGE.md), answered

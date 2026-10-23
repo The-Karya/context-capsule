@@ -183,13 +183,13 @@ release file comes from the `appimage` job of the manual CI workflow (an artifac
 
 ## The new window (shared with the Mac and Windows)
 
-`--new-window`, or `"new_window": true` in config.json, shows the window that the Mac and Windows apps
-share: the page in `ui/` at the repo root, in WebKitGTK 6.0 (`src/window/web.rs`). The GTK window
-stays the default until it is switched over.
+The window is the one the Mac and Windows apps share: the page in `ui/` at the repo root, in WebKitGTK 6.0
+(`src/window/web.rs`). The old GTK window is kept as a hidden way back: `--old-window`, or `"new_window": false`
+in config.json. It also opens by itself when WebKitGTK 6.0 isn't installed.
 The page is built into the program and served as `capsule://app/…`; nothing loads from the network,
 links open in the browser. Its calls go through the shared bridge (`core/src/bridge.rs`, `ui/BRIDGE.md`):
 files are read only from an allow-list inside the data folder; dialogs, the clipboard and opening apps stay native
-(`LinuxHost` in `web.rs`). `--window-only --new-window` shows it alone (for pictures).
+(`LinuxHost` in `web.rs`). `--window-only` shows it alone (for pictures).
 Linux never shows glass (`material: "none"`).
 
 WebKitGTK is not in the AppImage: it is the system's, loaded only when the new window opens (`dlopen`,

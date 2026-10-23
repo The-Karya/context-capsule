@@ -57,7 +57,7 @@ pub struct Setup {
     pub locale: String,
     /// Changes the hotkeys (Settings → Shortcuts).
     pub hotkeys: crate::hotkeys::Control,
-    /// The shared window (ui/, in WebKitGTK) instead of this GTK one: `--new-window` or config "new_window".
+    /// The shared window (ui/, in WebKitGTK) instead of this GTK one: the default (not with `--old-window` or config "new_window": false).
     pub web: bool,
 }
 

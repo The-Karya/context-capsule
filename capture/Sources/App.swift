@@ -32,7 +32,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         }
         return window
     }()
-    /// The shared window (ui/ in a web view) instead of the SwiftUI one: config.json "new_window": true or --new-window.
+    /// The shared window (ui/ in a web view), the default. The old SwiftUI window only with --old-window or
+    /// config.json "new_window": false.
     private lazy var useWeb = BridgeFiles.newWindow(config: paths.config, arguments: CommandLine.arguments)
     private lazy var web: WebWindow = {
         let w = WebWindow(app: appModel, paths: paths)

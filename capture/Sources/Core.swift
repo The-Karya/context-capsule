@@ -1520,13 +1520,14 @@ enum BridgeFiles {
         }
     }
 
-    /// The new window is on: `--new-window`, or config.json "new_window": true (`--old-window` wins over both).
+    /// The shared window is the default. The old SwiftUI window stays only as a hidden way back:
+    /// `--old-window`, or config.json "new_window": false (`--new-window` wins over the config).
     static func newWindow(config: URL, arguments: [String]) -> Bool {
         if arguments.contains("--old-window") { return false }
         if arguments.contains("--new-window") { return true }
         guard let data = try? Data(contentsOf: config),
-              let obj = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else { return false }
-        return obj["new_window"] as? Bool == true
+              let obj = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else { return true }
+        return obj["new_window"] as? Bool != false
     }
 }
 

@@ -1,5 +1,5 @@
 // context-capsule — linux: the shared window (ui/ at the repo root, the same page as on the Mac and Windows) in
-// WebKitGTK 6.0. Used with `--new-window` or config.json "new_window": true; the GTK window stays the default.
+// WebKitGTK 6.0. The default window; the GTK one only with `--old-window` or config.json "new_window": false.
 //! The page comes from inside the program (`capsule://app/…`, never the network); a script put in before it loads
 //! gives it `window.capsuleHost`. Its calls run on worker threads (`bridge::handle`); what needs GTK (dialogs, the
 //! clipboard, opening things) is handed to GTK's thread and waited for. Events go back with `evaluate_javascript`.
