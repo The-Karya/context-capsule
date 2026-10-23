@@ -1,11 +1,13 @@
 // context-capsule — ui: Projects — the projects work is sorted into; rename one, change how it's found, delete it
+// (asked in the row itself)
 
-import { h, button, alert } from "../dom.js";
+import { h, button } from "../dom.js";
 import { call } from "../host.js";
 import * as P from "../core/projects.js";
 
 export function mount(root, app) {
   let editing = null; // project id
+  let deleting = null; // project id asking "Delete …?"
 
   async function save(list) {
     app.projects = list;
@@ -48,23 +50,50 @@ export function mount(root, app) {
       setTimeout(() => name.focus());
       return box;
     }
+    if (deleting === p.id) {
+      const cancel = () => {
+        deleting = null;
+        draw();
+        root.querySelector(`[data-id="${CSS.escape(p.id)}"] .del`)?.focus();
+      };
+      const box = h(
+        "div",
+        { class: "confirm", role: "group", "aria-label": `Delete “${p.name}”?` },
+        h("div", { class: "main" }, h("b", null, `Delete “${p.name}”?`), h("span", null, "Its capsules stay. New work won't be sorted into it anymore.")),
+        h("div", { class: "btns" }, button("Cancel", cancel), button("Delete", async () => {
+          deleting = null;
+          await save(P.remove(app.projects, p.id));
+        }, { cls: "danger" })),
+      );
+      box.addEventListener("keydown", (e) => {
+        if (e.key === "Escape") {
+          e.preventDefault();
+          cancel();
+        }
+      });
+      setTimeout(() => box.querySelector("button")?.focus());
+      return box;
+    }
     const found = p.match.length ? "Found by: " + p.match.join(", ") : "Not found automatically yet";
     return h(
       "div",
-      { class: "proj-row", role: "listitem" },
+      { class: "proj-row hoverfade", role: "listitem", "data-id": p.id },
+      h("span", { class: "dot " + app.projectColour(p.id), "aria-hidden": "true" }),
       h("div", { class: "main" }, h("b", null, p.name), h("span", null, found)),
-      button("Edit", () => {
-        editing = p.id;
-        draw();
-      }, { label: `Edit ${p.name}` }),
-      button("Delete", async () => {
-        const i = await alert({
-          title: `Delete “${p.name}”?`,
-          message: "Its capsules stay. New work won't be sorted into it anymore.",
-          buttons: [{ text: "Delete", kind: "destructive" }, { text: "Cancel", kind: "cancel" }],
-        });
-        if (i === 0) await save(P.remove(app.projects, p.id));
-      }, { label: `Delete ${p.name}` }),
+      h(
+        "div",
+        { class: "btns" },
+        button("Edit", () => {
+          editing = p.id;
+          deleting = null;
+          draw();
+        }, { label: `Edit ${p.name}`, cls: "fade" }),
+        button("Delete", () => {
+          deleting = p.id;
+          editing = null;
+          draw();
+        }, { label: `Delete ${p.name}`, cls: "fade del" }),
+      ),
     );
   }
 
@@ -72,18 +101,13 @@ export function mount(root, app) {
     const content = h(
       "div",
       { class: "content" },
-      h("h1", { class: "title" }, "Projects"),
-      h("p", { class: "body" }, "Work is sorted into these by itself, from words in window names and web addresses."),
+      h("div", { class: "page-head" }, h("h1", { class: "title" }, "Projects")),
+      h("p", { class: "lede" }, "Work is sorted into these by itself, from words in window names and web addresses."),
     );
     if (!app.projects.length) {
-      content.append(h("p", { class: "body" }, "No projects yet. Your AI makes them when it sorts your day."));
+      content.append(h("p", { class: "empty" }, "No projects yet. Your AI makes them when it sorts your day."));
     } else {
-      const card = h("div", { class: "card", role: "list", "aria-label": "Projects" });
-      app.projects.forEach((p, i) => {
-        if (i) card.append(h("div", { class: "sep", "aria-hidden": "true" }));
-        card.append(row(p));
-      });
-      content.append(card);
+      content.append(h("div", { class: "list", role: "list", "aria-label": "Projects" }, app.projects.map((p) => row(p))));
     }
     root.replaceChildren(content);
   }
@@ -91,7 +115,7 @@ export function mount(root, app) {
   draw();
   return {
     refresh(what) {
-      if (what === "projects" && !editing) draw();
+      if (what === "projects" && !editing && !deleting) draw();
     },
   };
 }

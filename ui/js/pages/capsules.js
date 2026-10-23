@@ -1,20 +1,21 @@
-// context-capsule — ui: Capsules — search your capsules and every capsule by project (share, open); the header has
-// the make control (Make today's capsules, or Automatic capsules' status) and ••• (open a capsule file, Copy my day /
-// Save capsules from clipboard for an AI on the web)
+// context-capsule — ui: Capsules — search your capsules, By day (a date rail) or By project (remembered: config
+// capsules_view), share or open one; the header has the make control (Make today's capsules, or Automatic capsules'
+// status) and ••• (open a capsule file, Copy my day / Save capsules from clipboard for an AI on the web)
 
-import { h, icon, button, iconButton, menu } from "../dom.js";
+import { h, icon, button, iconButton, menu, segmented } from "../dom.js";
+import { call } from "../host.js";
 import * as Caps from "../core/capsules.js";
 import * as AI from "../core/yourai.js";
 import * as Auto from "../core/auto.js";
 import * as actions from "../actions.js";
 
-/** The make control (Capsules header, Home): the blue Make today's capsules button, a quiet status line (Automatic
- * capsules), or "Making today's capsules…" with a spinner while a run goes. `opts.full`: Home's wide button. */
+/** The make control (Capsules header, Home): Make today's capsules, a quiet status line with a dot (Automatic
+ * capsules: "Next at 6:00 PM" + Make now, "Made at …", "Couldn't make them" + Try again), or "Making today's
+ * capsules…" with a spinner while a run goes. `opts.full`: Home's version (wide button, the line with its detail). */
 export function makeControl(app, opts = {}) {
   const c = Auto.control(app.auto, app.now(), (ms) => app.dates.time(ms));
-  const size = opts.full ? { size: "large", full: true } : {};
   if (c.kind === "running" && opts.full) {
-    const b = button("", null, { prominent: true, disabled: true, ...size });
+    const b = button("", null, { cls: "soft", disabled: true, size: "large", full: true });
     b.append(h("span", { class: "spinner", "aria-hidden": "true" }), c.text);
     return h("div", { role: "status" }, b);
   }
@@ -22,14 +23,19 @@ export function makeControl(app, opts = {}) {
     return h("div", { class: "make-status", role: "status" }, h("span", { class: "spinner", "aria-hidden": "true" }), h("span", null, c.text));
   }
   if (c.kind === "line") {
-    return h(
+    const state = c.action === "make" ? "next" : c.action === "retry" ? "failed" : "done";
+    const line = h(
       "div",
       { class: "make-status" + (opts.full ? " full" : ""), role: "status", title: !opts.full && c.detail ? c.detail : null },
-      h("span", null, opts.full && c.detail ? `${c.text}. ${c.detail}` : c.text),
-      c.action ? h("button", { class: "link", type: "button", onclick: () => actions.makeTodays(app) }, c.actionText) : null,
+      opts.full
+        ? h("span", null, c.detail ? `${c.text}. ${c.detail}` : c.text)
+        : [h("span", { class: "dot " + state, "aria-hidden": "true" }), h("span", null, c.text)],
     );
+    const act = c.action ? button(c.actionText, () => actions.makeTodays(app), { size: opts.full ? "large" : null, cls: opts.full ? "soft" : "", full: opts.full }) : null;
+    return opts.full ? h("div", { class: "side-sec make" }, line, act) : [line, act];
   }
-  return button(opts.full ? Auto.words.makeCapsules : Auto.words.make, () => actions.makeTodays(app), { prominent: true, disabled: app.ai.working, ...size });
+  if (opts.full) return button(Auto.words.makeCapsules, () => actions.makeTodays(app), { cls: "soft", size: "large", full: true, disabled: app.ai.working });
+  return button(Auto.words.make, () => actions.makeTodays(app), { prominent: true, disabled: app.ai.working });
 }
 
 /** ••• on the Capsules page. */
@@ -43,14 +49,32 @@ function moreMenu(app, anchor) {
   ], "More");
 }
 
-/** One capsule: icon, its name (the day, "Whole project" or its title), In short, and Share / Open. */
-export function capsuleRow(app, c) {
+/** The project as a small tag: its colour dot and name. */
+function tag(app, id) {
+  return h("span", { class: "tag" }, h("span", { class: "dot " + app.projectColour(id), "aria-hidden": "true" }), app.projectName(id));
+}
+
+/**
+ * One capsule row: its name, In short, and Share / Open (shown on hover or focus); click or Return opens it.
+ * `look`: "project" (By project: the day on the right), "day" (By day: the title and the project as a tag), "recent"
+ * (Home: the day's name, the project as a tag).
+ */
+export function capsuleRow(app, c, look = "project") {
   const now = app.now();
-  const label = Caps.label(c, app.dates, now);
-  const when = Caps.when(c, app.dates, now);
+  let title, withTag, when, lead = null;
+  if (look === "day") {
+    const r = Caps.dayRow(c, (id) => app.projectName(id));
+    title = r.title;
+    withTag = r.tag;
+    if (!r.tag && c.project) lead = h("span", { class: "dot " + app.projectColour(c.project), "aria-hidden": "true" });
+    when = "";
+  } else {
+    title = Caps.label(c, app.dates, now);
+    withTag = look === "recent" && !!c.project;
+    when = Caps.when(c, app.dates, now);
+  }
   const shareItems = actions.shareItems(app, c);
-  const shareBtn = iconButton("share", "Share", (e) => menu(e.currentTarget, shareItems, "Share"), "fade");
-  shareBtn.setAttribute("aria-haspopup", "menu");
+  const shareBtn = iconButton("share", "Share…", () => actions.openShare(app, c), "fade");
   const row = h(
     "div",
     {
@@ -71,22 +95,23 @@ export function capsuleRow(app, c) {
         menu(row, [{ text: "Open", action: () => app.read({ file: c.file }) }, ...shareItems.filter((x) => x !== "-")], "Capsule");
       },
     },
-    icon(c.kind === "project" ? "folder" : "doc"),
     h(
       "div",
       { class: "main" },
-      h("div", { class: "t" }, h("b", null, label), c.draft ? h("small", null, "Draft") : null),
+      h("div", { class: "t" }, h("b", null, lead, title), withTag ? tag(app, c.project) : null, c.draft ? h("small", null, "Draft") : null),
       c.inShort ? h("div", { class: "s" }, c.inShort) : null,
     ),
     when ? h("span", { class: "when" }, when) : null,
     h("div", { class: "acts" }, shareBtn, iconButton("eye", "Open", () => app.read({ file: c.file }), "fade")),
   );
-  row.setAttribute("aria-label", [label, c.draft ? "Draft" : "", c.inShort, when].filter(Boolean).join(", "));
+  const project = withTag || lead ? app.projectName(c.project) : "";
+  row.setAttribute("aria-label", [title, project !== title ? project : "", c.draft ? "Draft" : "", c.inShort, when].filter(Boolean).join(", "));
   return row;
 }
 
 export function mount(root, app) {
   let query = "";
+  let view = Caps.view(app.config);
   const content = h("div", { class: "content" });
   const field = h("input", { type: "search", placeholder: "Search your capsules", "aria-label": "Search your capsules", spellcheck: false, autocomplete: "off" });
   field.addEventListener("input", () => {
@@ -101,33 +126,62 @@ export function mount(root, app) {
   });
 
   const make = h("div", { class: "make-slot" });
-  const more = iconButton("ellipsisCircle", "More", (e) => moreMenu(app, e.currentTarget), "more-btn");
+  const more = iconButton("ellipsis", "More", (e) => moreMenu(app, e.currentTarget), "more-btn");
   more.setAttribute("aria-haspopup", "menu");
-  const top = h("div", { class: "title-row" }, h("h1", { class: "title" }, "Capsules"), make, more);
-  const search = h("div", { class: "search-row", role: "search" }, h("div", { class: "search" }, icon("search"), field));
+  const top = h("div", { class: "page-head" }, h("h1", { class: "title" }, "Capsules"), make, more);
+  const views = segmented([["day", "By day"], ["project", "By project"]], view, (v) => {
+    view = v;
+    const c = { ...app.config };
+    if (v === "day") delete c[Caps.VIEW_KEY];
+    else c[Caps.VIEW_KEY] = v;
+    app.config = c;
+    call("config.set", { key: Caps.VIEW_KEY, value: v === "day" ? null : v }).catch(() => {});
+    drawList();
+  }, "Show capsules");
+  const tools = h("div", { class: "tools" }, h("div", { class: "search", role: "search" }, icon("search"), field), views);
   const list = h("div", { class: "group-list", "aria-live": "polite" });
-  content.append(top, search, list);
+  content.append(top, tools, list);
   root.append(content);
 
   function drawMake() {
-    make.replaceChildren(makeControl(app));
+    make.replaceChildren(...[makeControl(app)].flat().filter(Boolean));
   }
 
   function drawList() {
     const out = [];
+    const name = (id) => app.projectName(id);
     if (!app.capsules.length) {
-      out.push(h("p", { class: "body" }, `No capsules yet. Start contextualizing (${app.keys().record}), then make today's capsules.`));
+      out.push(h("p", { class: "empty" }, `No capsules yet. Start contextualizing (${app.keys().record}), then make today's capsules.`));
+    } else if (view === "day") {
+      const days = Caps.byDay(app.capsules, query, name);
+      if (!days.length) out.push(h("p", { class: "empty" }, "No titles match. Your AI can search inside every capsule."));
+      for (const d of days) {
+        const g = d.day ? app.dates.gutter(d.day, app.now()) : { top: "Other", sub: "" };
+        const id = "d-" + Math.random().toString(36).slice(2);
+        out.push(
+          h(
+            "section",
+            { class: "day", "aria-labelledby": id },
+            h("h2", { class: "dl", id, "aria-label": [g.top, g.sub].filter(Boolean).join(", ") }, h("b", null, g.top), g.sub),
+            h("div", { class: "rail", role: "list", "aria-labelledby": id }, d.items.map((c) => capsuleRow(app, c, "day"))),
+          ),
+        );
+      }
     } else {
-      const groups = Caps.groups(app.capsules, query, (id) => app.projectName(id));
-      if (!groups.length) out.push(h("p", { class: "body" }, "No titles match. Your AI can search inside every capsule."));
+      const groups = Caps.groups(app.capsules, query, name);
+      if (!groups.length) out.push(h("p", { class: "empty" }, "No titles match. Your AI can search inside every capsule."));
       for (const g of groups) {
         const id = "g-" + Math.random().toString(36).slice(2);
-        const card = h("div", { class: "card", role: "list", "aria-labelledby": id });
-        g.items.forEach((c, i) => {
-          if (i) card.append(h("div", { class: "sep in46", "aria-hidden": "true" }));
-          card.append(capsuleRow(app, c));
-        });
-        out.push(h("section", { class: "group" }, h("h2", { class: "caption", id }, g.title), card));
+        const p = g.items[0]?.project;
+        const n = g.items.length;
+        out.push(
+          h(
+            "section",
+            { class: "group" },
+            h("h2", { class: "proj-h", id }, h("span", { class: "dot " + app.projectColour(p), "aria-hidden": "true" }), g.title, h("small", null, `· ${n} capsule${n === 1 ? "" : "s"}`)),
+            h("div", { class: "list", role: "list", "aria-labelledby": id }, g.items.map((c) => capsuleRow(app, c, "project"))),
+          ),
+        );
       }
     }
     list.replaceChildren(...out);
@@ -135,7 +189,7 @@ export function mount(root, app) {
 
   drawMake();
   drawList();
-  // "Next: today at 6:00 PM" turns into the button when the time comes
+  // "Next at 6:00 PM" turns into the button when the time comes
   const timer = setInterval(drawMake, 30_000);
   return {
     refresh(what) {

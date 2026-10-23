@@ -83,9 +83,9 @@ export function mount(root, app, opts = {}) {
       backRow(),
       h("header", { class: "reader-head" },
         h("h1", { class: "title" }, c.title),
-        meta ? h("p", { class: "body" }, meta) : null,
+        meta ? h("p", { class: "meta" }, c.project ? h("span", { class: "dot " + app.projectColour(c.project), "aria-hidden": "true" }) : null, meta) : null,
         h("div", { class: "reader-acts" }, acts)),
-      h("article", { class: "card reader-text selectable", "aria-label": c.title }, render(body(text.replace(/\r\n/g, "\n")))),
+      h("article", { class: "reader-text selectable", "aria-label": c.title }, render(body(text.replace(/\r\n/g, "\n")))),
     );
   }
 

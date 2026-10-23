@@ -12,22 +12,19 @@ export function mount(root, app) {
 function page(app) {
   const keys = app.keys();
   const computer = app.platform === "mac" ? "this Mac" : app.platform === "windows" ? "this PC" : "this computer";
-  const line = (k, text) => h("div", { class: "row h40", role: "listitem" }, h("span", { class: "label" }, text), h("span", { class: "keys" }, k));
-  const sep = () => h("div", { class: "sep", "aria-hidden": "true" });
-  const text = (lines) => h("div", { class: "card" }, h("div", { class: "help-text" }, lines.map((l) => h("p", null, l))));
+  const line = (k, text, key = true) => h("div", { class: "row h40", role: "listitem" }, h("span", { class: "label" }, text), key ? h("kbd", { class: "keycap" }, k) : h("span", { class: "keys" }, k));
+  const text = (lines) => h("div", { class: "help-text" }, lines.map((l) => h("p", null, l)));
   return h(
     "div",
     { class: "content" },
-    h("h1", { class: "title" }, "Help"),
-    h("h2", { class: "caption", id: "h-k" }, "Shortcuts"),
+    h("div", { class: "page-head" }, h("h1", { class: "title" }, "Help")),
+    h("h2", { class: "caption", id: "h-k", style: { marginTop: "4px" } }, "Shortcuts"),
     h(
       "div",
-      { class: "card", role: "list", "aria-labelledby": "h-k" },
+      { class: "rows", role: "list", "aria-labelledby": "h-k" },
       line(keys.record, "Start or stop contextualizing"),
-      sep(),
       line(keys.voice, "Speak a note, then again when done"),
-      sep(),
-      line(AI.helpMakeKeys(app.kind()), "Make my capsules for today"),
+      line(AI.helpMakeKeys(app.kind()), "Make my capsules for today", false),
     ),
     h("h2", { class: "caption" }, "How it works"),
     text([

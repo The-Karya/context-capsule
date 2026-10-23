@@ -46,15 +46,15 @@ function page(app) {
   const content = h("div", { class: "content home" });
 
   content.append(
-    h("div", { class: "greeting" }, h("h1", null, (name ? `${hello}, ${name}` : hello) + "."), h("p", null, app.dates.long(now, now))),
+    h("div", { class: "home-head" }, h("h1", null, (name ? `${hello}, ${name}` : hello) + "."), h("p", null, app.dates.long(now, now))),
   );
 
-  // Status card.
+  // Contextualizing: a line, not a card.
   const keys = app.keys();
   const startText = s.recording ? "Stop" : s.picking ? "Cancel" : "Start contextualizing";
   const status = h(
     "section",
-    { class: "card status", "aria-label": "Contextualizing" },
+    { class: "status", "aria-label": "Contextualizing" },
     h(
       "div",
       { class: "status-line" },
@@ -62,7 +62,7 @@ function page(app) {
       s.recording
         ? h("h2", { "data-live": "", role: "timer" }, "Contextualizing  " + app.clock(app.elapsed()))
         : h("h2", null, s.picking ? "Pick a window or screen" : "Not contextualizing"),
-      button(startText, () => call("recorder", { action: "toggle" }), { size: "large", prominent: true, help: `${startText} (${keys.record})` }),
+      button(startText, () => call("recorder", { action: "toggle" }), { prominent: true, help: `${startText} (${keys.record})` }),
     ),
   );
   if (s.recording) {
@@ -90,45 +90,34 @@ function page(app) {
   const wc = app.weekCapsules;
   const stats = h(
     "section",
-    { class: "card stats", "aria-label": "Your numbers" },
+    { class: "stats", "aria-label": "Your numbers" },
     stat("Today", Stats.duration(app.today.seconds), "contextualized"),
-    h("span", { class: "vsep", "aria-hidden": "true" }),
     stat("This week", Stats.duration(app.week.seconds), `${wc} capsule${wc === 1 ? "" : "s"} made`),
-    h("span", { class: "vsep", "aria-hidden": "true" }),
     stat("Streak", `${app.streak} day${app.streak === 1 ? "" : "s"}`, app.streak > 0 ? "in a row" : "starts today"),
   );
 
   // Today by project.
   const by = app.today.byProject;
-  const pal = palette(by.map((p) => p.id));
+  const pal = palette([...app.projects.map((p) => p.id), ...by.map((p) => p.id)]); // the colours Timeline and Capsules use
   const most = by[0]?.seconds || 1;
-  const byCard = h(
-    "div",
-    { class: "card" },
-    by.length
-      ? h("div", { class: "bars", role: "list", "aria-label": "Today by project" }, by.slice(0, 5).map((p) => timeBar(app.projectName(p.id), p.seconds, most, pal(p.id), !p.id, Stats.duration(p.seconds))))
-      : h("div", { class: "empty-card" }, "Nothing yet today. Start contextualizing when you begin work."),
-  );
   const byBlock = h(
     "section",
     { class: "block", "aria-labelledby": "h-by" },
     h("div", { class: "capbar" }, h("h2", { class: "caption", id: "h-by" }, "Today by project"), h("button", { class: "plain", type: "button", onclick: () => app.go("timeline") }, "See today's timeline")),
-    byCard,
+    by.length
+      ? h("div", { class: "bars", role: "list", "aria-label": "Today by project" }, by.slice(0, 5).map((p) => timeBar(app.projectName(p.id), p.seconds, most, pal(p.id), !p.id, Stats.duration(p.seconds))))
+      : h("p", { class: "body" }, "Nothing yet today. Start contextualizing when you begin work."),
   );
 
   // Recent capsules.
   const recent = app.capsules.slice(0, 3);
-  const recentCard = h("div", { class: "card", role: recent.length ? "list" : null });
-  if (!recent.length) recentCard.append(h("div", { class: "empty-card" }, "None yet. At the end of the day, make today's capsules."));
-  recent.forEach((c, i) => {
-    if (i) recentCard.append(h("div", { class: "sep in46", "aria-hidden": "true" }));
-    recentCard.append(capsuleRow(app, c));
-  });
   const recentBlock = h(
     "section",
     { class: "block", "aria-labelledby": "h-recent" },
     h("div", { class: "capbar" }, h("h2", { class: "caption", id: "h-recent" }, "Recent capsules"), recent.length ? h("button", { class: "plain", type: "button", onclick: () => app.go("capsules") }, "See all") : null),
-    recentCard,
+    recent.length
+      ? h("div", { class: "list", role: "list" }, recent.map((c) => capsuleRow(app, c, "recent")))
+      : h("p", { class: "body" }, "None yet. At the end of the day, make today's capsules."),
   );
 
   const main = h("div", { class: "home-main" }, status, stats, byBlock, recentBlock);
@@ -139,14 +128,6 @@ function page(app) {
 
 function side(app, keys) {
   const s = app.state;
-  const shortcuts = h(
-    "section",
-    { class: "card side-card", "aria-labelledby": "h-keys" },
-    h("h3", { id: "h-keys" }, "Shortcuts"),
-    h("div", { class: "keyline" }, h("kbd", { class: "keycap" }, keys.record), h("span", null, "Start or stop")),
-    h("div", { class: "keyline" }, h("kbd", { class: "keycap" }, keys.voice), h("span", null, "Speak a note")),
-  );
-
   const pinned = s.project_by === "you";
   const row = (title, ic, selected, action, muted) =>
     h(
@@ -158,21 +139,21 @@ function side(app, keys) {
     );
   const working = h(
     "section",
-    { class: "card side-card working", "aria-labelledby": "h-working" },
-    h("h3", { id: "h-working" }, "Working on"),
+    { class: "side-sec working", "aria-labelledby": "h-working" },
+    h("h2", { class: "caption", id: "h-working" }, "Working on"),
     h(
       "div",
-      { role: "radiogroup", "aria-labelledby": "h-working" },
+      { class: "pick-list", role: "radiogroup", "aria-labelledby": "h-working" },
       row("Find by itself", "search", !pinned, () => call("recorder", { action: "project", id: null })),
       app.projects.map((p) => row(p.name, "folder", pinned && s.project === p.id, () => call("recorder", { action: "project", id: p.id }))),
     ),
-    row("New project", "plus", false, () => call("recorder", { action: "new-project" }), true),
+    h("div", { class: "pick-list" }, row("New project", "plus", false, () => call("recorder", { action: "new-project" }), true)),
   );
 
   const kind = app.kind();
   const name = app.aiName();
   const enter = app.platform === "mac" ? "Return" : "Enter";
-  const make = h("section", { class: "card side-card make", "aria-labelledby": "h-make" }, h("h3", { id: "h-make" }, "Make today's capsules"));
+  const make = h("section", { class: "side-sec make", "aria-labelledby": "h-make" }, h("h2", { class: "caption", id: "h-make" }, "Make today's capsules"));
   if (app.auto?.agent || app.auto?.running) {
     // a tool on this computer makes them in the background (SPEC "Automatic capsules")
     const c = Auto.control(app.auto, app.now(), (ms) => app.dates.time(ms));
@@ -181,14 +162,26 @@ function side(app, keys) {
   } else if (AI.usesCopy(kind)) {
     make.append(h("p", null, AI.makeLine(kind, name, app.ai.dayLine, enter)));
     make.append(
-      button("Copy my day", () => actions.makeTodays(app), { size: "large", prominent: true, full: true, disabled: app.ai.working }),
-      button("Save from clipboard", () => actions.saveFromClipboard(app), { size: "large", full: true, disabled: app.ai.working }),
+      h(
+        "div",
+        { class: "pick-list" },
+        button("Copy my day", () => actions.makeTodays(app), { cls: "soft", size: "large", full: true, disabled: app.ai.working }),
+        button("Save from clipboard", () => actions.saveFromClipboard(app), { size: "large", full: true, disabled: app.ai.working }),
+      ),
     );
   } else {
     make.append(h("p", null, AI.makeLine(kind, name, app.ai.dayLine, enter)));
-    make.append(button("Make capsules", () => actions.makeTodays(app), { size: "large", prominent: true, full: true }));
+    make.append(button("Make capsules", () => actions.makeTodays(app), { cls: "soft", size: "large", full: true }));
   }
   make.append(h("div", { class: "your-ai" }, h("span", null, app.auto?.agent ? `With ${app.auto.agent.name}` : AI.homeLine(kind, name)), h("button", { class: "link", type: "button", onclick: () => app.go("settings") }, "Change")));
 
-  return h("div", { class: "home-side" }, shortcuts, working, make);
+  const shortcuts = h(
+    "section",
+    { class: "side-sec", "aria-labelledby": "h-keys" },
+    h("h2", { class: "caption", id: "h-keys" }, "Shortcuts"),
+    h("div", { class: "keyline" }, h("kbd", { class: "keycap" }, keys.record), h("span", null, "Start or stop")),
+    h("div", { class: "keyline" }, h("kbd", { class: "keycap" }, keys.voice), h("span", null, "Speak a note")),
+  );
+
+  return h("div", { class: "home-side" }, working, make, shortcuts);
 }

@@ -1,7 +1,7 @@
 // context-capsule — ui: Settings (and the first run) — your name, set up, Your AI, shortcuts, screens, look, every day,
 // voice notes, never record, updates. Every change is saved at once (config.json through the host).
 
-import { h, icon, button, menu } from "../dom.js";
+import { h, icon, button, menu, segmented } from "../dom.js";
 import { call, why } from "../host.js";
 import * as AI from "../core/yourai.js";
 import * as Auto from "../core/auto.js";
@@ -96,37 +96,6 @@ function toggle(on, onchange, label) {
   return b;
 }
 
-function segmented(options, value, onchange, label) {
-  const group = h("div", { class: "segmented", role: "radiogroup", "aria-label": label });
-  const buttons = options.map(([v, text]) =>
-    h("button", {
-      type: "button",
-      role: "radio",
-      "aria-checked": String(v === value),
-      tabindex: v === value ? "0" : "-1",
-      onclick: () => pick(v),
-    }, text),
-  );
-  const pick = (v) => {
-    buttons.forEach((b, i) => {
-      b.setAttribute("aria-checked", String(options[i][0] === v));
-      b.tabIndex = options[i][0] === v ? 0 : -1;
-    });
-    onchange(v);
-  };
-  group.addEventListener("keydown", (e) => {
-    const i = buttons.findIndex((b) => b.getAttribute("aria-checked") === "true");
-    const d = e.key === "ArrowRight" || e.key === "ArrowDown" ? 1 : e.key === "ArrowLeft" || e.key === "ArrowUp" ? -1 : 0;
-    if (!d) return;
-    e.preventDefault();
-    const j = (i + d + options.length) % options.length;
-    pick(options[j][0]);
-    buttons[j].focus();
-  });
-  group.append(...buttons);
-  return h("span", { class: "frame", style: { width: "260px" } }, group);
-}
-
 const sep = (cls = "") => h("div", { class: "sep " + cls, "aria-hidden": "true" });
 
 export function mount(root, app) {
@@ -156,7 +125,7 @@ export function mount(root, app) {
     if (p) p.el.replaceChildren(...[p.build()].flat());
   };
 
-  content.append(h("h1", { class: "title" }, "Settings"));
+  content.append(h("div", { class: "page-head" }, h("h1", { class: "title" }, "Settings")));
 
   // You
   section("you", () => {
@@ -171,14 +140,14 @@ export function mount(root, app) {
     });
     return [
       h("h2", { class: "caption" }, "You"),
-      h("div", { class: "card" }, row("Your name", name)),
+      h("div", { class: "rows" }, row("Your name", name)),
       h("p", { class: "note" }, "Shown on Home, and written on your capsules as the author."),
     ];
   });
 
   // Set up
   section("setup", () => {
-    const card = h("div", { class: "card" });
+    const card = h("div", { class: "rows" });
     const steps = app.setup.steps || [];
     steps.forEach((s, i) => {
       if (i) card.append(sep("in48"));
@@ -252,7 +221,7 @@ export function mount(root, app) {
     const opts = AI.choices(app.clients, choice).map((c) => [c.id, c.label]);
     return [
       h("h2", { class: "caption" }, "Your AI"),
-      h("div", { class: "card" }, row(AI.words.makeWith, popup(opts, choice, (v) => actions.setChoice(app, v), 240))),
+      h("div", { class: "rows" }, row(AI.words.makeWith, popup(opts, choice, (v) => actions.setChoice(app, v), 240))),
       h("p", { class: "note" }, AI.settingsLine(kind, app.aiName())),
     ];
   });
@@ -277,7 +246,7 @@ export function mount(root, app) {
     const changed = keys.raw && (Keys.text(keys.raw.record) !== Keys.defaults.record || Keys.text(keys.raw.voice) !== Keys.defaults.voice);
     return [
       h("h2", { class: "caption" }, "Shortcuts"),
-      h("div", { class: "card" }, one("record"), sep(), one("voice")),
+      h("div", { class: "rows" }, one("record"), sep(), one("voice")),
       h(
         "div",
         { class: "notebar" },
@@ -338,7 +307,7 @@ export function mount(root, app) {
     const all = app.config.share_screens === "all";
     const card = h(
       "div",
-      { class: "card" },
+      { class: "rows" },
       row("When you start", popup([["pick", "Pick a screen or window"], ["all", "All my screens"]], all ? "all" : "pick", async (v) => {
         await set("share_screens", v === "all" ? "all" : null);
         await app.loadSetup();
@@ -363,7 +332,7 @@ export function mount(root, app) {
       h("h2", { class: "caption" }, "Look"),
       h(
         "div",
-        { class: "card" },
+        { class: "rows" },
         row("Appearance", segmented([["system", "System"], ["light", "Light"], ["dark", "Dark"]], a, async (v) => {
           await set("appearance", v === "system" ? null : v);
           await app.loadConfig();
@@ -389,7 +358,7 @@ export function mount(root, app) {
       redraw("day");
       app.refresh("auto");
     }, 180);
-    const card = h("div", { class: "card" }, row(Auto.words.makeCapsules, mode));
+    const card = h("div", { class: "rows" }, row(Auto.words.makeCapsules, mode));
     if (auto) {
       if (st && !st.agent) {
         card.append(
@@ -428,13 +397,13 @@ export function mount(root, app) {
     const cur = typeof app.config.voice_locale === "string" ? app.config.voice_locale : "";
     const opts = [["", app.hello.voiceLanguageDefault || (app.platform === "mac" ? "Same as my Mac" : "Same as my computer")], ...langs.map((l) => [l.id, l.name])];
     if (cur && !langs.some((l) => l.id === cur)) opts.push([cur, cur]);
-    return [h("h2", { class: "caption" }, "Voice notes"), h("div", { class: "card" }, row("Language", popup(opts, cur, (v) => set("voice_locale", v || null), 240)))];
+    return [h("h2", { class: "caption" }, "Voice notes"), h("div", { class: "rows" }, row("Language", popup(opts, cur, (v) => set("voice_locale", v || null), 240)))];
   });
 
   // Never record
   section("never", () => {
     const list = Array.isArray(app.config.exclude_apps) ? app.config.exclude_apps.filter((x) => typeof x === "string") : [];
-    const card = h("div", { class: "card" }, h("div", { class: "card-note top" + (list.length ? " more" : "") }, "Password managers, WhatsApp and Signal are never recorded. Add other apps here."));
+    const card = h("div", { class: "rows" }, h("div", { class: "card-note top" + (list.length ? " more" : "") }, "Password managers, WhatsApp and Signal are never recorded. Add other apps here."));
     for (const id of list) {
       card.append(sep(), row(appNames[id] || id, button("Remove", () => set("exclude_apps", list.filter((x) => x !== id)).then(() => redraw("never")), { label: `Remove ${appNames[id] || id}` })));
     }
@@ -467,7 +436,7 @@ export function mount(root, app) {
       h("h2", { class: "caption" }, "Updates"),
       h(
         "div",
-        { class: "card" },
+        { class: "rows" },
         row("Update automatically", toggle(app.config.auto_update !== false, (on) => set("auto_update", on), "Update automatically")),
         sep(),
         row(

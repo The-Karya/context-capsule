@@ -78,7 +78,7 @@ export function control(st, now, time) {
   if (counts && last.status === "failed") {
     return { kind: "line", text: "Couldn't make them", detail: last.reason || "", action: "retry", actionText: words.tryAgain };
   }
-  if (now < at) return { kind: "line", text: `Next: today at ${time(at)}`, action: "make", actionText: words.makeNow };
+  if (now < at) return { kind: "line", text: `Next at ${time(at)}`, action: "make", actionText: words.makeNow };
   return { kind: "button" };
 }
 

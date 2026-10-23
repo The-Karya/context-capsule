@@ -108,3 +108,44 @@ test("prompts", () => {
   expect(C.dayPrompt).toBe("Use Context Capsule to make my capsules for today.");
   expect(C.continuePrompt("/a/b.capsule.md")).toBe("Use Context Capsule to continue from the capsule at /a/b.capsule.md.");
 });
+
+test("view: By day unless config says project (capsules_view)", () => {
+  expect(C.VIEW_KEY).toBe("capsules_view");
+  expect(C.view({})).toBe("day");
+  expect(C.view(null)).toBe("day");
+  expect(C.view({ capsules_view: "project" })).toBe("project");
+  expect(C.view({ capsules_view: "weird" })).toBe("day");
+});
+
+test("byDay: newest day first, undated last; in a day by project name, Other last, day capsules before the whole project", () => {
+  const names = { website: "Website", report: "Client report" };
+  const list = [
+    cap("website", "project", "", "2026-10-20T17:00:00Z"),
+    cap("website", "daily", "2026-10-20", "2026-10-20T16:00:00Z"),
+    cap("report", "daily", "2026-10-19", "2026-10-19T16:00:00Z"),
+    cap("", "", "", "2026-10-20T09:00:00Z"),
+    cap("report", "daily", "2026-10-20", "2026-10-20T15:00:00Z"),
+    { ...cap("x", "", "", ""), created: "" },
+  ];
+  const days = C.byDay(list, "", (id) => names[id] ?? id);
+  expect(days.map((d) => d.day)).toEqual(["2026-10-20", "2026-10-19", ""]);
+  expect(days[0].items.map((c) => [c.project, c.kind])).toEqual([["report", "daily"], ["website", "daily"], ["website", "project"], ["", ""]]);
+  expect(C.byDay(list, "zzz").length).toBe(0);
+});
+
+test("dayRow: title without its date; just the project's name shows without a tag", () => {
+  const nameOf = (id) => ({ website: "Website" })[id] ?? id;
+  const c = (title, kind = "daily", project = "website") => ({ title, kind, project });
+  expect(C.dayRow(c("Website — 2026-10-23"), nameOf)).toEqual({ title: "Website", tag: false });
+  expect(C.dayRow(c("Pricing page"), nameOf)).toEqual({ title: "Pricing page", tag: true });
+  expect(C.dayRow(c("Website", "project"), nameOf)).toEqual({ title: "Whole project", tag: true });
+  expect(C.dayRow(c("Notes", "", ""), nameOf)).toEqual({ title: "Notes", tag: false });
+});
+
+test("capsules_view is a key both hosts let the page set", async () => {
+  const { readFileSync } = await import("node:fs");
+  const rust = readFileSync(new URL("../../capture-rs/core/src/bridge.rs", import.meta.url), "utf8");
+  const keys = rust.slice(rust.indexOf("pub const CONFIG_KEYS"), rust.indexOf("];", rust.indexOf("pub const CONFIG_KEYS")));
+  expect(keys).toContain('"capsules_view"');
+  expect(readFileSync(new URL("../BRIDGE.md", import.meta.url), "utf8")).toContain("`capsules_view`");
+});

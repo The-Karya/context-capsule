@@ -63,3 +63,12 @@ test("day keys", () => {
   expect(addDays("2026-03-01", -1)).toBe("2026-02-28");
   expect(startOfDay(at(15))).toBe(new Date(2026, 9, 23).getTime());
 });
+
+test("gutter: Today / Yesterday / weekday this week, else the date and weekday", () => {
+  const d = makeDates({ locale: "en-US" });
+  expect(d.gutter("2026-10-23", NOW)).toEqual({ top: "Today", sub: "Oct 23" });
+  expect(d.gutter("2026-10-22", NOW)).toEqual({ top: "Yesterday", sub: "Oct 22" });
+  expect(d.gutter("2026-10-19", NOW)).toEqual({ top: "Mon", sub: "Oct 19" });
+  expect(d.gutter("2026-10-12", NOW)).toEqual({ top: "Oct 12", sub: "Mon" });
+  expect(d.gutter("2025-10-12", NOW)).toEqual({ top: "Oct 12, 2025", sub: "Sun" });
+});

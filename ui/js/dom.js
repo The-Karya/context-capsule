@@ -41,6 +41,38 @@ export function iconButton(name, label, onclick, cls = "") {
   return h("button", { class: "icon-btn " + cls, type: "button", title: label, "aria-label": label, onclick }, icon(name));
 }
 
+/** A segmented control (radio group): [[value, text]…]; ← → move. */
+export function segmented(options, value, onchange, label) {
+  const group = h("div", { class: "segmented", role: "radiogroup", "aria-label": label });
+  const buttons = options.map(([v, text]) =>
+    h("button", {
+      type: "button",
+      role: "radio",
+      "aria-checked": String(v === value),
+      tabindex: v === value ? "0" : "-1",
+      onclick: () => pick(v),
+    }, text),
+  );
+  const pick = (v) => {
+    buttons.forEach((b, i) => {
+      b.setAttribute("aria-checked", String(options[i][0] === v));
+      b.tabIndex = options[i][0] === v ? 0 : -1;
+    });
+    onchange(v);
+  };
+  group.addEventListener("keydown", (e) => {
+    const i = buttons.findIndex((b) => b.getAttribute("aria-checked") === "true");
+    const d = e.key === "ArrowRight" || e.key === "ArrowDown" ? 1 : e.key === "ArrowLeft" || e.key === "ArrowUp" ? -1 : 0;
+    if (!d) return;
+    e.preventDefault();
+    const j = (i + d + options.length) % options.length;
+    pick(options[j][0]);
+    buttons[j].focus();
+  });
+  group.append(...buttons);
+  return group;
+}
+
 const layer = () => document.getElementById("layer");
 
 /** Closes what's open in the layer (menu, popover). */
@@ -142,9 +174,9 @@ export function menu(anchor, items, label = "More") {
 
 /**
  * The alert sheet: a title, words, buttons. Resolves the index of the button pressed (Esc = the cancel one).
- * buttons: [{ text, kind: "default" | "destructive" | "cancel" }]; `extra`: more content (Check before sharing).
+ * buttons: [{ text, kind: "default" | "destructive" | "cancel" }].
  */
-export function alert({ title, message = "", buttons = [{ text: "OK", kind: "default" }], extra = null, wide = false }) {
+export function alert({ title, message = "", buttons = [{ text: "OK", kind: "default" }], }) {
   closePopups();
   return new Promise((resolve) => {
     const back = document.activeElement;
@@ -165,10 +197,9 @@ export function alert({ title, message = "", buttons = [{ text: "OK", kind: "def
     );
     const dlg = h(
       "div",
-      { class: "dialog" + (wide ? " wide" : ""), role: "alertdialog", "aria-modal": "true", "aria-labelledby": tid, "aria-describedby": message ? did : null },
+      { class: "dialog", role: "alertdialog", "aria-modal": "true", "aria-labelledby": tid, "aria-describedby": message ? did : null },
       h("h2", { id: tid }, title),
       message ? h("p", { id: did }, message) : null,
-      extra,
       h("div", { class: "btns" }, btns),
     );
     const scrim = h("div", { class: "scrim" }, dlg);

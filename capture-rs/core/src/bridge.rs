@@ -308,7 +308,7 @@ pub fn state_json(status: &Status, several_screens: bool, update_line: &str, upd
 // MARK: paths
 
 /// The keys `config.set` may write (shortcuts go through `shortcuts.set`).
-pub const CONFIG_KEYS: [&str; 11] = [
+pub const CONFIG_KEYS: [&str; 12] = [
     "appearance",
     "share_screens",
     "auto_update",
@@ -320,6 +320,7 @@ pub const CONFIG_KEYS: [&str; 11] = [
     "author",
     "ai",
     crate::auto::KEY_MAKE,
+    "capsules_view",
 ];
 
 /// Names Windows keeps for devices ("CON.md" is not a file there).

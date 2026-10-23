@@ -47,6 +47,8 @@ export function makeDates({ locale, hour12 } = {}) {
   const monthF = new Intl.DateTimeFormat(locale, { month: "long", year: "numeric" });
   const shortF = new Intl.DateTimeFormat(locale, { day: "numeric", month: "short" });
   const narrow = new Intl.DateTimeFormat(locale, { weekday: "narrow" });
+  const weekdayF = new Intl.DateTimeFormat(locale, { weekday: "short" });
+  const shortY = new Intl.DateTimeFormat(locale, { day: "numeric", month: "short", year: "numeric" });
 
   const time = (ms) => timeF.format(ms);
   return {
@@ -87,6 +89,19 @@ export function makeDates({ locale, hour12 } = {}) {
       if (ymd === today) return "Today";
       if (ymd === addDays(today, -1)) return "Yesterday";
       return shortF.format(t);
+    },
+    /** The Capsules page's date gutter for a "YYYY-MM-DD" day: { top, sub } — "Today" / "Oct 23", "Thu" / "Oct 22"
+     * within the week, else "Oct 12" / "Mon" ("Oct 12, 2025" in another year). */
+    gutter(ymd, nowMs = Date.now()) {
+      const t = parseKey(ymd);
+      if (t == null) return { top: String(ymd || ""), sub: "" };
+      const today = dayKey(nowMs);
+      const date = shortF.format(t);
+      if (ymd === today) return { top: "Today", sub: date };
+      if (ymd === addDays(today, -1)) return { top: "Yesterday", sub: date };
+      if (ymd < today && ymd > addDays(today, -7)) return { top: weekdayF.format(t), sub: date };
+      const thisYear = new Date(t).getFullYear() === new Date(nowMs).getFullYear();
+      return { top: (thisYear ? shortF : shortY).format(t), sub: weekdayF.format(t) };
     },
   };
 }

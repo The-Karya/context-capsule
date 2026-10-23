@@ -141,6 +141,48 @@ export function groups(capsules, query, nameOf = (id) => id) {
   }));
 }
 
+/** The Capsules page's two views (config "capsules_view"): "day" (the default) or "project". */
+export const VIEW_KEY = "capsules_view";
+export function view(config) {
+  return config && config[VIEW_KEY] === "project" ? "project" : "day";
+}
+
+/** The day a capsule sits on in By day: its date (daily ones), else the day it was made; "" when neither. */
+export function dayOf(c) {
+  if (/^\d{4}-\d{2}-\d{2}$/.test(c.date)) return c.date;
+  return /^\d{4}-\d{2}-\d{2}/.test(c.created) ? c.created.slice(0, 10) : "";
+}
+
+/** By day: the days that have capsules, newest first (undated last); in a day by project name ("Other" last), each
+ * project's day capsules before its growing one. Same search as `groups`. */
+export function byDay(capsules, query, nameOf = (id) => id) {
+  const shown = capsules.filter((c) => matches(c, query));
+  const days = [...new Set(shown.map(dayOf))].sort((a, b) => (!a || !b ? (a ? 0 : 1) - (b ? 0 : 1) : cmp(b, a)));
+  const proj = (c) => (c.project ? nameOf(c.project) : "");
+  return days.map((d) => ({
+    day: d,
+    items: shown
+      .filter((c) => dayOf(c) === d)
+      .sort((a, b) => {
+        const pa = proj(a), pb = proj(b);
+        if (pa !== pb) return !pa || !pb ? (pa ? -1 : 1) : pa.localeCompare(pb, undefined, { sensitivity: "accent" });
+        const ka = a.kind === "project", kb = b.kind === "project";
+        if (ka !== kb) return ka ? 1 : -1;
+        return cmp(b.created, a.created) || cmp(a.title, b.title);
+      }),
+  }));
+}
+
+/** A row's name in By day (the day is in the gutter): "Whole project", or the title without its date; when that is
+ * just the project's name, the project's name and no tag. → { title, tag } (tag: show the project beside it). */
+export function dayRow(c, nameOf = (id) => id) {
+  const project = c.project ? nameOf(c.project) : "";
+  if (c.kind === "project") return { title: "Whole project", tag: !!project };
+  const t = spaces(String(c.title).replace(/\s+[—–-]\s+\d{4}-\d{2}-\d{2}$/, ""));
+  if (!t || (project && plain(t) === plain(project))) return { title: project || c.title, tag: false };
+  return { title: t, tag: !!project };
+}
+
 /** "Today", "Yesterday", else "19 Oct" (dates.shortDay); a text that isn't a date as it is. */
 function day(ymd, dates, now) {
   return /^\d{4}-\d{2}-\d{2}$/.test(ymd) ? dates.shortDay(ymd, now) : ymd;

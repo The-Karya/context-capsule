@@ -586,6 +586,6 @@ cases in both test suites.
 "Couldn't make today's capsules" with the reason and **Try again** (a click run). Nothing is retried by itself.
 
 **The window:** bridge `auto.status`, `auto.run`, event `auto` (ui/BRIDGE.md). Capsules page header and Home's card
-show **Make today's capsules** (When I click, or no tool), or a quiet line — "Next: today at 6:00 PM" with **Make
+show **Make today's capsules** (When I click, or no tool), or a quiet line — "Next at 6:00 PM" with **Make
 now**, "Made automatically at 6:04 PM", "Couldn't make them: <reason>" with **Try again** — and, while a run goes,
 "Making today's capsules…" with a spinner (buttons off).

@@ -109,7 +109,8 @@ export function mount(root, app, opts = {}) {
     const blocks = T.filterDay(v.data, v.query);
     const stretches = T.stretchesOf(v.data);
     const sh = T.shares(stretches);
-    const pal = T.palette(sh.rows.map((r) => r.key));
+    // projects keep their colour from day to day (and match Capsules and Projects): the order of projects.json
+    const pal = T.palette(sh.byProject ? [...app.projects.map((p) => p.id), ...sh.rows.map((r) => r.key)] : sh.rows.map((r) => r.key));
     const colour = (s) => pal(T.paletteKey(s, sh.byProject));
 
     if (v.loaded && (!blocks.length || (searching() && blocks.every((b) => !b.entries.length)))) {
@@ -118,7 +119,7 @@ export function mount(root, app, opts = {}) {
     if (v.loaded && stretches.length) {
       out.push(dayBar(stretches, colour), went(sh, pal));
     }
-    if (blocks.length) out.push(h("h2", { class: "caption rec-caption", id: "h-recs" }, "Recordings"));
+    if (blocks.length) out.push(h("h2", { class: "caption", id: "h-recs" }, "Recordings"));
     for (const b of blocks) out.push(recording(b, colour));
     body.replaceChildren(...out);
     root.scrollTop = keep;
@@ -172,7 +173,7 @@ export function mount(root, app, opts = {}) {
       "section",
       { class: "went-block", "aria-labelledby": "h-went" },
       h("h2", { class: "caption", id: "h-went" }, "Where your time went"),
-      h("div", { class: "tl-panel bars went", role: "list", "aria-labelledby": "h-went" }, rows),
+      h("div", { class: "bars went", role: "list", "aria-labelledby": "h-went" }, rows),
     );
   }
 
@@ -196,7 +197,7 @@ export function mount(root, app, opts = {}) {
       h("span", { class: "line" }, line),
       full.recording ? h("span", { class: "now" }, "Recording now") : null,
     );
-    const more = iconButton("ellipsisCircle", "More", (e) => menu(e.currentTarget, [{ text: "Delete this recording…", destructive: true, action: () => del("block", full) }]));
+    const more = iconButton("ellipsis", "More", (e) => menu(e.currentTarget, [{ text: "Delete this recording…", destructive: true, action: () => del("block", full) }]));
     more.setAttribute("aria-haspopup", "menu");
     const headRow = h(
       "div",
@@ -205,13 +206,13 @@ export function mount(root, app, opts = {}) {
       button("Make a capsule", () => actions.makeCapsule(app, b.session, v.day), { disabled: app.ai.working, help: "Your AI makes a capsule from this recording." }),
       more,
     );
-    const panel = h("section", { class: "rec tl-panel", "aria-label": line, "data-key": "b-" + b.session }, headRow);
+    const panel = h("section", { class: "rec", "aria-label": line, "data-key": "b-" + b.session }, headRow);
     if (!open) return panel;
     if (!b.entries.length) {
       panel.append(h("div", { class: "nothing-row" }, T.nothingInBlock(searching())));
       return panel;
     }
-    const list = h("div", { role: "list" });
+    const list = h("div", { class: "rec-body", role: "list" });
     for (const e of b.entries) {
       if (e.type === "stretch") list.append(stretchRow(e.stretch, colour));
       else if (e.type === "note") list.append(noteRow(e.moment));

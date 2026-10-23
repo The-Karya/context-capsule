@@ -29,7 +29,7 @@ test("the blue button: When I click, no tool, no host answer", () => {
 });
 
 test("Automatically, before the time: Next, with Make now", () => {
-  expect(A.control(st(), at("15:00"), time)).toEqual({ kind: "line", text: "Next: today at 6:00 PM", action: "make", actionText: "Make now" });
+  expect(A.control(st(), at("15:00"), time)).toEqual({ kind: "line", text: "Next at 6:00 PM", action: "make", actionText: "Make now" });
 });
 
 test("Automatically, past the time with no run today: the button (want it now)", () => {
@@ -46,7 +46,7 @@ test("made today: automatically, or by a click after the time", () => {
   expect(A.control(click, at("19:00"), time)).toEqual({ kind: "line", text: "Made at 6:33 PM" });
   // a click run in the afternoon: the automatic one still comes
   const early = st({ last: { day: "2026-10-23", by: "click", status: "done", started_at: iso("14:00"), finished_at: iso("14:03"), capsules: 1 } });
-  expect(A.control(early, at("15:00"), time).text).toBe("Next: today at 6:00 PM");
+  expect(A.control(early, at("15:00"), time).text).toBe("Next at 6:00 PM");
 });
 
 test("failed: a quiet line with the reason and Try again", () => {

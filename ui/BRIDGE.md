@@ -89,7 +89,8 @@ Has code: trivially (read a file). Both hosts already read every one of these.
 **`config.set`** `{ "key": "appearance", "value": "dark" }` → `{}` — merge one key into config.json (`null`
 removes it), keeping other keys and their order; then apply it at once where the host must: `appearance` (window
 look), `share_screens` (Mac: ask for Screen Recording), `auto_update`, `remind_at`, `keep_recordings_days`,
-`sounds`, `voice_locale`, `exclude_apps`, `author`, `ai`, `make_capsules` (re-check Automatic capsules at once).
+`sounds`, `voice_locale`, `exclude_apps`, `author`, `ai`, `make_capsules` (re-check Automatic capsules at once),
+`capsules_view` (the Capsules page's By day / By project: `"project"`, or missing for By day; nothing to apply).
 Has code: Swift `ConfigFile.set`, `Preferences.save*`; Rust `settings::ConfigFile::set`.
 
 **`projects.save`** `{ "text": "<projects.json>" }` → `{}` — write projects.json (atomically) and tell the

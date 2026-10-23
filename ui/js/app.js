@@ -66,6 +66,11 @@ app.choice = () => AI.resolve(app.config.ai, app.clients);
 app.kind = () => AI.kindOf(app.choice());
 app.aiName = () => AI.choiceName(app.kind(), app.clients);
 app.projectName = (id) => (id ? Proj.nameOf(app.projects, id) : "Not sorted");
+/** A project's colour class ("c0"…"c5" in the order of projects.json, "cn" for none): Capsules and Projects. */
+app.projectColour = (id) => {
+  const i = id ? app.projects.findIndex((p) => p.id === id) : -1;
+  return i < 0 ? "cn" : "c" + (i % 6);
+};
 app.firstName = () => {
   const n = typeof app.config.author === "string" && app.config.author.trim() ? app.config.author : app.hello.userName || "";
   return n.trim().split(/\s+/)[0] || "";
