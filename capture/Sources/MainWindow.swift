@@ -100,7 +100,7 @@ struct MainView: View {
                 SwiftUI.Section("Your work") {
                     ForEach([Section.home, .timeline, .capsules, .projects]) { s in Label(s.title, systemImage: s.icon).tag(s) }
                 }
-                SwiftUI.Section("Context Capsule") {
+                SwiftUI.Section(AppName.full) {
                     ForEach([Section.settings, .help]) { s in Label(s.title, systemImage: s.icon).tag(s) }
                 }
             }
@@ -133,7 +133,7 @@ struct MainView: View {
             }
             }
             }
-            .navigationTitle("")
+            .navigationTitle(AppName.full) // not drawn (titleVisibility); the Window menu and Mission Control use it
             .toolbar {
                 ToolbarItem(placement: .primaryAction) { StatusPill(app: app) }
             }
@@ -176,6 +176,8 @@ private struct TimeBar: View {
     let seconds: Double
     let total: Double
     var muted = false
+    /// The project's Timeline colour.
+    var color: Color = .accentColor
 
     var body: some View {
         HStack(spacing: 12) {
@@ -185,7 +187,7 @@ private struct TimeBar: View {
                 .frame(height: 8)
                 .overlay(alignment: .leading) {
                     GeometryReader { geo in
-                        Capsule().fill(muted ? Color.secondary.opacity(0.5) : Color.accentColor)
+                        Capsule().fill(color)
                             .frame(width: max(6, geo.size.width * CGFloat(total > 0 ? seconds / total : 0)))
                     }
                 }
@@ -257,13 +259,13 @@ private struct HomeView: View {
     }
 
     private func projectName(_ id: String) -> String {
-        id.isEmpty ? "Not sorted yet" : app.projects.first { $0.id == id }?.name ?? id
+        id.isEmpty ? "Not sorted" :app.projects.first { $0.id == id }?.name ?? id
     }
 
     var body: some View {
         VStack(alignment: .leading, spacing: 4) {
             Text(greeting).font(.system(size: 34, weight: .regular, design: .serif))
-            Text(Date().formatted(.dateTime.weekday(.wide).day().month(.wide)))
+            Text(DayWords.long(Date()))
                 .font(.system(size: 13)).foregroundStyle(.secondary)
         }
 
@@ -295,9 +297,11 @@ private struct HomeView: View {
                         Text("Nothing yet today. Start contextualizing when you begin work.")
                             .font(.system(size: 13)).foregroundStyle(.secondary)
                     } else {
+                        let palette = Palette(projectsLongestFirst: app.today.byProject.map(\.id))
                         ForEach(app.today.byProject.prefix(5), id: \.id) { p in
                             TimeBar(name: projectName(p.id), seconds: p.seconds,
-                                    total: app.today.byProject.first?.seconds ?? 1, muted: p.id.isEmpty)
+                                    total: app.today.byProject.first?.seconds ?? 1, muted: p.id.isEmpty,
+                                    color: palette.color(p.id))
                         }
                     }
                 }
@@ -1044,9 +1048,10 @@ final class MainWindow: NSObject, NSWindowDelegate {
         }
         let view = MainView(app: app, library: library, nav: nav, setup: setup, prefs: prefs, timeline: timeline)
         let window = NSWindow(contentViewController: NSHostingController(rootView: view))
-        window.title = "Context Capsule"
+        window.title = AppName.full
         window.styleMask = [.titled, .closable, .miniaturizable, .resizable, .fullSizeContentView]
         window.titlebarAppearsTransparent = true
+        window.titleVisibility = .hidden
         window.toolbarStyle = .unified
         window.isReleasedWhenClosed = false
         window.setFrameAutosaveName("ContextCapsuleMain")
@@ -1066,7 +1071,7 @@ final class MainWindow: NSObject, NSWindowDelegate {
     }
 }
 
-/// The menu bar while the window is open: Context Capsule, Edit, View, Window.
+/// The menu bar while the window is open: Karya Context Capsule, Edit, View, Window.
 enum MainMenu {
     private final class Target: NSObject {
         let settings: () -> Void
@@ -1093,14 +1098,14 @@ enum MainMenu {
         }
         let settingsItem = item("Settings…", #selector(Target.openSettings), ",")
         settingsItem.target = target
-        submenu("Context Capsule", [
-            item("About Context Capsule", #selector(NSApplication.orderFrontStandardAboutPanel(_:)), ""),
+        submenu(AppName.full, [
+            item("About \(AppName.full)", #selector(NSApplication.orderFrontStandardAboutPanel(_:)), ""),
             .separator(),
             settingsItem,
             .separator(),
-            item("Hide Context Capsule", #selector(NSApplication.hide(_:)), "h"),
+            item("Hide \(AppName.full)", #selector(NSApplication.hide(_:)), "h"),
             .separator(),
-            item("Quit Context Capsule", #selector(NSApplication.terminate(_:)), "q"),
+            item("Quit \(AppName.full)", #selector(NSApplication.terminate(_:)), "q"),
         ])
         submenu("Edit", [
             item("Undo", Selector(("undo:")), "z"),

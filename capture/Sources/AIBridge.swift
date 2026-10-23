@@ -392,7 +392,7 @@ final class AIState: ObservableObject {
         alert.informativeText = text
         alert.addButton(withTitle: "OK")
         NSApp.activate(ignoringOtherApps: true)
-        if let window = NSApp.windows.first(where: { $0.isVisible && $0.title == "Context Capsule" && $0.attachedSheet == nil }) {
+        if let window = NSApp.windows.first(where: { $0.isVisible && $0.title == AppName.full && $0.attachedSheet == nil }) {
             alert.beginSheetModal(for: window)
         } else {
             alert.runModal()

@@ -298,9 +298,7 @@ struct CapsuleRow: View {
     }
 
     static func day(_ ymd: String) -> String {
-        let f = DateFormatter()
-        f.dateFormat = "yyyy-MM-dd"
-        guard let d = f.date(from: ymd) else { return ymd }
+        guard let d = DayWords.parseKey(ymd) else { return ymd }
         if Calendar.current.isDateInToday(d) { return "Today" }
         if Calendar.current.isDateInYesterday(d) { return "Yesterday" }
         return d.formatted(.dateTime.day().month(.abbreviated))

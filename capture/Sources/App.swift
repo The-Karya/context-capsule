@@ -64,12 +64,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         projectItem.submenu = NSMenu()
         menu.addItem(projectItem)
         menu.addItem(.separator())
-        menu.addItem(NSMenuItem(title: "Open Context Capsule", action: #selector(showMain), keyEquivalent: "o"))
+        menu.addItem(NSMenuItem(title: "Open \(AppName.full)", action: #selector(showMain), keyEquivalent: "o"))
         menu.addItem(NSMenuItem(title: "Make today's capsules", action: #selector(makeCapsules), keyEquivalent: ""))
         menu.addItem(saveReplyItem)
         menu.addItem(.separator())
         menu.addItem(updateItem)
-        menu.addItem(NSMenuItem(title: "Quit", action: #selector(NSApplication.terminate(_:)), keyEquivalent: "q"))
+        menu.addItem(NSMenuItem(title: "Quit \(AppName.full)", action: #selector(NSApplication.terminate(_:)), keyEquivalent: "q"))
         for item in menu.items where item.action != nil && item.action != #selector(NSApplication.terminate(_:)) {
             item.target = self
         }
@@ -272,7 +272,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         announce(recording: recording, listening: listening)
         let (rk, vk) = (Shortcut.current.record.symbols, Shortcut.current.voice.symbols)
         statusItem.button?.toolTip = listening ? "Listening — press \(vk) to finish the voice note"
-            : recording ? "Contextualizing (\(rk) to stop, \(vk) to talk)" : "Context Capsule (\(rk) to start contextualizing)"
+            : recording ? "Contextualizing (\(rk) to stop, \(vk) to talk)" : "\(AppName.full) (\(rk) to start contextualizing)"
         voiceItem.title = listening ? "Done speaking" : "Speak a note"
         addScreenItem.isHidden = !recording || NSScreen.screens.count < 2
         addScreenItem.isEnabled = recorder.canAddScreen
@@ -465,7 +465,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         refresh()
     }
 
-    /// Idle: a hollow circle. Recording: a red dot and the time ("● 12:34"). Listening: a red mic with bars
+    /// Idle: the Karya panther (black or white with the menu bar). Recording: a red dot and the time ("● 12:34"). Listening: a red mic with bars
     /// that move with your voice. All in the menu bar; nothing on the screen.
     private func drawIcon() {
         guard let button = statusItem.button else { return }
@@ -474,7 +474,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
             image.isTemplate = false
             button.image = image
             button.title = ""
-            button.setAccessibilityLabel("Context Capsule: listening")
+            button.setAccessibilityLabel("\(AppName.full): listening")
         } else if recorder.isRecording, let since = recorder.startedAt {
             let image = MenuBarLook.dot()
             image.isTemplate = false
@@ -487,13 +487,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
                     .foregroundColor: NSColor.systemRed,
                 ])
             }
-            button.setAccessibilityLabel("Context Capsule: contextualizing, \(time)")
+            button.setAccessibilityLabel("\(AppName.full): contextualizing, \(time)")
         } else {
-            let image = NSImage(systemSymbolName: "circle", accessibilityDescription: "Context Capsule")
-            image?.isTemplate = true
-            button.image = image
+            button.image = MenuBarLook.idle()
             button.title = ""
-            button.setAccessibilityLabel("Context Capsule")
+            button.setAccessibilityLabel(AppName.full)
         }
     }
 
@@ -513,7 +511,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         _ = CGRequestScreenCaptureAccess()
         let alert = NSAlert()
         alert.messageText = "Allow Screen Recording"
-        alert.informativeText = "To share all your screens at once, turn on Context Capsule in Screen Recording, then quit "
+        alert.informativeText = "To share all your screens at once, turn on \(AppName.full) in Screen Recording, then quit "
             + "and reopen it. For now, pick a screen."
         alert.addButton(withTitle: "Open Settings")
         alert.addButton(withTitle: "Not now")

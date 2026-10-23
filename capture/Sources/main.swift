@@ -7,7 +7,7 @@ if CommandLine.arguments.contains("--selftest") {
     exit(SelfTest.run() ? 0 : 1)
 }
 if let i = CommandLine.arguments.firstIndex(of: "--render-icons"), i + 1 < CommandLine.arguments.count {
-    // For checking the menu-bar look: the listening icon at three loudness levels, and the recording dot.
+    // For checking the menu-bar look: the listening icon at three loudness levels, the recording dot, the idle panther.
     let dir = URL(fileURLWithPath: CommandLine.arguments[i + 1])
     func save(_ image: NSImage, _ name: String) {
         let rep = NSBitmapImageRep(bitmapDataPlanes: nil, pixelsWide: Int(image.size.width * 4), pixelsHigh: Int(image.size.height * 4),
@@ -24,6 +24,14 @@ if let i = CommandLine.arguments.firstIndex(of: "--render-icons"), i + 1 < Comma
     }
     for (n, l) in [("quiet", Float(0.02)), ("talking", 0.2), ("loud", 0.45)] { save(MenuBarLook.listening(level: l), "listening-\(n).png") }
     save(MenuBarLook.dot(), "recording-dot.png")
+    if let idle = MenuBarLook.idle() { // a template image: drawn white here, as on a dark menu bar
+        save(NSImage(size: idle.size, flipped: false) { r in
+            idle.draw(in: r)
+            NSColor.white.set()
+            r.fill(using: .sourceIn)
+            return true
+        }, "idle.png")
+    }
     exit(0)
 }
 

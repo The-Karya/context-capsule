@@ -5,6 +5,17 @@
 import CoreGraphics
 import Foundation
 
+// MARK: - The app's name
+
+enum AppName {
+    /// Where people see the app's name: titles, menus, the menu-bar label, About, the disk image.
+    static let full = "Karya Context Capsule"
+    /// The bundle's file name stays "Context Capsule.app": AI apps connected before 0.3 start
+    /// Contents/Resources/context-capsule-mcp by its full path, and updates swap the bundle in place.
+    /// Finder, the Dock and Spotlight show `full` (en.lproj/InfoPlist.strings, see build.sh).
+    static let bundleFile = "Context Capsule.app"
+}
+
 // MARK: - Paths
 
 struct Paths {
@@ -1079,6 +1090,9 @@ struct CapsuleSummary: Equatable {
 
     /// Reads `---` front matter (simple `key: value` lines) and the first lines under `## In short`.
     static func parse(_ text: String, url: URL) -> CapsuleSummary {
+        // Saved on Windows (Notepad, the clipboard): "\r\n" line ends. In Swift "\r\n" is one Character, so
+        // without this neither hasPrefix("---\n") nor split(separator: "\n") would see the lines.
+        let text = text.replacingOccurrences(of: "\r\n", with: "\n")
         var front: [String: String] = [:]
         var body = text
         if text.hasPrefix("---\n"), let end = text.range(of: "\n---", range: text.index(text.startIndex, offsetBy: 4)..<text.endIndex) {
@@ -1475,17 +1489,59 @@ enum WorkStats {
         return count
     }
 
-    /// "1 h 05 m", "12 m", "40 s".
+    /// The same words as the Timeline: "1 h 5 min", "12 min", "under 1 min"; nothing at all is "0 min".
     static func duration(_ seconds: Double) -> String {
-        let s = Int(seconds)
-        if s < 60 { return "\(s) s" }
-        let m = s / 60
-        return m < 60 ? "\(m) m" : String(format: "%d h %02d m", m / 60, m % 60)
+        seconds < 1 ? "0 min" : Timeline.length(seconds)
     }
 
     /// "Good morning" / "Good afternoon" / "Good evening".
     static func greeting(hour: Int) -> String {
         hour < 12 ? "Good morning" : hour < 18 ? "Good afternoon" : "Good evening"
+    }
+}
+
+/// Dates and times for people, in the system's language and style (12/24-hour as set in System Settings).
+/// The same day style on Home and the Timeline: "Friday 23 October" / "Friday, October 23", with the year
+/// only when it isn't this year. File formats (session ids, ISO times, "yyyy-MM-dd" keys) never use these.
+enum DayWords {
+    static func long(_ date: Date, now: Date = Date(), locale: Locale = .current, calendar: Calendar = .current) -> String {
+        let f = DateFormatter()
+        f.locale = locale
+        f.calendar = calendar
+        f.timeZone = calendar.timeZone
+        let thisYear = calendar.component(.year, from: date) == calendar.component(.year, from: now)
+        f.setLocalizedDateFormatFromTemplate(thisYear ? "EEEEdMMMM" : "EEEEdMMMMy")
+        return f.string(from: date)
+    }
+
+    /// A clock time: "14:05" or "2:05 PM", as the system says.
+    static func time(_ date: Date, locale: Locale = .current, timeZone: TimeZone = .current) -> String {
+        let f = DateFormatter()
+        f.locale = locale
+        f.timeZone = timeZone
+        f.dateStyle = .none
+        f.timeStyle = .short
+        return f.string(from: date)
+    }
+
+    /// "yyyy-MM-dd" (a file/data key) read as a local day, whatever the system calendar.
+    static func parseKey(_ ymd: String, timeZone: TimeZone = .current) -> Date? {
+        let f = DateFormatter()
+        f.locale = Locale(identifier: "en_US_POSIX")
+        f.calendar = Calendar(identifier: .gregorian)
+        f.timeZone = timeZone
+        f.dateFormat = "yyyy-MM-dd"
+        return f.date(from: ymd)
+    }
+
+    /// A date as a "yyyy-MM-dd" key (local day), whatever the system calendar.
+    static func key(_ date: Date, timeZone: TimeZone = .current) -> String {
+        let f = DateFormatter()
+        f.locale = Locale(identifier: "en_US_POSIX")
+        f.calendar = Calendar(identifier: .gregorian)
+        f.timeZone = timeZone
+        f.dateFormat = "yyyy-MM-dd"
+        return f.string(from: date)
     }
 }
 

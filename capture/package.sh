@@ -88,11 +88,12 @@ fi
 # The updater's zip (holds the stapled app when notarized; a zip itself can't be stapled).
 ditto -c -k --keepParent "$APP" "$ZIP"
 
-# The disk image: the app and a link to Applications. Nothing else.
+# The disk image ("Karya Context Capsule"): the app and a link to Applications. Nothing else. The app file keeps its
+# name, "Context Capsule.app" (see AppName in Core.swift); Finder shows it as Karya Context Capsule.
 STAGE="$(mktemp -d)"
 ditto "$APP" "$STAGE/Context Capsule.app"
 ln -s /Applications "$STAGE/Applications"
-hdiutil create -quiet -volname "Context Capsule" -srcfolder "$STAGE" -fs HFS+ -format UDZO -ov "$DMG"
+hdiutil create -quiet -volname "Karya Context Capsule" -srcfolder "$STAGE" -fs HFS+ -format UDZO -ov "$DMG"
 rm -rf "$STAGE"
 
 if [ -n "$DEVELOPER_ID" ]; then

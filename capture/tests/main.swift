@@ -612,6 +612,12 @@ check(cs.title == "Website — 2026-10-19" && cs.project == "website" && cs.kind
 check(cs.author == "Saachi" && cs.draft, "comments stripped, draft read")
 check(cs.inShort == "We redesigned the pricing page. Teams is now $12.", "In short line", cs.inShort)
 check(CapsuleSummary.parse("no front matter", url: capURL).title == "website-2026-10-19", "title falls back to the file name")
+// Saved on Windows: "\r\n" line ends read the same.
+let csCRLF = CapsuleSummary.parse(capText.replacingOccurrences(of: "\n", with: "\r\n"), url: capURL)
+check(csCRLF.title == cs.title && csCRLF.project == "website" && csCRLF.kind == "daily" && csCRLF.date == "2026-10-19"
+      && csCRLF.author == "Saachi" && csCRLF.draft && csCRLF.inShort == cs.inShort, "capsule with \\r\\n line ends", "\(csCRLF)")
+check(CapsuleSummary.isCapsule(capText.replacingOccurrences(of: "\n", with: "\r\n")), "\\r\\n capsule is a capsule")
+check(!ShareCheck.body(capText.replacingOccurrences(of: "\n", with: "\r\n")).contains("project: website"), "\\r\\n front matter skipped by share check")
 try! FileManager.default.createDirectory(at: capURL.deletingLastPathComponent().appendingPathComponent(".history"), withIntermediateDirectories: true)
 try! capText.write(to: capURL, atomically: true, encoding: .utf8)
 try! capText.replacingOccurrences(of: "2026-10-19T18", with: "2026-10-20T09").write(
@@ -804,7 +810,25 @@ try? FileManager.default.removeItem(at: statDir.appendingPathComponent("assign.j
 let byClue = WorkStats.totals(sessions: statRoot, from: dayStart, to: dayStart.addingTimeInterval(86_400),
                               projects: [Project(id: "team", name: "Team", match: ["Slack"])])
 check(byClue.byProject.map(\.id) == ["web", "team"], "clues made later count too", "\(byClue.byProject)")
-check(WorkStats.duration(40) == "40 s" && WorkStats.duration(720) == "12 m" && WorkStats.duration(3900) == "1 h 05 m", "durations")
+check(WorkStats.duration(0) == "0 min" && WorkStats.duration(40) == "under 1 min" && WorkStats.duration(720) == "12 min"
+      && WorkStats.duration(3900) == "1 h 5 min" && WorkStats.duration(7200) == "2 h", "durations: the Timeline's words",
+      "\([0, 40, 720, 3900, 7200].map { WorkStats.duration(Double($0)) })")
+do { // Dates and times follow the system's language and 12/24-hour style.
+    var cal = Calendar(identifier: .gregorian)
+    cal.timeZone = TimeZone(identifier: "UTC")!
+    let d = cal.date(from: DateComponents(year: 2026, month: 10, day: 23, hour: 14, minute: 5))!
+    let utc = TimeZone(identifier: "UTC")!
+    check(DayWords.time(d, locale: Locale(identifier: "en_US"), timeZone: utc).hasPrefix("2:05"), "time: 12-hour where the system says so",
+          DayWords.time(d, locale: Locale(identifier: "en_US"), timeZone: utc))
+    check(DayWords.time(d, locale: Locale(identifier: "en_GB"), timeZone: utc) == "14:05", "time: 24-hour where the system says so")
+    check(DayWords.long(d, now: d, locale: Locale(identifier: "en_GB"), calendar: cal) == "Friday 23 October", "day: this year",
+          DayWords.long(d, now: d, locale: Locale(identifier: "en_GB"), calendar: cal))
+    check(DayWords.long(d, now: d.addingTimeInterval(400 * 86_400), locale: Locale(identifier: "en_GB"), calendar: cal)
+          .hasSuffix("23 October 2026"), "day: another year says it")
+    check(DayWords.long(d, now: d, locale: Locale(identifier: "en_US"), calendar: cal) == "Friday, October 23", "day: US style")
+    check(DayWords.parseKey("2026-10-23", timeZone: utc) == cal.date(from: DateComponents(year: 2026, month: 10, day: 23))
+          && DayWords.key(d, timeZone: utc) == "2026-10-23", "day keys stay yyyy-MM-dd")
+}
 check(WorkStats.greeting(hour: 9) == "Good morning" && WorkStats.greeting(hour: 14) == "Good afternoon"
       && WorkStats.greeting(hour: 20) == "Good evening", "greetings")
 
@@ -1384,6 +1408,15 @@ try! Timeline.deleteMoments(st_first.reads, sessions: st_sessions, state: st_sta
 check(try! String(contentsOf: st_url, encoding: .utf8) == st_lines[2] + "\n" + st_lines[3] + "\n", "delete stretch: all its lines, nothing else")
 do { try Timeline.deleteMoments(st_first.reads, sessions: st_sessions, state: st_state); check(false, "delete stretch: twice") }
 catch { check(error as? Timeline.DeleteError == .notFound, "delete stretch: lines that are gone aren't guessed") }
+
+// The name: people see "Karya Context Capsule"; the file, the requests to the AI and the update path stay as they were.
+check(AppName.full == "Karya Context Capsule", "name: the full name")
+check(AppName.bundleFile == "Context Capsule.app", "name: the bundle file keeps its name (connected AI apps, updates)")
+check(Update.isInApplications("/Applications/" + AppName.bundleFile, home: "/Users/me"), "name: Move to Applications lands in Applications")
+check(ClaudeLink.dayPrompt == "Use Context Capsule to make my capsules for today.", "name: the day request is unchanged")
+check(ClaudeLink.continuePrompt(path: "/x/a.md") == "Use Context Capsule to continue from the capsule at /x/a.md.",
+      "name: the continue request is unchanged")
+check(ClaudeLink.searchPrompt("why?").hasPrefix("Use Context Capsule to search my capsules: "), "name: the search request is unchanged")
 
 try? FileManager.default.removeItem(at: tmp)
 

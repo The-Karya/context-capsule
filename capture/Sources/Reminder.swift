@@ -62,9 +62,7 @@ final class DailyJobs {
     private static func localDay(_ iso: String) -> String {
         let f = ISO8601DateFormatter()
         guard let d = f.date(from: iso) else { return String(iso.prefix(10)) }
-        let out = DateFormatter()
-        out.dateFormat = "yyyy-MM-dd"
-        return out.string(from: d)
+        return DayWords.key(d)
     }
 
     /// Raw recordings older than `keepDays` days are removed; the current one never is.

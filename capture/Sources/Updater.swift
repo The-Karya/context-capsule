@@ -288,8 +288,8 @@ enum MoveToApplications {
 
     private static func move(_ bundle: URL) -> Bool {
         let fm = FileManager.default
-        let dest = URL(fileURLWithPath: "/Applications").appendingPathComponent("Context Capsule.app")
-        let temp = URL(fileURLWithPath: "/Applications").appendingPathComponent(".Context Capsule.app.new-\(UUID().uuidString.prefix(8))")
+        let dest = URL(fileURLWithPath: "/Applications").appendingPathComponent(AppName.bundleFile)
+        let temp = URL(fileURLWithPath: "/Applications").appendingPathComponent(".\(AppName.bundleFile).new-\(UUID().uuidString.prefix(8))")
         do {
             try fm.copyItem(at: bundle, to: temp)
             if fm.fileExists(atPath: dest.path) { try fm.trashItem(at: dest, resultingItemURL: nil) } // an older copy
@@ -299,7 +299,7 @@ enum MoveToApplications {
             AppLog.shared.write("move to Applications failed: \(error.localizedDescription)")
             let alert = NSAlert()
             alert.messageText = "Couldn't move it"
-            alert.informativeText = "Drag Context Capsule into your Applications folder yourself."
+            alert.informativeText = "Drag \(AppName.full) into your Applications folder yourself."
             alert.runModal()
             return false
         }
@@ -355,7 +355,7 @@ private struct UpdatePromptView: View {
     var body: some View {
         let shape = RoundedRectangle(cornerRadius: 16, style: .continuous)
         let content = VStack(alignment: .leading, spacing: 12) {
-            Text("Context Capsule \(version) is ready. Restart to update.")
+            Text("\(AppName.full) \(version) is ready. Restart to update.")
                 .font(.system(size: 14, weight: .semibold)).fixedSize(horizontal: false, vertical: true)
             HStack(spacing: 8) {
                 Spacer()

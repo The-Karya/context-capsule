@@ -1,4 +1,4 @@
-// context-capsule — capture: what the menu-bar icon shows — a red dot and a timer while recording, a red mic with
+// context-capsule — capture: what the menu-bar icon shows — the panther when idle, a red dot and a timer while recording, a red mic with
 // bars that move with your voice while listening — and soft sounds at start/stop. Takes no screen space.
 
 import AppKit
@@ -8,6 +8,16 @@ enum MenuBarLook {
     static func clock(_ seconds: TimeInterval) -> String {
         let s = max(0, Int(seconds))
         return s >= 3600 ? String(format: "%d:%02d:%02d", s / 3600, s / 60 % 60, s % 60) : String(format: "%d:%02d", s / 60, s % 60)
+    }
+
+    /// Idle: the Karya panther as a template image (macOS draws it black or white), 18 pt tall.
+    /// A hollow circle if the image is missing from the app.
+    static func idle() -> NSImage? {
+        let image = Bundle.main.image(forResource: "MenuBarMark")
+            ?? NSImage(systemSymbolName: "circle", accessibilityDescription: nil)
+        image?.isTemplate = true
+        image?.accessibilityDescription = AppName.full
+        return image
     }
 
     /// A small red dot (recording).

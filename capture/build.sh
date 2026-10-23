@@ -31,8 +31,14 @@ cat > "$APP/Contents/Info.plist" <<PLIST
 <dict>
   <key>CFBundleExecutable</key><string>ContextCapsule</string>
   <key>CFBundleIdentifier</key><string>com.thekarya.contextcapsule</string>
-  <key>CFBundleName</key><string>Context Capsule</string>
+  <!-- The name people see is "Karya Context Capsule" (CFBundleName: menus, About; en.lproj below: Finder, Dock,
+       Spotlight). The file stays "Context Capsule.app" (see AppName in Core.swift), and Finder only uses the
+       localized name when the file name matches CFBundleDisplayName here, so this one stays "Context Capsule". -->
+  <key>CFBundleName</key><string>Karya Context Capsule</string>
   <key>CFBundleDisplayName</key><string>Context Capsule</string>
+  <key>LSHasLocalizedDisplayName</key><true/>
+  <key>CFBundleDevelopmentRegion</key><string>en</string>
+  <key>CFBundleIconFile</key><string>AppIcon</string>
   <key>CFBundlePackageType</key><string>APPL</string>
   <key>CFBundleShortVersionString</key><string>0.2.0</string>
   <key>CFBundleVersion</key><string>0.2.0</string>
@@ -70,6 +76,43 @@ cat > "$APP/Contents/Info.plist" <<PLIST
 </dict>
 </plist>
 PLIST
+
+# The name Finder, the Dock and Spotlight show (any language falls back to en).
+mkdir -p "$APP/Contents/Resources/en.lproj"
+cat > "$APP/Contents/Resources/en.lproj/InfoPlist.strings" <<STRINGS
+"CFBundleDisplayName" = "Karya Context Capsule";
+"CFBundleName" = "Karya Context Capsule";
+STRINGS
+
+# The app icon: the Karya panther. Resources/AppIcon.png is the 1024 px tile (white brush panther on black),
+# AppIcon-small.png the same tile with the heavier mark, for 64 px and under (the brush detail turns to dust there).
+# macOS icons sit on a grid: an 824 px tile with 100 px of clear space around it in 1024, so each size is padded.
+ICONSET="build/AppIcon.iconset"
+rm -rf "$ICONSET"
+mkdir -p "$ICONSET"
+icon() { # icon <canvas px> <file name>
+  src=Resources/AppIcon.png
+  if [ "$1" -le 64 ]; then src=Resources/AppIcon-small.png; fi
+  tile=$(( ($1 * 824 + 512) / 1024 ))
+  sips -z "$tile" "$tile" "$src" --out "$ICONSET/tile.png" >/dev/null
+  sips -p "$1" "$1" "$ICONSET/tile.png" --out "$ICONSET/$2" >/dev/null
+}
+icon 16 icon_16x16.png
+icon 32 icon_16x16@2x.png
+icon 32 icon_32x32.png
+icon 64 icon_32x32@2x.png
+icon 128 icon_128x128.png
+icon 256 icon_128x128@2x.png
+icon 256 icon_256x256.png
+icon 512 icon_256x256@2x.png
+icon 512 icon_512x512.png
+icon 1024 icon_512x512@2x.png
+rm -f "$ICONSET/tile.png"
+iconutil -c icns "$ICONSET" -o "$APP/Contents/Resources/AppIcon.icns"
+rm -rf "$ICONSET"
+# The menu-bar mark (a template image: macOS draws it black or white), 18 pt tall.
+sips -z 18 13 Resources/MenuBarMark.png --out "$APP/Contents/Resources/MenuBarMark.png" >/dev/null
+sips -z 36 27 Resources/MenuBarMark.png --out "$APP/Contents/Resources/MenuBarMark@2x.png" >/dev/null
 
 # The Claude Desktop extension ("Connect to Claude"), when it has been built (mcp/extension/build.sh).
 EXT="../mcp/dist-ext/context-capsule.mcpb"

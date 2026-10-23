@@ -232,7 +232,7 @@ final class TimelineModel: ObservableObject {
         alert.runModal()
     }
 
-    static func time(_ d: Date) -> String { d.formatted(date: .omitted, time: .shortened) }
+    static func time(_ d: Date) -> String { DayWords.time(d) }
     static func span(_ a: Date, _ b: Date) -> String {
         let x = time(a), y = time(b)
         return x == y ? x : "\(x) – \(y)"
@@ -255,7 +255,8 @@ private enum AppIcons {
 }
 
 /// Project colours: a fixed order of plain system colours, given out longest first; no project is grey.
-private struct Palette {
+/// Home's "Today by project" uses it too, so a project has the same colour there and on the Timeline.
+struct Palette {
     static let colors: [Color] = [.blue, .teal, .orange, .green, .pink, .brown]
     static let none = Color.gray.opacity(0.45)
     /// Projects, or apps when nothing has a project (SPEC: Where your time went).
@@ -265,6 +266,12 @@ private struct Palette {
     init(_ shares: (byProject: Bool, rows: [Timeline.Share])) {
         byProject = shares.byProject
         keys = shares.rows.map(\.key).filter { !$0.isEmpty }
+    }
+
+    /// Project ids, longest first (Home's totals); "" (Not sorted) is grey.
+    init(projectsLongestFirst ids: [String]) {
+        byProject = true
+        keys = ids.filter { !$0.isEmpty }
     }
 
     func key(_ s: Timeline.Stretch) -> String { byProject ? s.project : s.app }
@@ -442,13 +449,8 @@ private struct DayControl: View {
     @ObservedObject var model: TimelineModel
     @State private var picking = false
 
-    private var label: String {
-        let cal = Calendar.current
-        let f = DateFormatter()
-        let thisYear = cal.component(.year, from: model.day) == cal.component(.year, from: Date())
-        f.setLocalizedDateFormatFromTemplate(thisYear ? "EEEEdMMMM" : "EEEEdMMMMy")
-        return f.string(from: model.day)
-    }
+    /// The same style as Home's date.
+    private var label: String { DayWords.long(model.day) }
 
     var body: some View {
         HStack(spacing: 4) {
