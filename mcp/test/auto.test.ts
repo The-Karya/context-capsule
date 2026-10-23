@@ -105,11 +105,12 @@ describe("finding the tools", () => {
   let dir: string;
   beforeAll(() => {
     dir = fs.mkdtempSync(path.join(os.tmpdir(), "cc-agents-"));
-    for (const b of ["codex", "gemini"]) fs.writeFileSync(path.join(dir, b), "#!/bin/sh\n", { mode: 0o755 });
+    const ext = process.platform === "win32" ? ".exe" : "";
+    for (const b of ["codex", "gemini"]) fs.writeFileSync(path.join(dir, b + ext), "#!/bin/sh\n", { mode: 0o755 });
   });
 
   test("on the PATH, in preference order; Your AI's own first", () => {
-    const ctx = { os: "mac" as const, home: dir, env: { PATH: dir } };
+    const ctx = { os: process.platform === "win32" ? ("windows" as const) : ("mac" as const), home: dir, env: { PATH: dir } };
     const found = findAgents(ctx);
     expect(found.map((a) => a.id)).toEqual(["codex", "gemini"]);
     expect(pickAgent(found, undefined)!.id).toBe("codex");
