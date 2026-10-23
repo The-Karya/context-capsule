@@ -1,6 +1,6 @@
-# Context Capsule
+# Karya Context Capsule
 
-by Karya
+<img src="site/icon.png" alt="" width="64" height="64">
 
 **Context for your Claude, and for anyone's.**
 
@@ -29,7 +29,7 @@ capsule is written **for Claude**: people can read it, but they don't have to.
 ## Get started
 
 **Download it** from the download page (`site/index.html`): Mac, Windows or Linux. On a Mac,
-open the file and drag Context Capsule to Applications. It updates itself: new versions are
+open the file and drag Karya Context Capsule to Applications. It updates itself: new versions are
 signed and checked, and install when you click **Restart now**.
 
 1. **Open Context Capsule.** It lives in your menu bar (Windows: system tray) and opens by

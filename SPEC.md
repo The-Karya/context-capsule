@@ -1,5 +1,10 @@
 # context-capsule — v1 spec
 
+**Name:** people see "Karya Context Capsule" (app and file names, window titles, Dock/taskbar/Start menu,
+installer, download page); sentences say "Context Capsule"; the AI phrases ("Use Context Capsule to…"), ids,
+data folder and release file names stay as they are. **Icon:** the Karya black panther (white brush mark on a
+black rounded tile), the same as K chat.
+
 Open-source, for macOS, Windows and Linux. Press a hotkey, work, press it again: Context Capsule reads
 your screen while you work and helps your own AI (Claude, via MCP) turn that into a
 **capsule** — one shareable file with what you worked on, the decisions you made and
