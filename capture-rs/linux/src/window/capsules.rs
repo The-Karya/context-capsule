@@ -44,7 +44,6 @@ impl Capsules {
         let c = ctx.clone();
         open.connect_clicked(move |_| choose_and_open(&c));
         let make = gtk::Button::with_label(words::MAKE_TODAYS);
-        make.add_css_class("suggested-action");
         make.set_valign(gtk::Align::Center);
         let c = ctx.clone();
         make.connect_clicked(move |_| c.make_capsules());
@@ -175,6 +174,13 @@ type Action = Box<dyn Fn(&Rc<Ctx>, &Path)>;
 fn capsule_row(ctx: &Rc<Ctx>, c: &CapsuleSummary, day: chrono::NaiveDate) -> adw::ActionRow {
     let r = row(&c.label(day), &c.in_short);
     r.set_subtitle_lines(2);
+    r.add_css_class("cc-strong");
+    // As on the Mac: a page for a day's capsule, a folder for the whole project's.
+    let icon = gtk::Image::from_icon_name(if c.kind == "project" { "folder-symbolic" } else { "text-x-generic-symbolic" });
+    icon.add_css_class("dim-label");
+    icon.set_valign(gtk::Align::Start);
+    icon.set_margin_top(14);
+    r.add_prefix(&icon);
     let when = c.when(day);
     if !when.is_empty() {
         r.add_suffix(&line(&when, &["dim-label", "caption"]));

@@ -12,7 +12,7 @@ use std::path::Path;
 /// Space around a page's content (left and right; top and bottom are a bit less).
 pub const PAGE_MARGIN: f64 = 32.0;
 /// The sidebar's width.
-pub const SIDEBAR_WIDTH: i32 = 200;
+pub const SIDEBAR_WIDTH: i32 = 190;
 
 /// `--window-only` (Home) or `--window-only=settings`: just the window, no tray, engine or portal (to try the
 /// window and take pictures of it). None: not asked.

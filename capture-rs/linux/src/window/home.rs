@@ -3,7 +3,7 @@
 // the shortcuts, what you're working on, and "Make today's capsules" (it follows Your AI: one button, or Copy my
 // day and Save from clipboard; then "Your AI: …" with Change).
 
-use super::widgets::{self, boxed_list, card, flat_button, hbox, heading, keycap, label, line, row, vbox};
+use super::widgets::{self, boxed_list, card, flat_button, hbox, heading, keycap, label, line, link_button, plain_list, row, titled_card, vbox};
 use super::Ctx;
 use crate::{ai, ui};
 use adw::prelude::*;
@@ -75,42 +75,49 @@ impl Home {
                 w.set_margin_start(18);
                 w.set_margin_end(12);
             }
-            name.set_margin_top(14);
-            detail.set_margin_bottom(14);
+            name.set_margin_top(4);
+            detail.set_margin_bottom(4);
             col.append(&name);
             col.append(&value);
             col.append(&detail);
             strip.attach(&col, i as i32, 0, 1, 1);
             stats.push((value, detail));
         }
-        root.append(&strip);
 
         // The main column.
         let main = vbox(24);
         main.set_hexpand(true);
 
+        // As on the Mac: the dot and the state, the main button on the right; under them what's going on, and
+        // while recording Speak a note and Add a screen.
         let dot = label("●", &["idle-dot"]);
         let status_title = line("", &["title-3", "numeric"]);
+        status_title.set_hexpand(true);
+        let toggle = gtk::Button::with_label("");
+        toggle.add_css_class("suggested-action");
+        toggle.set_valign(gtk::Align::Center);
         let top = hbox(10);
         top.append(&dot);
         top.append(&status_title);
+        top.append(&toggle);
         let status_detail = label("", &["dim-label"]);
+        status_detail.set_hexpand(true);
+        status_detail.set_valign(gtk::Align::Center);
         let now_line = line("", &["caption", "dim-label"]);
-        let toggle = gtk::Button::with_label("");
-        toggle.add_css_class("suggested-action");
         let voice = gtk::Button::with_label("");
+        voice.set_valign(gtk::Align::Center);
         let add_screen = gtk::Button::with_label(words::ADD_SCREEN);
-        let buttons = hbox(8);
-        buttons.set_margin_top(4);
-        buttons.append(&toggle);
-        buttons.append(&voice);
-        buttons.append(&add_screen);
-        let status_box = vbox(6);
+        add_screen.set_valign(gtk::Align::Center);
+        let under = hbox(10);
+        under.append(&status_detail);
+        under.append(&voice);
+        under.append(&add_screen);
+        let status_box = vbox(12);
         status_box.append(&top);
-        status_box.append(&status_detail);
+        status_box.append(&under);
         status_box.append(&now_line);
-        status_box.append(&buttons);
         main.append(&card(&status_box, 18));
+        main.append(&strip);
 
         let today_box = vbox(8);
         let today_head = hbox(8);
@@ -144,34 +151,29 @@ impl Home {
         main.append(&recent_box);
 
         // The side column.
-        let side = vbox(24);
-        let keys_box = vbox(8);
-        keys_box.append(&heading(words::SHORTCUTS));
-        let keys_list = boxed_list();
-        keys_box.append(&keys_list);
-        side.append(&keys_box);
+        let side = vbox(16);
+        let keys_list = plain_list();
+        side.append(&titled_card(words::SHORTCUTS, &keys_list));
 
-        let working = vbox(8);
-        working.append(&heading(words::WORKING_ON));
-        let chips = boxed_list();
-        working.append(&chips);
-        side.append(&working);
+        let chips = plain_list();
+        side.append(&titled_card(words::WORKING_ON, &chips));
 
         // Make today's capsules: it follows Your AI (Claude or another app: one button; any other AI: Copy my day,
         // then Save from clipboard).
-        let make_box = vbox(8);
-        make_box.append(&heading(words::MAKE_TITLE));
-        let make_inner = vbox(8);
+        let make_inner = vbox(10);
         let make_hint = label("", &["dim-label", "caption"]);
         let make = gtk::Button::with_label(anyai::MAKE_CAPSULES);
         make.add_css_class("suggested-action");
+        make.add_css_class("cc-large");
         let copy_day = gtk::Button::with_label(anyai::COPY_MY_DAY);
         copy_day.add_css_class("suggested-action");
+        copy_day.add_css_class("cc-large");
         copy_day.set_tooltip_text(Some(anyai::COPY_MY_DAY_HELP));
         let save = gtk::Button::with_label(anyai::SAVE_FROM_CLIPBOARD);
         save.set_tooltip_text(Some(anyai::SAVE_HELP));
+        save.add_css_class("cc-large");
         let your_ai = line("", &["dim-label", "caption"]);
-        let change = flat_button(anyai::CHANGE);
+        let change = link_button(anyai::CHANGE);
         change.add_css_class("caption");
         let your_ai_row = hbox(4);
         your_ai_row.append(&your_ai);
@@ -181,8 +183,7 @@ impl Home {
         make_inner.append(&copy_day);
         make_inner.append(&save);
         make_inner.append(&your_ai_row);
-        make_box.append(&card(&make_inner, 14));
-        side.append(&make_box);
+        side.append(&titled_card(words::MAKE_TITLE, &make_inner));
 
         let columns = vbox(24);
         columns.append(&main);
@@ -279,7 +280,7 @@ impl Home {
         widgets::clear_list(&self.keys_list);
         for (k, what) in words::home_shortcuts(&keys) {
             let r = row(what, "");
-            r.add_suffix(&keycap(&k));
+            r.add_prefix(&keycap(&k));
             self.keys_list.append(&r);
         }
     }
@@ -382,6 +383,9 @@ impl Home {
         }
         for chip in &chips {
             let r = row(&chip.label, "");
+            let icon = gtk::Image::from_icon_name(if chip.id.is_none() { "system-search-symbolic" } else { "folder-symbolic" });
+            icon.add_css_class("dim-label");
+            r.add_prefix(&icon);
             let check = gtk::Image::from_icon_name("object-select-symbolic");
             check.set_visible(chip.selected);
             check.add_css_class("accent");
@@ -392,6 +396,7 @@ impl Home {
             self.chips.append(&r);
         }
         let new = row(words::NEW_PROJECT, "");
+        new.add_css_class("dim-label");
         new.add_prefix(&gtk::Image::from_icon_name("list-add-symbolic"));
         new.set_activatable(true);
         let ctx = self.ctx.clone();

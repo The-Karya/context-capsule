@@ -42,8 +42,12 @@ impl ProjectsPage {
         for p in projects {
             let r = row(&p.name, &words::found_by(&p));
             r.set_subtitle_lines(2);
-            let edit = widgets::flat_button(words::EDIT);
-            let delete = widgets::flat_button(words::DELETE);
+            r.add_css_class("cc-strong");
+            // Grey push buttons, as on the Mac.
+            let edit = gtk::Button::with_label(words::EDIT);
+            edit.set_valign(gtk::Align::Center);
+            let delete = gtk::Button::with_label(words::DELETE);
+            delete.set_valign(gtk::Align::Center);
             let (me, project) = (self.me.borrow().clone(), p.clone());
             edit.connect_clicked(move |_| {
                 if let Some(page) = me.upgrade() {

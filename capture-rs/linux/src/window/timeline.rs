@@ -8,7 +8,7 @@
 //! The words, the grouping and the reading of the files are core's (`context_capsule_core::timeline`), the same
 //! as Windows.
 
-use super::widgets::{self, boxed_list, flat_button, hbox, heading, label, line, vbox};
+use super::widgets::{self, boxed_list, hbox, heading, label, line, link_button, vbox};
 use super::Ctx;
 use crate::ai;
 use adw::prelude::*;
@@ -22,7 +22,7 @@ use std::collections::{HashMap, HashSet};
 use std::rc::{Rc, Weak};
 
 /// The day bar: its height, and the hour labels' line under it.
-const BAR_H: f64 = 14.0;
+const BAR_H: f64 = 18.0;
 const HOURS_H: f64 = 18.0;
 /// A stretch is at least this wide on the day bar (pixels).
 const MIN_SEGMENT: f64 = 2.0;
@@ -98,19 +98,22 @@ impl Timeline {
         after.set_valign(gtk::Align::Center);
         let to_today = gtk::Button::with_label(tl::TODAY);
         to_today.set_valign(gtk::Align::Center);
-        to_today.set_margin_start(8);
+        to_today.set_margin_start(10);
         control.append(&before);
         control.append(&pick);
         control.append(&after);
         control.append(&to_today);
         let summary = label("", &["dim-label"]);
-        summary.set_margin_start(6);
+        summary.set_margin_start(2);
         top.append(&control);
         top.append(&summary);
         root.append(&top);
         let search = gtk::SearchEntry::new();
         search.set_placeholder_text(Some(tl::SEARCH_DAY));
-        search.set_hexpand(true);
+        // As on the Mac: a search field about half the page wide.
+        search.set_hexpand(false);
+        search.set_halign(gtk::Align::Start);
+        search.set_width_chars(36);
         root.append(&search);
 
         let bar = gtk::DrawingArea::new();
@@ -336,16 +339,17 @@ impl Timeline {
                 self.went.append(&heading(tl::WHERE_TIME_WENT));
                 let grid = gtk::Grid::new();
                 grid.set_column_spacing(12);
-                grid.set_row_spacing(10);
+                grid.set_row_spacing(8);
+                grid.add_css_class("cc-went");
                 for (i, s) in shares.iter().enumerate() {
                     // "Not sorted" or "Other" (named by core): grey.
                     let classes: &[&str] = if s.colour == Colour::Grey { &["dim-label"] } else { &[] };
                     let name = line(&s.name, classes);
-                    name.set_width_chars(12);
+                    name.set_width_chars(18);
                     name.set_max_width_chars(22);
                     let time = line(&s.time, &["dim-label", "numeric", "caption"]);
                     time.set_xalign(1.0);
-                    time.set_width_chars(10);
+                    time.set_width_chars(12);
                     grid.attach(&name, 0, i as i32, 1, 1);
                     grid.attach(&share_bar(s.share, s.colour), 1, i as i32, 1, 1);
                     grid.attach(&time, 2, i as i32, 1, 1);
@@ -390,7 +394,9 @@ impl Timeline {
         }
         for b in &day.blocks {
             let open = default_open(b, is_searching) != self.toggled.borrow().contains(&b.session);
-            let block = vbox(8);
+            // One panel per recording, as on the Mac.
+            let block = vbox(4);
+            block.add_css_class("cc-block");
             block.append(&self.block_header(b, open, &projects));
             if open {
                 let items = boxed_list();
@@ -461,8 +467,16 @@ impl Timeline {
     /// capsule, and ⋯ (Delete this recording…). A click on the line opens or closes it.
     fn block_header(&self, b: &Block, open: bool, projects: &[Project]) -> gtk::Box {
         let top = hbox(8);
+        top.set_margin_start(10);
+        top.set_margin_end(12);
+        top.set_margin_top(4);
+        top.set_margin_bottom(4);
         let fold = hbox(8);
-        fold.append(&gtk::Image::from_icon_name(if open { "pan-down-symbolic" } else { "pan-end-symbolic" }));
+        let chevron = gtk::Image::from_icon_name(if open { "go-down-symbolic" } else { "go-next-symbolic" });
+        chevron.set_pixel_size(12);
+        chevron.set_size_request(20, -1);
+        chevron.add_css_class("dim-label");
+        fold.append(&chevron);
         if b.live {
             let dot = line("●", &["rec-dot", "caption"]);
             dot.set_tooltip_text(Some(tl::RECORDING_NOW));
@@ -474,6 +488,7 @@ impl Timeline {
         }
         let toggle = gtk::Button::new();
         toggle.add_css_class("flat");
+        toggle.add_css_class("cc-fold");
         toggle.set_child(Some(&fold));
         toggle.set_hexpand(true);
         toggle.set_halign(gtk::Align::Fill);
@@ -517,7 +532,7 @@ impl Timeline {
         body.set_hexpand(true);
         let head = hbox(8);
         head.append(&dot(colour));
-        let title = line(&s.heading(), &["heading"]);
+        let title = line(&s.heading(), &["cc-stretch-title"]);
         title.set_hexpand(true);
         head.append(&title);
         head.append(&line(&format!("{} · {}", s.time(), s.length()), &["dim-label", "caption", "numeric"]));
@@ -535,7 +550,7 @@ impl Timeline {
             body.append(&d);
         }
         if let Some(peek) = &s.peek {
-            let p = label(peek, &["dim-label", "timeline-text"]);
+            let p = label(peek, &["timeline-text"]);
             p.set_lines(2);
             p.set_ellipsize(gtk::pango::EllipsizeMode::End);
             body.append(&p);
@@ -544,7 +559,7 @@ impl Timeline {
         let reads_open = self.reads_open.borrow().contains(&key);
         let reads_line = hbox(8);
         reads_line.append(&line(&s.reads_line(), &["dim-label", "caption"]));
-        let toggle = flat_button(if reads_open { tl::HIDE_READS } else { tl::SHOW_READS });
+        let toggle = link_button(if reads_open { tl::HIDE_READS } else { tl::SHOW_READS });
         toggle.add_css_class("caption");
         let (weak, k) = (self.me.borrow().clone(), key.clone());
         toggle.connect_clicked(move |_| {
@@ -575,7 +590,7 @@ impl Timeline {
                 reads.append(&self.read_row(m));
             }
             if shown.len() > limit {
-                let more = flat_button(tl::SHOW_MORE);
+                let more = link_button(tl::SHOW_MORE);
                 more.add_css_class("caption");
                 more.set_halign(gtk::Align::Start);
                 let weak = self.me.borrow().clone();
@@ -627,7 +642,7 @@ impl Timeline {
             body.append(&t);
         }
         if open || m.folds() {
-            let toggle = flat_button(if open { tl::SHOW_LESS } else { tl::SHOW_ALL });
+            let toggle = link_button(if open { tl::SHOW_LESS } else { tl::SHOW_ALL });
             toggle.add_css_class("caption");
             toggle.set_halign(gtk::Align::Start);
             let (weak, key) = (self.me.borrow().clone(), m.key());
@@ -774,19 +789,36 @@ fn searching(q: &str) -> bool {
     q.split_whitespace().next().is_some()
 }
 
-/// A project's colour: plain system colours (GNOME's palette), "Not sorted" grey. No purple.
+/// A project's colour: the Mac's system colours (light or dark), "Not sorted" grey. No purple.
 fn rgb(c: Colour) -> (f64, f64, f64) {
-    let hex: u32 = match c {
-        Colour::Blue => 0x3584e4,
-        Colour::Teal => 0x2190a4,
-        Colour::Orange => 0xff7800,
-        Colour::Green => 0x2ec27e,
-        Colour::Pink => 0xdd2a77,
-        Colour::Brown => 0x986a44,
-        Colour::Grey => 0x9a9996,
+    let dark = widgets::is_dark();
+    let hex: u32 = match (c, dark) {
+        (Colour::Blue, false) => 0x0088ff,
+        (Colour::Blue, true) => 0x0091ff,
+        (Colour::Teal, false) => 0x00c3d0,
+        (Colour::Teal, true) => 0x00d2e0,
+        (Colour::Orange, false) => 0xff8d28,
+        (Colour::Orange, true) => 0xff9230,
+        (Colour::Green, false) => 0x34c759,
+        (Colour::Green, true) => 0x30d158,
+        (Colour::Pink, false) => 0xff2d55,
+        (Colour::Pink, true) => 0xff375f,
+        (Colour::Brown, false) => 0xac7f5e,
+        (Colour::Brown, true) => 0xb78a66,
+        (Colour::Grey, false) => 0xc9c9cb,
+        (Colour::Grey, true) => 0x717173,
     };
     let part = |shift: u32| ((hex >> shift) & 0xff) as f64 / 255.0;
     (part(16), part(8), part(0))
+}
+
+/// The empty part of a bar: the text colour, faint (as on the Mac).
+fn track() -> (f64, f64) {
+    if widgets::is_dark() {
+        (1.0, 0.08)
+    } else {
+        (0.0, 0.08)
+    }
 }
 
 /// A rounded rectangle's outline.
@@ -803,8 +835,8 @@ fn rounded(cr: &cairo::Context, x: f64, y: f64, w: f64, h: f64, r: f64) {
 
 /// The day bar: a grey track, each stretch in its project's colour, the hours under it (those that fit).
 fn draw_bar(cr: &cairo::Context, w: f64, bar: &DayBar) {
-    let (g, gg, gb) = rgb(Colour::Grey);
-    cr.set_source_rgba(g, gg, gb, 0.2);
+    let (t, ta) = track();
+    cr.set_source_rgba(t, t, t, ta * 0.75);
     rounded(cr, 0.0, 0.0, w, BAR_H, 4.0);
     let _ = cr.fill();
     rounded(cr, 0.0, 0.0, w, BAR_H, 4.0);
@@ -816,9 +848,10 @@ fn draw_bar(cr: &cairo::Context, w: f64, bar: &DayBar) {
         let _ = cr.fill();
     }
     cr.reset_clip();
-    cr.set_source_rgb(g, gg, gb);
-    cr.select_font_face("Sans", cairo::FontSlant::Normal, cairo::FontWeight::Normal);
-    cr.set_font_size(11.0);
+    let (l, la) = if widgets::is_dark() { (1.0, 0.55) } else { (0.0, 0.5) };
+    cr.set_source_rgba(l, l, l, la);
+    cr.select_font_face("Inter", cairo::FontSlant::Normal, cairo::FontWeight::Normal);
+    cr.set_font_size(10.0);
     let mut right = f64::MIN;
     for (at, text) in &bar.hours {
         let Ok(ext) = cr.text_extents(text) else { continue };
@@ -853,8 +886,8 @@ pub(super) fn share_bar(share: f64, colour: Colour) -> gtk::DrawingArea {
     area.set_valign(gtk::Align::Center);
     area.set_draw_func(move |_, cr, w, h| {
         let (w, h) = (w as f64, h as f64);
-        let (g, gg, gb) = rgb(Colour::Grey);
-        cr.set_source_rgba(g, gg, gb, 0.2);
+        let (t, ta) = track();
+        cr.set_source_rgba(t, t, t, ta);
         rounded(cr, 0.0, 0.0, w, h, h / 2.0);
         let _ = cr.fill();
         let (r, gr, b) = rgb(colour);

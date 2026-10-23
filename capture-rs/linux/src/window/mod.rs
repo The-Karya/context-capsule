@@ -364,6 +364,8 @@ pub struct Window {
     stack: gtk::Stack,
     title: adw::WindowTitle,
     pill: gtk::Label,
+    pill_box: gtk::Box,
+    pill_icon: gtk::Image,
     home: Rc<home::Home>,
     timeline: Rc<timeline::Timeline>,
     capsules: Rc<capsules::Capsules>,
@@ -394,6 +396,7 @@ impl Window {
             .hide_on_close(true)
             .build();
         win.set_size_request(words::MIN_WIDTH as i32, words::MIN_HEIGHT as i32);
+        win.add_css_class("cc-window");
         // For pictures of the window (see the README): CONTEXT_CAPSULE_WINDOW_SIZE=1100x760.
         if let Some((width, height)) = std::env::var("CONTEXT_CAPSULE_WINDOW_SIZE").ok().as_deref().and_then(ui::parse_size) {
             win.set_default_size(width, height);
@@ -430,7 +433,8 @@ impl Window {
         });
         let side_header = adw::HeaderBar::new();
         side_header.set_show_end_title_buttons(false);
-        side_header.set_title_widget(Some(&widgets::line(words::APP_NAME, &["heading"])));
+        // As on the Mac, the band above the sidebar stays empty (the window's name is its title).
+        side_header.set_title_widget(Some(&gtk::Label::new(None)));
         let side_scroll = gtk::ScrolledWindow::builder().hscrollbar_policy(gtk::PolicyType::Never).vexpand(true).child(&sidebar).build();
         let side = gtk::Box::new(gtk::Orientation::Vertical, 0);
         side.add_css_class("cc-sidebar");
@@ -440,13 +444,21 @@ impl Window {
 
         // The header over the page: its name, and the status pill.
         let title = adw::WindowTitle::new(Section::Home.title(), "");
-        let pill = widgets::line("", &["status-pill", "numeric", "caption"]);
+        let pill = widgets::line("", &["numeric"]);
         pill.set_ellipsize(gtk::pango::EllipsizeMode::None);
-        pill.set_valign(gtk::Align::Center);
+        // As on the Mac: a clock before today's time (while recording, the text starts with a red dot).
+        let pill_icon = gtk::Image::from_icon_name("document-open-recent-symbolic");
+        let pill_box = widgets::hbox(6);
+        pill_box.add_css_class("status-pill");
+        pill_box.set_valign(gtk::Align::Center);
+        pill_box.append(&pill_icon);
+        pill_box.append(&pill);
         let header = adw::HeaderBar::new();
         header.set_show_start_title_buttons(false);
+        // The page names itself (as on the Mac); the band stays empty but for the pill.
+        title.set_visible(false);
         header.set_title_widget(Some(&title));
-        header.pack_end(&pill);
+        header.pack_end(&pill_box);
 
         let home = home::Home::new(&ctx);
         let timeline = timeline::Timeline::new(&ctx);
@@ -469,6 +481,7 @@ impl Window {
             clamps.push(clamp);
             stack.add_named(&scroll, Some(section.id()));
         }
+        stack.add_css_class("cc-page");
         let watch = widgets::WidthWatch::new(&stack);
         toasts.set_child(Some(&watch));
         let main = gtk::Box::new(gtk::Orientation::Vertical, 0);
@@ -477,7 +490,6 @@ impl Window {
         main.append(&toasts);
         let all = gtk::Box::new(gtk::Orientation::Horizontal, 0);
         all.append(&side);
-        all.append(&gtk::Separator::new(gtk::Orientation::Vertical));
         all.append(&main);
         win.set_content(Some(&all));
 
@@ -487,6 +499,8 @@ impl Window {
             stack,
             title,
             pill,
+            pill_box,
+            pill_icon,
             home,
             timeline,
             capsules,
@@ -599,10 +613,11 @@ impl Window {
         let status = self.ctx.status.borrow();
         let text = words::status_pill(&status, SystemTime::now(), self.ctx.numbers.borrow().today.seconds);
         self.pill.set_text(&text);
+        self.pill_icon.set_visible(!status.recording);
         if status.recording {
-            self.pill.add_css_class("recording");
+            self.pill_box.add_css_class("recording");
         } else {
-            self.pill.remove_css_class("recording");
+            self.pill_box.remove_css_class("recording");
         }
     }
 
