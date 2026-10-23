@@ -1411,8 +1411,122 @@ enum ConfigFile {
             obj = read
         }
         obj[key] = value ?? NSNull()
+        try write(obj, to: url)
+    }
+
+    /// The shared window's config.set (ui/BRIDGE.md): JSON null removes the key; anything else is stored as it is.
+    static func merge(_ key: String, _ value: Any, in url: URL) throws {
+        var obj: [String: Any] = [:]
+        if let data = try? Data(contentsOf: url), let read = try? JSONSerialization.jsonObject(with: data) as? [String: Any] {
+            obj = read
+        }
+        if value is NSNull { obj.removeValue(forKey: key) } else { obj[key] = value }
+        try write(obj, to: url)
+    }
+
+    private static func write(_ obj: [String: Any], to url: URL) throws {
         let data = try JSONSerialization.data(withJSONObject: obj, options: [.prettyPrinted, .sortedKeys])
         try writeAtomically(String(decoding: data, as: UTF8.self) + "\n", to: url)
+    }
+}
+
+// MARK: - The shared window's bridge (ui/BRIDGE.md): what the page may read, and how its files are served
+
+enum BridgeFiles {
+    /// A path the page may read: relative to the data folder and in the allow-list (config/projects/state.json,
+    /// sessions/<id>/events.jsonl|gaps.jsonl|assign.json|session.json, capsules/<name>.md). No absolute paths, "..",
+    /// hidden names, empty parts or backslashes.
+    static func allowed(_ p: String) -> Bool {
+        guard !p.isEmpty, !p.hasPrefix("/"), !p.contains("\\"), !p.contains("\0") else { return false }
+        let parts = p.split(separator: "/", omittingEmptySubsequences: false).map(String.init)
+        if parts.contains(where: { $0.isEmpty || $0.hasPrefix(".") }) { return false }
+        switch parts.count {
+        case 1: return ["config.json", "projects.json", "state.json"].contains(parts[0])
+        case 2: return parts[0] == "capsules" && parts[1].hasSuffix(".md")
+        case 3: return parts[0] == "sessions" && ["events.jsonl", "gaps.jsonl", "assign.json", "session.json"].contains(parts[2])
+        default: return false
+        }
+    }
+
+    /// The file for an allowed path, if it stays inside the data folder once symlinks are followed.
+    static func url(_ p: String, root: URL) -> URL? {
+        guard allowed(p) else { return nil }
+        let url = root.appendingPathComponent(p)
+        let base = root.resolvingSymlinksInPath().standardizedFileURL.path
+        let real = url.resolvingSymlinksInPath().standardizedFileURL.path
+        return real.hasPrefix(base.hasSuffix("/") ? base : base + "/") ? url : nil
+    }
+
+    /// data.list: the folders in sessions/ or the files in capsules/ (hidden ones and .history left out), sorted.
+    static func list(_ dir: String, root: URL) -> [String]? {
+        guard dir == "sessions" || dir == "capsules" else { return nil }
+        let folder = root.appendingPathComponent(dir, isDirectory: true)
+        let fm = FileManager.default
+        return ((try? fm.contentsOfDirectory(atPath: folder.path)) ?? []).filter { n in
+            var isDir: ObjCBool = false
+            guard !n.hasPrefix("."), fm.fileExists(atPath: folder.appendingPathComponent(n).path, isDirectory: &isDir) else { return false }
+            return dir == "sessions" ? isDir.boolValue : !isDir.boolValue
+        }.sorted()
+    }
+
+    /// events.jsonl without, for each (t, line), the first line that is exactly `line` with time `t` (CRLF files too).
+    /// All or none: nil when any of them isn't there.
+    static func removingLines(_ content: Data, _ lines: [(t: String, line: String)]) -> Data? {
+        var out = content
+        for l in lines {
+            let raw = Data(l.line.utf8)
+            guard let next = Timeline.removingLine(out, t: l.t, line: raw)
+                    ?? Timeline.removingLine(out, t: l.t, line: raw + Data("\r".utf8)) else { return nil }
+            out = next
+        }
+        return out
+    }
+
+    /// timeline.delete: the whole recording (lines nil) or those lines of it, in one rewrite. Not while it records.
+    static func delete(session: String, lines: [(t: String, line: String)]?, sessions: URL, state: URL) throws {
+        guard Timeline.isSessionID(session) else { throw Timeline.DeleteError.badName }
+        guard let lines else { try Timeline.deleteSession(session, sessions: sessions, state: state); return }
+        if Timeline.recordingSession(state: state) == session { throw Timeline.DeleteError.recording }
+        let url = sessions.appendingPathComponent(session).appendingPathComponent("events.jsonl")
+        guard let data = try? Data(contentsOf: url), let out = removingLines(data, lines) else { throw Timeline.DeleteError.notFound }
+        try out.write(to: url, options: .atomic)
+    }
+
+    /// The page's own file for a capsule://app/<path> address: inside `root`, no hidden parts, a file. "/" = index.html.
+    static func uiFile(root: URL, path: String) -> URL? {
+        let clean = (path.removingPercentEncoding ?? path).trimmingCharacters(in: CharacterSet(charactersIn: "/"))
+        let rel = clean.isEmpty ? "index.html" : clean
+        let parts = rel.split(separator: "/", omittingEmptySubsequences: false)
+        guard !rel.contains("\\"), !parts.contains(where: { $0.isEmpty || $0.hasPrefix(".") }) else { return nil }
+        let url = root.appendingPathComponent(rel)
+        let base = root.resolvingSymlinksInPath().standardizedFileURL.path
+        let real = url.resolvingSymlinksInPath().standardizedFileURL.path
+        var isDir: ObjCBool = false
+        guard real.hasPrefix(base + "/"), FileManager.default.fileExists(atPath: real, isDirectory: &isDir), !isDir.boolValue else { return nil }
+        return url
+    }
+
+    static func mime(_ ext: String) -> String {
+        switch ext.lowercased() {
+        case "html": return "text/html; charset=utf-8"
+        case "css": return "text/css; charset=utf-8"
+        case "js", "mjs": return "text/javascript; charset=utf-8"
+        case "json": return "application/json; charset=utf-8"
+        case "svg": return "image/svg+xml"
+        case "png": return "image/png"
+        case "woff2": return "font/woff2"
+        case "md": return "text/markdown; charset=utf-8"
+        default: return "application/octet-stream"
+        }
+    }
+
+    /// The new window is on: `--new-window`, or config.json "new_window": true (`--old-window` wins over both).
+    static func newWindow(config: URL, arguments: [String]) -> Bool {
+        if arguments.contains("--old-window") { return false }
+        if arguments.contains("--new-window") { return true }
+        guard let data = try? Data(contentsOf: config),
+              let obj = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else { return false }
+        return obj["new_window"] as? Bool == true
     }
 }
 

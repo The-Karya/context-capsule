@@ -1427,5 +1427,78 @@ check(Paths.root(env: "  ") == Paths.root(env: nil), "data folder: blank counts 
 check(Paths.root(env: " /data/cc ").path == "/data/cc", "data folder: CONTEXT_CAPSULE_HOME, trimmed")
 check(Paths.root(env: "~/cc").path == userHome.appendingPathComponent("cc").path, "data folder: ~ is the home folder")
 
+// The shared window's bridge (ui/BRIDGE.md): the allow-list, deleting by exact line, config merge, the page's files.
+for ok in ["config.json", "projects.json", "state.json", "sessions/20261023-112957/events.jsonl", "sessions/x/gaps.jsonl",
+           "sessions/x/assign.json", "sessions/x/session.json", "capsules/website.capsule.md"] {
+    check(BridgeFiles.allowed(ok), "bridge: allowed", ok)
+}
+for bad in ["", "/etc/passwd", "../config.json", "sessions/../config.json", "sessions/../../x/events.jsonl", "app.log", "control",
+            "sessions/x/other.txt", "capsules/.history/a.md", "capsules/a.txt", "capsules/../config.json", ".context-capsule/config.json",
+            "sessions//events.jsonl", "sessions/x/y/events.jsonl", "capsules\\a.md", "./config.json", "config.json/"] {
+    check(!BridgeFiles.allowed(bad), "bridge: refused", bad)
+}
+let br = FileManager.default.temporaryDirectory.appendingPathComponent("cc-bridge-\(getpid())", isDirectory: true)
+try? FileManager.default.createDirectory(at: br.appendingPathComponent("sessions/20261023-112957"), withIntermediateDirectories: true)
+try? FileManager.default.createDirectory(at: br.appendingPathComponent("capsules/.history"), withIntermediateDirectories: true)
+try! "a".write(to: br.appendingPathComponent("capsules/a.md"), atomically: true, encoding: .utf8)
+try! "x".write(to: br.appendingPathComponent("capsules/.hidden.md"), atomically: true, encoding: .utf8)
+check(BridgeFiles.list("capsules", root: br) == ["a.md"], "bridge: list capsules (no .history, no hidden)")
+check(BridgeFiles.list("sessions", root: br) == ["20261023-112957"], "bridge: list sessions (folders)")
+check(BridgeFiles.list("..", root: br) == nil, "bridge: list refuses other folders")
+// A symlink out of the data folder is refused even with an allowed name.
+try? FileManager.default.createSymbolicLink(atPath: br.appendingPathComponent("capsules/out.md").path, withDestinationPath: "/etc/hosts")
+check(BridgeFiles.url("capsules/out.md", root: br) == nil, "bridge: a symlink outside the data folder is refused")
+check(BridgeFiles.url("capsules/a.md", root: br) != nil, "bridge: a capsule inside is read")
+let brLines = [#"{"t":"2026-10-23T07:00:00Z","kind":"read","text":"one"}"#, #"{"t":"2026-10-23T07:00:05Z","kind":"read","text":"two"}"#,
+               #"{"t":"2026-10-23T07:00:05Z","kind":"read","text":"two"}"#]
+let brData = Data((brLines.joined(separator: "\n") + "\n").utf8)
+check(BridgeFiles.removingLines(brData, [(t: "2026-10-23T07:00:05Z", line: brLines[1])]) == Data((brLines[0] + "\n" + brLines[2] + "\n").utf8),
+      "bridge: removes only the first exact line")
+check(BridgeFiles.removingLines(brData, [(t: "2026-10-23T07:00:05Z", line: brLines[1]), (t: "2026-10-23T07:00:05Z", line: brLines[1])])
+      == Data((brLines[0] + "\n").utf8), "bridge: the same line twice removes both copies")
+check(BridgeFiles.removingLines(brData, [(t: "2026-10-23T07:00:00Z", line: brLines[0]), (t: "2026-10-23T07:00:09Z", line: brLines[1])]) == nil,
+      "bridge: all or none (a wrong time)")
+let crlf = Data((brLines.joined(separator: "\r\n") + "\r\n").utf8)
+check(BridgeFiles.removingLines(crlf, [(t: "2026-10-23T07:00:00Z", line: brLines[0])]) == Data((brLines[1] + "\r\n" + brLines[2] + "\r\n").utf8),
+      "bridge: CRLF files")
+let brEvents = br.appendingPathComponent("sessions/20261023-112957/events.jsonl")
+try! brData.write(to: brEvents)
+let brState = br.appendingPathComponent("state.json")
+try! #"{"recording":true,"session_id":"20261023-112957"}"#.write(to: brState, atomically: true, encoding: .utf8)
+do { try BridgeFiles.delete(session: "20261023-112957", lines: [(t: "2026-10-23T07:00:00Z", line: brLines[0])],
+                            sessions: br.appendingPathComponent("sessions"), state: brState); check(false, "bridge: delete refused while recording") }
+catch { check(error as? Timeline.DeleteError == .recording, "bridge: delete refused while recording") }
+try! #"{"recording":false}"#.write(to: brState, atomically: true, encoding: .utf8)
+try! BridgeFiles.delete(session: "20261023-112957", lines: [(t: "2026-10-23T07:00:00Z", line: brLines[0])],
+                        sessions: br.appendingPathComponent("sessions"), state: brState)
+check(try! Data(contentsOf: brEvents) == Data((brLines[1] + "\n" + brLines[2] + "\n").utf8), "bridge: delete a read")
+do { try BridgeFiles.delete(session: "../x", lines: nil, sessions: br.appendingPathComponent("sessions"), state: brState); check(false, "bridge: bad session") }
+catch { check(error as? Timeline.DeleteError == .badName, "bridge: bad session") }
+try! BridgeFiles.delete(session: "20261023-112957", lines: nil, sessions: br.appendingPathComponent("sessions"), state: brState)
+check(!FileManager.default.fileExists(atPath: brEvents.path), "bridge: delete a whole recording")
+let brConfig = br.appendingPathComponent("config.json")
+try! #"{"author":"Saachi","appearance":"dark"}"#.write(to: brConfig, atomically: true, encoding: .utf8)
+try! ConfigFile.merge("appearance", NSNull(), in: brConfig)
+try! ConfigFile.merge("sounds", false, in: brConfig)
+let brObj = try! JSONSerialization.jsonObject(with: Data(contentsOf: brConfig)) as! [String: Any]
+check(brObj["appearance"] == nil && brObj["author"] as? String == "Saachi" && brObj["sounds"] as? Bool == false,
+      "bridge: config.set null removes, others kept", "\(brObj)")
+check(BridgeFiles.newWindow(config: brConfig, arguments: []) == false, "new window: off by default")
+check(BridgeFiles.newWindow(config: brConfig, arguments: ["--new-window"]), "new window: --new-window")
+try! ConfigFile.merge("new_window", true, in: brConfig)
+check(BridgeFiles.newWindow(config: brConfig, arguments: []), "new window: config new_window true")
+check(!BridgeFiles.newWindow(config: brConfig, arguments: ["--old-window"]), "new window: --old-window wins")
+let ui = br.appendingPathComponent("ui", isDirectory: true)
+try? FileManager.default.createDirectory(at: ui.appendingPathComponent("js"), withIntermediateDirectories: true)
+try! "<html>".write(to: ui.appendingPathComponent("index.html"), atomically: true, encoding: .utf8)
+try! "x".write(to: ui.appendingPathComponent("js/app.js"), atomically: true, encoding: .utf8)
+check(BridgeFiles.uiFile(root: ui, path: "/")?.lastPathComponent == "index.html", "ui files: / is index.html")
+check(BridgeFiles.uiFile(root: ui, path: "/js/app.js") != nil, "ui files: a module")
+for bad in ["/../config.json", "/js/../../config.json", "/%2e%2e/config.json", "/js", "/missing.js", "/.hidden"] {
+    check(BridgeFiles.uiFile(root: ui, path: bad) == nil, "ui files: refused", bad)
+}
+check(BridgeFiles.mime("js") == "text/javascript; charset=utf-8", "ui files: modules are JavaScript")
+try? FileManager.default.removeItem(at: br)
+
 print("\(passes) passed, \(failures) failed")
 exit(failures == 0 ? 0 : 1)

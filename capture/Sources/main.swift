@@ -51,6 +51,30 @@ if let i = CommandLine.arguments.firstIndex(of: "--render-page"), i + 2 < Comman
     exit(MainWindow.renderPage(a[0], to: URL(fileURLWithPath: a[1]), dark: dark, size: size) ? 0 : 1)
 }
 
+if let i = CommandLine.arguments.firstIndex(of: "--render-web-page"), i + 2 < CommandLine.arguments.count {
+    // The shared window (ui/) in its real web view: --render-web-page <page> <out.png> [light|dark] [width height] [glass|flat]
+    // with the data in CONTEXT_CAPSULE_HOME. Pages as --render-page. Default 860 × 620, light, flat.
+    let a = Array(CommandLine.arguments[(i + 1)...])
+    let dark = a.count > 2 && a[2] == "dark"
+    let size = a.count > 4 ? NSSize(width: Double(a[3]) ?? 860, height: Double(a[4]) ?? 620) : NSSize(width: 860, height: 620)
+    let material = a.contains("glass") ? "glass" : "none"
+    UserDefaults.standard.setVolatileDomain(["AppleAccentColor": 4, "AppleHighlightColor": "0.698039 0.843137 1.000000 Blue"],
+                                            forName: UserDefaults.argumentDomain)
+    _ = MainWindow.RenderApplication.shared
+    NSApp.setActivationPolicy(.accessory)
+    NSApp.finishLaunching()
+    guard WebWindow.renderPages.contains(a[0]) else { print("pages: \(WebWindow.renderPages.joined(separator: ", "))"); exit(2) }
+    exit(WebWindow.renderPage(a[0], to: URL(fileURLWithPath: a[1]), dark: dark, size: size, material: material) ? 0 : 1)
+}
+
+if CommandLine.arguments.contains("--test-web-window") {
+    // Drives the shared window through its real bridge on the data in CONTEXT_CAPSULE_HOME (a copy: it deletes and edits).
+    _ = MainWindow.RenderApplication.shared
+    NSApp.setActivationPolicy(.accessory)
+    NSApp.finishLaunching()
+    exit(WebCheck.run() ? 0 : 1)
+}
+
 if let i = CommandLine.arguments.firstIndex(of: "--test-update"), i + 3 < CommandLine.arguments.count {
     // For checking a release by hand, offline: --test-update latest.json latest.json.sig Context-Capsule-<ver>-mac.zip
     // runs the same checks as a real update (signature, version, size, SHA-256, unzip, same signer); installs nothing.

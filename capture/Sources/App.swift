@@ -32,6 +32,22 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         }
         return window
     }()
+    /// The shared window (ui/ in a web view) instead of the SwiftUI one: config.json "new_window": true or --new-window.
+    private lazy var useWeb = BridgeFiles.newWindow(config: paths.config, arguments: CommandLine.arguments)
+    private lazy var web: WebWindow = {
+        let w = WebWindow(app: appModel, paths: paths)
+        w.onProjectsChanged = { [weak self] in
+            self?.recorder.reloadProjects(force: true)
+            self?.refresh()
+        }
+        w.setShortcuts = { [weak self] record, voice in self?.setShortcuts(record: record, voice: voice) }
+        return w
+    }()
+
+    /// Open the window on a page (the shared one or the SwiftUI one).
+    private func showWindow(_ section: Section) {
+        if useWeb { web.show(section.rawValue) } else { main.show(section) }
+    }
     private var wasRecording = false
     private var wasListening = false
     private var control: ControlWatcher?
@@ -98,6 +114,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         }
         ai.onSaved = { [weak self] in
             guard let self else { return }
+            if self.useWeb { self.web.dataChanged(["capsules"]); return }
             self.main.library.reload()
             self.main.refreshStats()
         }
@@ -166,7 +183,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         // First launch: the window opens on Settings, to set things up.
         if !MainWindow.seen {
             UserDefaults.standard.set(true, forKey: MainWindow.seenKey)
-            main.show(.settings)
+            if useWeb { web.firstRun = true }
+            showWindow(.settings)
         }
         daily.onMake = { [weak self] in self?.makeCapsules() }
         daily.start()
@@ -187,13 +205,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         trustWatch = repeating(2) { [weak self] in self?.checkTrust() }
 
         // For testing: open a window at launch.
-        if CommandLine.arguments.contains("--show-main") { main.show(.home) }
-        if CommandLine.arguments.contains("--show-library") { main.show(.capsules) }
-        if CommandLine.arguments.contains("--show-welcome") { main.show(.settings) }
+        if CommandLine.arguments.contains("--show-main") { showWindow(.home) }
+        if CommandLine.arguments.contains("--show-library") { showWindow(.capsules) }
+        if CommandLine.arguments.contains("--show-welcome") { showWindow(.settings) }
         if CommandLine.arguments.contains("--show-reminder") { daily.show() }
         // --show-timeline [YYYY-MM-DD]: the Timeline, on that day if one is given.
         if let i = CommandLine.arguments.firstIndex(of: "--show-timeline") {
-            main.show(.timeline)
+            showWindow(.timeline)
+            if useWeb { return }
             let f = DateFormatter()
             f.locale = Locale(identifier: "en_US_POSIX")
             f.dateFormat = "yyyy-MM-dd"
@@ -212,7 +231,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         refresh() // Settings shows the ✓
     }
 
-    @objc private func showMain() { main.show(.home) }
+    @objc private func showMain() { showWindow(.home) }
 
     /// "Check for Updates", or "Restart to Update" once a new version is ready.
     @objc private func updateClicked() {
@@ -247,7 +266,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     /// At launch this can come before applicationDidFinishLaunching, so it waits a turn.
     func application(_ application: NSApplication, open urls: [URL]) {
         let files = urls.filter(\.isFileURL)
-        DispatchQueue.main.async { files.forEach(Claude.continueFrom) }
+        DispatchQueue.main.async { [weak self] in
+            guard let self else { return }
+            if self.useWeb { files.forEach(self.web.openCapsule) } else { files.forEach(Claude.continueFrom) }
+        }
     }
 
     func menuWillOpen(_ menu: NSMenu) { refresh() } // the Accessibility check mark may have changed
@@ -346,6 +368,25 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         return nil
     }
 
+    /// The shared window's Settings: both shortcuts at once. nil = done; "taken" when another app has the keys (the old
+    /// ones stay); else why not.
+    private func setShortcuts(record: Shortcut, voice: Shortcut) -> String? {
+        if record.problem(other: voice) == .needsModifier || voice.problem(other: record) == .needsModifier { return "Add ⌃, ⌥ or ⌘" }
+        if record == voice { return "Already used for the other shortcut" }
+        hotKey = nil
+        voiceKey = nil
+        let free = Self.hotKey(record, id: 9) {} != nil && Self.hotKey(voice, id: 10) {} != nil // let go again at once
+        guard free else {
+            registerHotKeys()
+            return "taken"
+        }
+        Shortcut.current = (record, voice)
+        saveShortcuts()
+        registerHotKeys()
+        refresh()
+        return nil
+    }
+
     private func resetShortcuts() {
         Shortcut.current = (Shortcut.defaultRecord, Shortcut.defaultVoice)
         saveShortcuts()
@@ -371,6 +412,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         m.picking = recorder.isPicking
         m.startedAt = recorder.startedAt
         m.moments = recorder.eventCount
+        m.sessionID = recording ? recorder.sessionID : nil
+        m.projectBy = recorder.projectChoice.pinned != nil ? "you" : recorder.currentProject?.by
         m.projects = recorder.projects
         m.projectID = recorder.projectChoice.pinned ?? recorder.currentProject?.id
         m.projectPinned = recorder.projectChoice.pinned != nil

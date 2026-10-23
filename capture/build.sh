@@ -114,6 +114,11 @@ rm -rf "$ICONSET"
 sips -z 18 13 -s dpiWidth 72 -s dpiHeight 72 Resources/MenuBarMark.png --out "$APP/Contents/Resources/MenuBarMark.png" >/dev/null
 sips -z 36 27 -s dpiWidth 144 -s dpiHeight 144 Resources/MenuBarMark.png --out "$APP/Contents/Resources/MenuBarMark@2x.png" >/dev/null
 
+# The window's page (ui/, shared with Windows and Linux), served to the web view from inside the app.
+rm -rf "$APP/Contents/Resources/ui"
+mkdir -p "$APP/Contents/Resources/ui"
+cp -R ../ui/index.html ../ui/css ../ui/js "$APP/Contents/Resources/ui/"
+
 # The Claude Desktop extension ("Connect to Claude"), when it has been built (mcp/extension/build.sh).
 EXT="../mcp/dist-ext/context-capsule.mcpb"
 if [ -f "$EXT" ]; then cp "$EXT" "$APP/Contents/Resources/"; else echo "note: $EXT not built; Connect to Claude will be missing"; fi

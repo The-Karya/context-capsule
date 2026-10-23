@@ -15,6 +15,9 @@ final class AppModel: ObservableObject {
     @Published var picking = false
     @Published var startedAt: Date?
     @Published var moments = 0
+    /// The recording's session id, and who chose the project ("you", or how it was found): for the shared window.
+    @Published var sessionID: String?
+    @Published var projectBy: String?
     @Published var projectID: String?
     @Published var projectPinned = false
     @Published var projects: [Project] = []
@@ -1143,7 +1146,7 @@ enum MainMenu {
 /// --render-page: the window drawn offscreen into a PNG at 2× (no screen capture, so it works with the screen locked).
 extension MainWindow {
     /// A window the system leaves where it's put (titled windows are otherwise pulled back onto a screen).
-    private final class OffscreenWindow: NSWindow {
+    final class OffscreenWindow: NSWindow {
         override func constrainFrameRect(_ frameRect: NSRect, to screen: NSScreen?) -> NSRect { frameRect }
         // Drawn as the window in front (blue default button, sidebar as when you use it), even if it can't be key.
         override var canBecomeKey: Bool { true }
@@ -1154,7 +1157,7 @@ extension MainWindow {
 
     /// The window as the window server drew it (its own window: no Screen Recording permission needed).
     /// CGWindowListCreateImage is gone from the macOS 15 SDK but still in the system, so it is looked up by name.
-    private static func windowImage(_ window: NSWindow) -> CGImage? {
+    static func windowImage(_ window: NSWindow) -> CGImage? {
         typealias Fn = @convention(c) (CGRect, UInt32, UInt32, UInt32) -> Unmanaged<CGImage>?
         guard let sym = dlsym(UnsafeMutableRawPointer(bitPattern: -2), "CGWindowListCreateImage") else { return nil }
         let fn = unsafeBitCast(sym, to: Fn.self)
