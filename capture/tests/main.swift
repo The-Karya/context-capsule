@@ -1169,16 +1169,29 @@ check(tl_chrome.flatMap { Timeline.fullText($0, sessions: tlSessions) } == "Pric
       "timeline: Show all reads the whole text from the file")
 check(tl_b2.items.isEmpty && tl_b2.start == tl_iso.date(from: "2026-10-21T09:30:00Z") && tl_b2.end == tl_iso.date(from: "2026-10-21T09:31:00Z"),
       "timeline: an empty recording still shows, from its id and session.json")
-let tl_offs = Timeline.offs(tl_day.blocks)
-check(tl_offs.count == 2 && tl_offs[0].from == tl_b0.end && tl_offs[0].to == tl_b1.start && tl_offs[1].after == tl_morning, "timeline: Off between recordings")
+let tl_entryKinds = tl_b1.entries.map { e -> String in
+    switch e {
+    case .stretch(let s): return "\(s.app):\(s.reads.count)"
+    case .note: return "note"
+    case .gap(let g): return "gap:\(g.why)"
+    }
+}
+check(tl_entryKinds == ["Google Chrome:1", "Slack:1", "note", "gap:private_app", "Figma:1"], "stretches: a recording's entries",
+      "\(tl_entryKinds)")
+check(tl_b0.stretches.first?.project == "website", "stretches: a correction (assign.json) sets the project")
+check(tl_b2.entries.isEmpty, "stretches: an empty recording has none")
 
 let tl_oct20 = Timeline.load(day: tl_iso.date(from: "2026-10-20T10:00:00Z")!, sessions: tlSessions, calendar: tlCal)
 check(tl_oct20.blocks.map(\.session) == [tl_night] && tl_oct20.blocks[0].items.count == 1, "timeline: the evening before has its own part")
 check(Timeline.load(day: tl_oct21, sessions: tlRoot.appendingPathComponent("none"), calendar: tlCal).blocks.isEmpty, "timeline: no sessions folder")
 
 func tl_found(_ q: String) -> [String] {
-    Timeline.filter(tl_day, query: q).flatMap { $0.items.compactMap { item -> String? in
-        if case .moment(let m) = item { return m.isNote ? "note" : m.app } else { return nil }
+    Timeline.filter(tl_day, query: q).flatMap { $0.entries.flatMap { e -> [String] in
+        switch e {
+        case .stretch(let s): return (s.found ?? []).map(\.app)
+        case .note: return ["note"]
+        case .gap: return ["gap"]
+        }
     } }
 }
 check(Timeline.filter(tl_day, query: "") == tl_day.blocks && Timeline.filter(tl_day, query: " ") == tl_day.blocks, "search: empty query shows everything")
@@ -1188,8 +1201,9 @@ check(tl_found("slack") == ["Slack"], "search: app")
 check(tl_found("PRICING v2") == ["Figma"], "search: title, any case, every word")
 check(tl_found("cafe") == ["Figma"], "search: accents don't matter")
 check(tl_found("annual zebra").isEmpty, "search: every word must be there")
-check(Timeline.filter(tl_day, query: "slack").allSatisfy { $0.items.allSatisfy { if case .gap = $0 { return false } else { return true } } },
-      "search: gaps hidden")
+check(!tl_found("a").contains("gap"), "search: gaps hidden")
+check(Timeline.filter(tl_day, query: "slack").count == tl_day.blocks.count, "search: every recording stays (the ones with no match folded)")
+check(Timeline.hits(tl_day, query: "  ") == nil, "search: no words, no search")
 
 // Delete: not while recording; then the exact line goes, nothing else.
 let tl_eventsURL = tlSessions.appendingPathComponent(tl_morning).appendingPathComponent("events.jsonl")
@@ -1225,6 +1239,149 @@ catch { check(error as? Timeline.DeleteError == .badName, "delete block: bad nam
 try! Timeline.deleteSession(tl_empty, sessions: tlSessions, state: tlState)
 check(!FileManager.default.fileExists(atPath: tlSessions.appendingPathComponent(tl_empty).path), "delete block: the folder is gone")
 check(Timeline.load(day: tl_oct21, sessions: tlSessions, calendar: tlCal).blocks.map(\.session) == [tl_night, tl_morning], "delete block: gone from the day")
+// MARK: timeline stretches (SPEC "Stretches")
+
+/// One events.jsonl line at 10:mm:ss UTC on 21 Oct.
+func st_ev(_ t: String, _ end: String? = nil, app: String = "Code", title: String = "a.ts", text: String = "",
+           project: String = "", kind: String = "", at location: String = "", pointer: Bool = false) -> String {
+    var o: [String: Any] = ["t": "2026-10-21T10:\(t)Z", "app": app, "title": title, "text": text]
+    if let end { o["end"] = "2026-10-21T10:\(end)Z" }
+    if !project.isEmpty { o["project"] = project }
+    if !kind.isEmpty { o["kind"] = kind }
+    if !location.isEmpty { o["where"] = location }
+    if pointer { o["focus"] = "pointer" }
+    return String(data: try! JSONSerialization.data(withJSONObject: o, options: [.sortedKeys]), encoding: .utf8)!
+}
+func st_gap(_ t: String, _ end: String, _ why: String = "private_app") -> String {
+    #"{"t":"2026-10-21T10:"# + t + #"Z","end":"2026-10-21T10:"# + end + #"Z","why":""# + why + #""}"#
+}
+let st_from = tl_iso.date(from: "2026-10-21T00:00:00Z")!, st_to = tl_iso.date(from: "2026-10-22T00:00:00Z")!
+func st_entries(_ lines: [String], gaps: [String] = []) -> [Timeline.Entry] {
+    let data = Data((lines.joined(separator: "\n") + "\n").utf8)
+    var items = Timeline.moments(data, session: "20261021-100000", from: st_from, to: st_to).map { Timeline.Item.moment($0.0) }
+    items += Timeline.gaps(Data((gaps.joined(separator: "\n") + "\n").utf8), session: "20261021-100000", from: st_from, to: st_to)
+        .map { Timeline.Item.gap($0) }
+    items.sort { $0.time < $1.time }
+    return Timeline.entries(items)
+}
+func st_shape(_ e: [Timeline.Entry]) -> [String] {
+    e.map {
+        switch $0 {
+        case .stretch(let s): return "\(s.name)×\(s.reads.count)"
+        case .note: return "note"
+        case .gap: return "gap"
+        }
+    }
+}
+func st_stretches(_ e: [Timeline.Entry]) -> [Timeline.Stretch] {
+    e.compactMap { if case .stretch(let s) = $0 { return s } else { return nil } }
+}
+
+check(st_shape(st_entries([st_ev("00:00"), st_ev("00:03"), st_ev("00:06", "00:09")])) == ["Code · a.ts×3"],
+      "stretch: same app and title in a row make one")
+check(st_shape(st_entries([st_ev("00:00"), st_ev("00:03", title: "b.ts"), st_ev("00:06", app: "Xcode", title: "b.ts")]))
+      == ["Code · a.ts×1", "Code · b.ts×1", "Xcode · b.ts×1"], "stretch: another title or another app starts a new one")
+check(st_shape(st_entries([st_ev("00:00", app: "Chrome", title: ""), st_ev("00:03", app: "Chrome", title: ""),
+                           st_ev("00:06", app: "Chrome", title: "Inbox"), st_ev("00:09", app: "Chrome", title: "")]))
+      == ["Chrome×2", "Chrome · Inbox×1", "Chrome×1"], "stretch: an empty title matches only an empty title")
+check(st_shape(st_entries([st_ev("00:00"), st_ev("00:03", text: "why", kind: "voice"), st_ev("00:06")]))
+      == ["Code · a.ts×1", "note", "Code · a.ts×1"], "stretch: a voice note ends it")
+check(st_shape(st_entries([st_ev("00:00"), st_ev("00:03", text: "typed", kind: "note"), st_ev("00:06")]))
+      == ["Code · a.ts×1", "note", "Code · a.ts×1"], "stretch: a typed note ends it")
+check(st_shape(st_entries([st_ev("00:00"), st_ev("00:20")], gaps: [st_gap("00:05", "00:15")]))
+      == ["Code · a.ts×1", "gap", "Code · a.ts×1"], "stretch: a gap ends it")
+check(st_shape(st_entries([st_ev("00:00", "00:10"), st_ev("01:10", "01:20"), st_ev("02:21")]))
+      == ["Code · a.ts×2", "Code · a.ts×1"], "stretch: more than 60 s after the last end starts a new one (60 s exactly doesn't)")
+
+let st_one = st_stretches(st_entries([
+    st_ev("00:00", "00:30", text: "short\nthis line is long enough to show", project: "web"),
+    st_ev("00:33", at: "/Users/s/a.ts", pointer: true),
+    st_ev("00:36", "00:40", text: "hi\n" + String(repeating: "x", count: 150) + "\nmore", project: "design", at: "/other"),
+    st_ev("00:42", "38:00", text: "   ", project: "design"),
+]))
+check(st_one.count == 1 && st_one[0].reads.count == 4, "stretch: reads counted (a Looked at read too)")
+check(st_one.first.map { $0.start == tl_iso.date(from: "2026-10-21T10:00:00Z") && $0.end == tl_iso.date(from: "2026-10-21T10:38:00Z") } == true,
+      "stretch: from the first t to the last end")
+check(st_one.first.map { Timeline.length($0.length) } == "38 min", "stretch: its length")
+check(st_one.first?.location == "/Users/s/a.ts", "stretch: the first where that isn't empty")
+check(st_one.first?.peek == String(repeating: "x", count: 120) + "…", "peek: from the read with the most text, cut at 120",
+      st_one.first?.peek ?? "")
+check(st_one.first?.project == "design", "stretch: the most-used project")
+check(Timeline.peek("tiny\n   twenty characters long!   \nlater line that is long") == "twenty characters long!",
+      "peek: the first line of 20 or more characters, trimmed")
+check(Timeline.peek("a\nnineteen chars ok\n") == "", "peek: none when no line is long enough")
+check(st_stretches(st_entries([st_ev("00:00", text: "nineteen chars ok"), st_ev("00:03", text: "x")])).first?.peek == "",
+      "peek: none when the read with the most text has no long line")
+check(st_stretches(st_entries([st_ev("00:00", text: "a line of twenty-one c"), st_ev("00:03", text: "another line, same len")])).first?.peek
+      == "a line of twenty-one c", "peek: a tie keeps the first read")
+check(Timeline.mostUsed(["", "", "web"]) == "web" && Timeline.mostUsed(["", ""]) == "" && Timeline.mostUsed(["a", "b"]) == "a"
+      && Timeline.mostUsed(["a", "b", "b"]) == "b", "stretch project: most used, empty is none, a tie keeps the first")
+check(st_stretches(st_entries([st_ev("00:00")])).first?.project == "", "stretch: no project")
+check(st_stretches(st_entries([st_ev("00:00", app: "Finder", title: "")])).first?.name == "Finder"
+      && st_stretches(st_entries([st_ev("00:00", app: "", title: "")])).first?.name == "A window", "stretch: app alone when no title")
+
+check(Timeline.length(0) == "under 1 min" && Timeline.length(59) == "under 1 min" && Timeline.length(60) == "1 min"
+      && Timeline.length(38 * 60 + 10) == "38 min" && Timeline.length(3600) == "1 h" && Timeline.length(110 * 60) == "1 h 50 min",
+      "lengths in plain words")
+
+// A day: a recording with two projects and one with none; recorded time adds up the stretches.
+let st_day = st_entries([
+    st_ev("00:00", "10:00", app: "Chrome", title: "Pricing", project: "web"),
+    st_ev("10:30", "15:00", app: "Figma", title: "v2", project: "design"),
+    st_ev("15:30", "40:00", app: "Chrome", title: "Pricing", project: "web"),
+    st_ev("41:30", "45:00", app: "Mail", title: "Inbox"),
+])
+let st_block = Timeline.Block(session: "20261021-100000", start: st_from, end: st_from, project: "web", moments: 4, notes: 0,
+                              items: [], entries: st_day, recording: false)
+let st_plain = Timeline.Block(session: "20261021-140000", start: st_from, end: st_from, project: "", moments: 3, notes: 0, items: [],
+                              entries: st_entries([st_ev("50:00", "51:00", app: "Mail", title: "x"), st_ev("52:00", "52:30", app: "Notes"),
+                                                   st_ev("53:00", "56:00", app: "Code", title: "b")]),
+                              recording: false)
+check(Timeline.recorded([st_block, st_plain]) == (10 + 4.5 + 24.5 + 3.5 + 1 + 0.5 + 3) * 60, "recorded time: the stretches added up",
+      "\(Timeline.recorded([st_block, st_plain]))")
+let st_shares = Timeline.shares(st_block.stretches + st_plain.stretches)
+check(st_shares.byProject && st_shares.rows.map(\.key) == ["web", "", "design"]
+      && st_shares.rows.map(\.seconds) == [34.5 * 60, 8 * 60, 4.5 * 60], "where your time went: per project, longest first, not sorted too",
+      "\(st_shares)")
+let st_apps = Timeline.shares(st_plain.stretches)
+check(!st_apps.byProject && st_apps.rows.map(\.key) == ["Code", "Mail", "Notes"], "where your time went: per app when nothing has a project",
+      "\(st_apps)")
+check(Timeline.names(st_block) == (true, ["web", "design"]), "folded recording: its projects by time")
+check(Timeline.names(st_plain) == (false, ["Code", "Mail"]), "folded recording: the top 2 apps when no project")
+var st_utc = Calendar(identifier: .gregorian)
+st_utc.timeZone = TimeZone(identifier: "UTC")!
+let st_bar = Timeline.barRange(st_block.stretches, calendar: st_utc)
+check(st_bar?.from == tl_iso.date(from: "2026-10-21T10:00:00Z") && st_bar?.to == tl_iso.date(from: "2026-10-21T11:00:00Z"),
+      "day bar: from the hour of the first stretch to the end of the hour of the last")
+check(Timeline.barRange([], calendar: st_utc) == nil, "day bar: nothing recorded")
+
+// Search inside stretches: only the reads that match are listed; the stretch keeps its length.
+let st_searchDay = st_entries([st_ev("00:00", "00:05", text: "annual price"), st_ev("00:06", "05:00", text: "monthly"),
+                               st_ev("05:30", app: "Mail", title: "x", text: "lunch")])
+let st_ids = Set(st_stretches(st_searchDay)[0].reads.prefix(1).map(\.id))
+let st_filtered = st_stretches(Timeline.filter(st_searchDay, hits: st_ids))
+check(st_filtered.count == 1 && st_filtered[0].found?.count == 1 && st_filtered[0].reads.count == 2 && st_filtered[0].length == 300,
+      "search: a stretch lists only its matching reads")
+
+// Delete a whole stretch: all its lines, nothing else.
+let st_dir = tmp.appendingPathComponent("stretch", isDirectory: true)
+let st_sessions = st_dir.appendingPathComponent("sessions", isDirectory: true)
+let st_state = st_dir.appendingPathComponent("state.json")
+let st_lines = [st_ev("00:00"), st_ev("00:03"), st_ev("00:06", app: "Mail", title: "x"), st_ev("00:09")]
+let st_url = st_sessions.appendingPathComponent("20261021-100000").appendingPathComponent("events.jsonl")
+try! FileManager.default.createDirectory(at: st_url.deletingLastPathComponent(), withIntermediateDirectories: true)
+try! (st_lines.joined(separator: "\n") + "\n").write(to: st_url, atomically: true, encoding: .utf8)
+let st_parsed = Timeline.moments(try! Data(contentsOf: st_url), session: "20261021-100000", from: st_from, to: st_to).map(\.0)
+let st_first = st_stretches(Timeline.entries(st_parsed.map { .moment($0) }))[0]
+try! #"{"recording":true,"session_id":"20261021-100000"}"#.write(to: st_state, atomically: true, encoding: .utf8)
+do { try Timeline.deleteMoments(st_first.reads, sessions: st_sessions, state: st_state); check(false, "delete stretch: refused while recording") }
+catch { check(error as? Timeline.DeleteError == .recording, "delete stretch: refused while recording") }
+try! #"{"recording":false}"#.write(to: st_state, atomically: true, encoding: .utf8)
+try! Timeline.deleteMoments(st_first.reads, sessions: st_sessions, state: st_state)
+check(try! String(contentsOf: st_url, encoding: .utf8) == st_lines[2] + "\n" + st_lines[3] + "\n", "delete stretch: all its lines, nothing else")
+do { try Timeline.deleteMoments(st_first.reads, sessions: st_sessions, state: st_state); check(false, "delete stretch: twice") }
+catch { check(error as? Timeline.DeleteError == .notFound, "delete stretch: lines that are gone aren't guessed") }
+
 try? FileManager.default.removeItem(at: tmp)
 
 print("\(passes) passed, \(failures) failed")

@@ -1850,7 +1850,7 @@ final class GapLog {
     }
 }
 
-// MARK: - Timeline (SPEC "Timeline"): one day, everything recorded, raw
+// MARK: - Timeline (SPEC "Timeline"): one day, everything recorded, grouped into stretches
 
 extension ClaudeLink {
     /// Timeline → Make a capsule from this.
@@ -1879,6 +1879,10 @@ enum Timeline {
         let preview: String
         /// More text than the preview shows.
         let more: Bool
+        /// The first line of 20 or more characters, cut at 120 ("" if none).
+        let peek: String
+        /// How much text it has (bytes): the stretch's peek comes from the moment with the most.
+        let size: Int
         /// Where the line is in events.jsonl, and its length in bytes (without the newline).
         let offset: Int
         let length: Int
@@ -1907,6 +1911,59 @@ enum Timeline {
         }
     }
 
+    /// Screen moments in a row with the same app and title (SPEC "Stretches"). Never empty.
+    struct Stretch: Identifiable, Equatable {
+        let session: String
+        /// Its moments, the reads, in time order.
+        let reads: [Moment]
+        /// While searching: the reads that match (nil when not searching).
+        var found: [Moment]? = nil
+        /// `t` of the first read, `end` of the last.
+        let start: Date
+        let end: Date
+        let app: String
+        let bundle: String
+        let title: String
+        /// The first `where` that isn't empty.
+        let location: String
+        /// From the read with the most text (the first, if several have as much).
+        let peek: String
+        /// The most-used project among its reads ("" = none).
+        let project: String
+
+        init(session: String, reads: [Moment]) {
+            self.session = session
+            self.reads = reads
+            start = reads[0].t
+            end = max(reads[reads.count - 1].end, start)
+            app = reads[0].app
+            bundle = reads[0].bundle
+            title = reads[0].title
+            location = reads.first { !$0.location.isEmpty }?.location ?? ""
+            peek = reads.reduce(reads[0]) { $1.size > $0.size ? $1 : $0 }.peek
+            project = Timeline.mostUsed(reads.map(\.project))
+        }
+
+        var length: TimeInterval { end.timeIntervalSince(start) }
+        /// "App · title", or the app alone.
+        var name: String {
+            if title.isEmpty { return app.isEmpty ? "A window" : app }
+            return app.isEmpty ? title : "\(app) · \(title)"
+        }
+        /// Stays the same while the recording goes on (the first read's place in the file).
+        var id: String { reads[0].id }
+    }
+
+    /// What an opened recording lists, in time order.
+    enum Entry: Identifiable, Equatable {
+        case stretch(Stretch)
+        case note(Moment)
+        case gap(Gap)
+        var id: String {
+            switch self { case .stretch(let s): return "s-" + s.id; case .note(let m): return m.id; case .gap(let g): return g.id }
+        }
+    }
+
     /// One recording (session) on the day.
     struct Block: Identifiable, Equatable {
         let session: String
@@ -1918,16 +1975,14 @@ enum Timeline {
         var moments: Int
         var notes: Int
         var items: [Item]
+        /// The items grouped: stretches, notes and gaps.
+        var entries: [Entry]
         /// This is the recording going on now.
         var recording: Bool
         var id: String { session }
-    }
-
-    /// Time between two recordings ("Off").
-    struct Off: Equatable {
-        let after: String
-        let from: Date
-        let to: Date
+        var stretches: [Stretch] {
+            entries.compactMap { if case .stretch(let s) = $0 { return s } else { return nil } }
+        }
     }
 
     struct Day: Equatable {
@@ -1938,6 +1993,10 @@ enum Timeline {
 
     static let previewLines = 3
     static let previewWidth = 300
+    /// A stretch ends when the next read starts more than this after the last one's end.
+    static let pause: TimeInterval = 60
+    static let peekShortest = 20
+    static let peekWidth = 120
 
     // MARK: reading
 
@@ -2017,7 +2076,7 @@ enum Timeline {
         if times.isEmpty, let ended = endedAt(dir) { end = min(max(ended, start), to) }
         let notes = parsed.filter { $0.0.isNote }.count
         let block = Block(session: id, start: start, end: end, project: project, moments: parsed.count - notes, notes: notes,
-                          items: items, recording: recording)
+                          items: items, entries: entries(items), recording: recording)
         var hay: [String: String] = [:]
         for (m, h) in parsed { hay[m.id] = h }
         return (block, hay)
@@ -2100,7 +2159,7 @@ enum Timeline {
             let m = Moment(session: session, stamp: stamp, t: t, end: end, app: app, bundle: obj["bundle"] as? String ?? "",
                            title: title, location: location, project: project, kind: isNote ? kind : "",
                            lookedAt: (obj["focus"] as? String) == "pointer", preview: folded.0, more: folded.1,
-                           offset: r.lowerBound, length: r.count)
+                           peek: isNote ? "" : peek(text), size: text.utf8.count, offset: r.lowerBound, length: r.count)
             out.append((m, searchable([title, location, app, text].joined(separator: "\n"))))
         }
         return out
@@ -2138,6 +2197,107 @@ enum Timeline {
         return (kept.joined(separator: "\n"), more)
     }
 
+    /// The first line of 20 or more characters (trimmed), cut at 120 with "…"; "" if no line is that long.
+    static func peek(_ text: String) -> String {
+        for raw in text.split(whereSeparator: \.isNewline) {
+            let line = raw.trimmingCharacters(in: .whitespaces)
+            if line.count < peekShortest { continue }
+            return line.count > peekWidth ? String(line.prefix(peekWidth)) + "…" : line
+        }
+        return ""
+    }
+
+    // MARK: stretches
+
+    /// The most common value that isn't empty (the first seen wins a tie); "" if none.
+    static func mostUsed(_ values: [String]) -> String {
+        var count: [String: Int] = [:]
+        var best = ""
+        for v in values where !v.isEmpty {
+            count[v, default: 0] += 1
+            if v != best && count[v]! > count[best, default: 0] { best = v }
+        }
+        return best
+    }
+
+    /// A recording's items (in time order) grouped: screen moments in a row with the same app and the same title make
+    /// one stretch; a note, a gap, or more than a minute between two reads ends it.
+    static func entries(_ items: [Item]) -> [Entry] {
+        var out: [Entry] = []
+        var run: [Moment] = []
+        func close() {
+            if let first = run.first { out.append(.stretch(Stretch(session: first.session, reads: run))) }
+            run = []
+        }
+        for item in items {
+            switch item {
+            case .gap(let g):
+                close()
+                out.append(.gap(g))
+            case .moment(let m) where m.isNote:
+                close()
+                out.append(.note(m))
+            case .moment(let m):
+                if let last = run.last,
+                   last.app != m.app || last.title != m.title || m.t.timeIntervalSince(last.end) > pause { close() }
+                run.append(m)
+            }
+        }
+        close()
+        return out
+    }
+
+    /// The day's recorded time: the stretches' lengths added up.
+    static func recorded(_ blocks: [Block]) -> TimeInterval {
+        blocks.reduce(0) { $0 + $1.stretches.reduce(0) { $0 + $1.length } }
+    }
+
+    /// One row of Where your time went: a project id ("" = not sorted), or an app when nothing has a project.
+    struct Share: Equatable {
+        let key: String
+        let seconds: TimeInterval
+    }
+
+    /// Time per project, longest first; per app instead when no stretch has a project.
+    static func shares(_ stretches: [Stretch]) -> (byProject: Bool, rows: [Share]) {
+        let byProject = stretches.contains { !$0.project.isEmpty }
+        var time: [String: TimeInterval] = [:]
+        var order: [String] = []
+        for s in stretches {
+            let key = byProject ? s.project : s.app
+            if time[key] == nil { order.append(key) }
+            time[key, default: 0] += s.length
+        }
+        // Longest first; a tie keeps the order they came in.
+        let rows = order.enumerated().sorted { a, b in
+            time[a.element]! != time[b.element]! ? time[a.element]! > time[b.element]! : a.offset < b.offset
+        }.map { Share(key: $0.element, seconds: time[$0.element]!) }
+        return (byProject, rows)
+    }
+
+    /// What a folded recording names: its projects by time, or its top 2 apps when none has a project.
+    static func names(_ block: Block) -> (byProject: Bool, keys: [String]) {
+        let s = shares(block.stretches)
+        let keys = s.rows.map(\.key).filter { !$0.isEmpty }
+        return (s.byProject, s.byProject ? keys : Array(keys.prefix(2)))
+    }
+
+    /// The day bar: from the start of the hour of the first stretch to the end of the hour of the last.
+    static func barRange(_ stretches: [Stretch], calendar: Calendar = .current) -> (from: Date, to: Date)? {
+        guard let first = stretches.map(\.start).min(), let last = stretches.map(\.end).max(),
+              let a = calendar.dateInterval(of: .hour, for: first), let b = calendar.dateInterval(of: .hour, for: last)
+        else { return nil }
+        return (a.start, b.end)
+    }
+
+    /// "under 1 min", "38 min", "1 h", "1 h 50 min" (to the nearest minute).
+    static func length(_ seconds: TimeInterval) -> String {
+        if seconds < 60 { return "under 1 min" }
+        let m = Int((seconds / 60).rounded())
+        if m < 60 { return "\(m) min" }
+        return m % 60 == 0 ? "\(m / 60) h" : "\(m / 60) h \(m % 60) min"
+    }
+
     /// A moment's whole text, read again from its line in events.jsonl (Show all).
     static func fullText(_ m: Moment, sessions: URL) -> String? {
         let url = sessions.appendingPathComponent(m.session).appendingPathComponent("events.jsonl")
@@ -2165,24 +2325,36 @@ enum Timeline {
         words.allSatisfy { haystack.contains($0) }
     }
 
-    /// The day with only the moments that match (no gaps; blocks with no match left out). An empty query: all.
-    static func filter(_ day: Day, query: String) -> [Block] {
+    /// The ids of the moments (reads and notes) that match; nil for an empty query.
+    static func hits(_ day: Day, query: String) -> Set<String>? {
         let w = words(query)
-        guard !w.isEmpty else { return day.blocks }
-        return day.blocks.compactMap { b in
-            var b = b
-            b.items = b.items.filter { item in
-                guard case .moment(let m) = item else { return false }
-                return matches(day.haystacks[m.id] ?? "", words: w)
+        guard !w.isEmpty else { return nil }
+        return Set(day.haystacks.filter { matches($0.value, words: w) }.keys)
+    }
+
+    /// An opened recording while searching: the stretches with a read that matches (`found` set to those reads) and
+    /// the notes that match. No gaps.
+    static func filter(_ entries: [Entry], hits: Set<String>) -> [Entry] {
+        entries.compactMap { e in
+            switch e {
+            case .stretch(var s):
+                let found = s.reads.filter { hits.contains($0.id) }
+                if found.isEmpty { return nil }
+                s.found = found
+                return .stretch(s)
+            case .note(let m): return hits.contains(m.id) ? e : nil
+            case .gap: return nil
             }
-            return b.items.isEmpty ? nil : b
         }
     }
 
-    /// Time between recordings, a minute or more ("Off").
-    static func offs(_ blocks: [Block]) -> [Off] {
-        zip(blocks, blocks.dropFirst()).compactMap { a, b in
-            b.start.timeIntervalSince(a.end) >= 60 ? Off(after: a.session, from: a.end, to: b.start) : nil
+    /// Every recording of the day, each with only what matches the search. An empty query: all, as they are.
+    static func filter(_ day: Day, query: String) -> [Block] {
+        guard let hits = hits(day, query: query) else { return day.blocks }
+        return day.blocks.map { b in
+            var b = b
+            b.entries = filter(b.entries, hits: hits)
+            return b
         }
     }
 
@@ -2210,13 +2382,23 @@ enum Timeline {
 
     /// Removes one moment from its events.jsonl (the file is rewritten at once). Not while that session records.
     static func deleteMoment(_ m: Moment, sessions: URL, state: URL) throws {
-        guard isSessionID(m.session) else { throw DeleteError.badName }
-        if recordingSession(state: state) == m.session { throw DeleteError.recording }
-        let url = sessions.appendingPathComponent(m.session).appendingPathComponent("events.jsonl")
+        try deleteMoments([m], sessions: sessions, state: state)
+    }
+
+    /// Removes moments of one recording (a whole stretch) from its events.jsonl, all or none, in one rewrite.
+    static func deleteMoments(_ ms: [Moment], sessions: URL, state: URL) throws {
+        guard let session = ms.first?.session else { return }
+        guard isSessionID(session), ms.allSatisfy({ $0.session == session }) else { throw DeleteError.badName }
+        if recordingSession(state: state) == session { throw DeleteError.recording }
+        let url = sessions.appendingPathComponent(session).appendingPathComponent("events.jsonl")
         let data = try Data(contentsOf: url)
-        guard m.offset >= 0, m.offset + m.length <= data.count,
-              let out = removingLine(data, t: m.stamp, line: data.subdata(in: m.offset..<(m.offset + m.length))) else {
-            throw DeleteError.notFound
+        var out = data
+        for m in ms {
+            guard m.offset >= 0, m.offset + m.length <= data.count,
+                  let next = removingLine(out, t: m.stamp, line: data.subdata(in: m.offset..<(m.offset + m.length))) else {
+                throw DeleteError.notFound
+            }
+            out = next
         }
         try out.write(to: url, options: .atomic)
     }

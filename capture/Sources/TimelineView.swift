@@ -1,6 +1,8 @@
-// context-capsule — capture: the Timeline page (SPEC "Timeline") — everything recorded on one day, raw: a block per
-// recording with its moments, voice notes as speech bubbles, the stretches that weren't read, and "Off" between
-// recordings. Search the day, delete a moment or a whole recording, make a capsule from one recording.
+// context-capsule — capture: the Timeline page (SPEC "Timeline") — everything recorded on one day, short enough to read
+// at a glance: a header with the time recorded, a day bar coloured by project, where the time went, and each recording
+// folded to one line. Opened, a recording lists its stretches (same app and title in a row), voice notes as speech
+// bubbles and the stretches that weren't read; Show what was read lists a stretch's reads. Search the day, delete a
+// read, a stretch or a whole recording, make a capsule from one recording.
 // A lazy list: rows are made only when they scroll into view, and long text is read from the file only on Show all.
 
 import AppKit
@@ -12,15 +14,21 @@ final class TimelineModel: ObservableObject {
     /// The start of the day on show (local).
     @Published private(set) var day = Calendar.current.startOfDay(for: Date())
     @Published var query = "" { didSet { if query != oldValue { refilter() } } }
-    /// The blocks to show: the day, or what matches the search.
+    /// The recordings to show: the day, or the day with only what matches the search.
     @Published private(set) var blocks: [Timeline.Block] = []
-    /// "Off" after a block (by its session id); none while searching.
-    @Published private(set) var offs: [String: Timeline.Off] = [:]
+    /// The whole day (the header, the day bar and Where your time went don't change while searching).
+    @Published private(set) var data = Timeline.Day()
     @Published private(set) var loaded = false
-    /// Show all: a moment's whole text, by moment id.
+    /// Show all: a read's whole text, by moment id.
     @Published var expanded: [String: String] = [:]
+    /// Recordings opened or closed by hand (by session id); the one recording now is open unless closed.
+    @Published private var opened: Set<String> = []
+    @Published private var closed: Set<String> = []
+    /// Stretches with Show what was read open (by stretch id).
+    @Published private(set) var showingReads: Set<String> = []
+    /// The day bar asks the list to scroll to this row.
+    @Published var scrollTarget: String?
 
-    private var data = Timeline.Day()
     private var generation = 0
     private let queue = DispatchQueue(label: "com.thekarya.contextcapsule.timeline", qos: .userInitiated)
 
@@ -42,9 +50,12 @@ final class TimelineModel: ObservableObject {
         guard start != day else { return }
         day = start
         expanded = [:]
+        opened = []
+        closed = []
+        showingReads = []
         loaded = false
         blocks = []
-        offs = [:]
+        data = Timeline.Day()
         reload()
     }
 
@@ -94,7 +105,6 @@ final class TimelineModel: ObservableObject {
         let data = self.data, query = self.query
         guard !Timeline.words(query).isEmpty else {
             blocks = data.blocks
-            offs = Dictionary(Timeline.offs(data.blocks).map { ($0.after, $0) }, uniquingKeysWith: { a, _ in a })
             return
         }
         generation += 1
@@ -104,9 +114,38 @@ final class TimelineModel: ObservableObject {
             DispatchQueue.main.async {
                 guard let self, gen == self.generation else { return }
                 self.blocks = found
-                self.offs = [:]
             }
         }
+    }
+
+    // MARK: open and closed
+
+    /// While searching, recordings with a match open; else the one recording now, or what was opened by hand.
+    func isOpen(_ b: Timeline.Block) -> Bool {
+        if opened.contains(b.session) { return true }
+        if closed.contains(b.session) { return false }
+        return searching ? !b.entries.isEmpty : b.recording
+    }
+
+    func toggle(_ b: Timeline.Block) {
+        if isOpen(b) {
+            opened.remove(b.session)
+            closed.insert(b.session)
+        } else {
+            closed.remove(b.session)
+            opened.insert(b.session)
+        }
+    }
+
+    func toggleReads(_ s: Timeline.Stretch) {
+        if showingReads.contains(s.id) { showingReads.remove(s.id) } else { showingReads.insert(s.id) }
+    }
+
+    /// Day bar → open the stretch's recording and scroll to it.
+    func reveal(_ s: Timeline.Stretch) {
+        closed.remove(s.session)
+        opened.insert(s.session)
+        scrollTarget = Timeline.Entry.stretch(s).id
     }
 
     func showAll(_ m: Timeline.Moment) {
@@ -119,13 +158,26 @@ final class TimelineModel: ObservableObject {
 
     func showLess(_ m: Timeline.Moment) { expanded[m.id] = nil }
 
+    /// The whole recording as loaded (a search leaves only part of it in `blocks`).
+    func full(_ b: Timeline.Block) -> Timeline.Block { data.blocks.first { $0.session == b.session } ?? b }
+
     // MARK: delete (after a confirm)
 
     func delete(_ m: Timeline.Moment) {
-        guard confirm("Delete this moment? It can't be undone.",
+        let what = m.isNote ? (m.kind == Event.voice ? "voice note" : "note") : "read"
+        guard confirm("Delete this \(what)? It can't be undone.",
                       "It's removed from this Mac. Capsules already made stay as they are.") else { return }
         attempt { try Timeline.deleteMoment(m, sessions: paths.sessions, state: paths.state) }
         AppLog.shared.write("timeline: a moment deleted")
+    }
+
+    func delete(_ s: Timeline.Stretch) {
+        let n = s.reads.count
+        guard confirm("Delete this stretch? It can't be undone.",
+                      "\(n == 1 ? "Its read" : "All \(n) reads") from \(Self.span(s.start, s.end)) "
+                        + "\(n == 1 ? "is" : "are") removed from this Mac. Capsules already made stay as they are.") else { return }
+        attempt { try Timeline.deleteMoments(s.reads, sessions: paths.sessions, state: paths.state) }
+        AppLog.shared.write("timeline: a stretch deleted (\(n) moments)")
     }
 
     func delete(_ b: Timeline.Block) {
@@ -191,19 +243,40 @@ private enum AppIcons {
     }
 }
 
-/// One line of the lazy list.
+/// Project colours: a fixed order of plain system colours, given out longest first; no project is grey.
+private struct Palette {
+    static let colors: [Color] = [.blue, .teal, .orange, .green, .pink, .brown]
+    static let none = Color.gray.opacity(0.45)
+    /// Projects, or apps when nothing has a project (SPEC: Where your time went).
+    let byProject: Bool
+    let keys: [String]
+
+    init(_ shares: (byProject: Bool, rows: [Timeline.Share])) {
+        byProject = shares.byProject
+        keys = shares.rows.map(\.key).filter { !$0.isEmpty }
+    }
+
+    func key(_ s: Timeline.Stretch) -> String { byProject ? s.project : s.app }
+    func color(_ key: String) -> Color {
+        guard !key.isEmpty, let i = keys.firstIndex(of: key) else { return Self.none }
+        return Self.colors[i % Self.colors.count]
+    }
+    func color(_ s: Timeline.Stretch) -> Color { color(key(s)) }
+}
+
+/// One line of the lazy list. `first`/`last` draw a recording's rows as one rounded panel.
 private enum Row: Identifiable {
-    case head(Timeline.Block)
-    case item(Timeline.Item, block: Timeline.Block, first: Bool, last: Bool)
+    case head(Timeline.Block, open: Bool)
+    case entry(Timeline.Entry, last: Bool)
+    case read(Timeline.Moment, last: Bool)
     case nothing(Timeline.Block)
-    case off(Timeline.Off)
 
     var id: String {
         switch self {
-        case .head(let b): return "head-\(b.session)"
-        case .item(let i, _, _, _): return i.id
+        case .head(let b, _): return "head-\(b.session)"
+        case .entry(let e, _): return e.id
+        case .read(let m, _): return "read-\(m.id)"
         case .nothing(let b): return "nothing-\(b.session)"
-        case .off(let o): return "off-\(o.after)"
         }
     }
 }
@@ -216,18 +289,28 @@ struct TimelinePage: View {
 
     private let live = Timer.publish(every: 4, on: .main, in: .common).autoconnect()
 
+    private var stretches: [Timeline.Stretch] { model.data.blocks.flatMap(\.stretches) }
+
     private var rows: [Row] {
         var out: [Row] = []
         for b in model.blocks {
-            out.append(.head(b))
-            if b.items.isEmpty {
+            let open = model.isOpen(b)
+            out.append(.head(b, open: open))
+            guard open else { continue }
+            if b.entries.isEmpty {
                 out.append(.nothing(b))
-            } else {
-                for (i, item) in b.items.enumerated() {
-                    out.append(.item(item, block: b, first: i == 0, last: i == b.items.count - 1))
+                continue
+            }
+            for (i, e) in b.entries.enumerated() {
+                let lastEntry = i == b.entries.count - 1
+                if case .stretch(let s) = e, model.showingReads.contains(s.id) {
+                    out.append(.entry(e, last: false))
+                    let reads = s.found ?? s.reads
+                    for (j, m) in reads.enumerated() { out.append(.read(m, last: lastEntry && j == reads.count - 1)) }
+                } else {
+                    out.append(.entry(e, last: lastEntry))
                 }
             }
-            if let off = model.offs[b.session] { out.append(.off(off)) }
         }
         return out
     }
@@ -235,21 +318,39 @@ struct TimelinePage: View {
     private func projectName(_ id: String) -> String { library.name(of: id) }
 
     var body: some View {
+        let palette = Palette(Timeline.shares(stretches))
         GeometryReader { geo in
-            ScrollView {
-                LazyVStack(alignment: .leading, spacing: 0) {
-                    header.padding(.bottom, 12)
-                    if !model.loaded {
-                        ProgressView().controlSize(.small).padding(.top, 8)
-                    } else if model.blocks.isEmpty {
-                        Text(emptyLine).font(.system(size: 13)).foregroundStyle(.secondary).padding(.top, 8)
+            ScrollViewReader { proxy in
+                ScrollView {
+                    LazyVStack(alignment: .leading, spacing: 0) {
+                        header.padding(.bottom, 16)
+                        if !model.loaded {
+                            ProgressView().controlSize(.small).padding(.top, 8)
+                        } else if model.blocks.isEmpty || (model.searching && model.blocks.allSatisfy(\.entries.isEmpty)) {
+                            Text(emptyLine).font(.system(size: 13)).foregroundStyle(.secondary).padding(.vertical, 8)
+                        }
+                        if model.loaded && !stretches.isEmpty {
+                            DayBar(stretches: stretches, palette: palette) { model.reveal($0) }
+                                .padding(.bottom, 20)
+                            TimeWent(shares: Timeline.shares(stretches), palette: palette, name: projectName)
+                                .padding(.bottom, 12)
+                        }
+                        if !model.blocks.isEmpty { Caption(text: "Recordings").padding(.top, 8) }
+                        ForEach(rows) { row in rowView(row, palette: palette) }
                     }
-                    ForEach(rows) { row in rowView(row) }
+                    .padding(.horizontal, 32)
+                    .padding(.vertical, 24)
+                    .frame(maxWidth: geo.size.width > 900 ? 1120 : 760, alignment: .leading)
+                    .frame(maxWidth: .infinity)
                 }
-                .padding(.horizontal, 32)
-                .padding(.vertical, 24)
-                .frame(maxWidth: geo.size.width > 900 ? 1120 : 760, alignment: .leading)
-                .frame(maxWidth: .infinity)
+                .onChange(of: model.scrollTarget) {
+                    guard let target = model.scrollTarget else { return }
+                    // Let the opened recording's rows exist first.
+                    DispatchQueue.main.async {
+                        withAnimation { proxy.scrollTo(target, anchor: .top) }
+                        model.scrollTarget = nil
+                    }
+                }
             }
         }
         .onAppear { model.reload() }
@@ -263,10 +364,30 @@ struct TimelinePage: View {
                              : "Nothing recorded on this day."
     }
 
+    private var title: String {
+        if model.isToday { return "Today" }
+        if model.isYesterday { return "Yesterday" }
+        return model.day.formatted(.dateTime.day().month(.wide))
+    }
+
+    /// "Thursday 23 October · 1 h 50 min recorded · 3 recordings".
+    private var summary: String {
+        let f = DateFormatter()
+        f.setLocalizedDateFormatFromTemplate("EEEEdMMMM")
+        var parts = [f.string(from: model.day)]
+        if model.loaded {
+            let n = model.data.blocks.count
+            if !stretches.isEmpty { parts.append("\(Timeline.length(Timeline.recorded(model.data.blocks))) recorded") }
+            parts.append(n == 0 ? "nothing recorded" : "\(n) recording\(n == 1 ? "" : "s")")
+        }
+        return parts.joined(separator: " · ")
+    }
+
     @ViewBuilder private var header: some View {
-        VStack(alignment: .leading, spacing: 12) {
-            Title(text: "Timeline")
-            HStack(spacing: 10) {
+        VStack(alignment: .leading, spacing: 6) {
+            HStack(alignment: .firstTextBaseline, spacing: 10) {
+                Title(text: title)
+                Spacer()
                 Picker("", selection: Binding(get: { model.isToday ? 0 : model.isYesterday ? 1 : -1 }, set: { pick in
                     let cal = Calendar.current
                     model.show(pick == 0 ? Date() : cal.date(byAdding: .day, value: -1, to: cal.startOfDay(for: Date())) ?? Date())
@@ -283,48 +404,56 @@ struct TimelinePage: View {
                     .datePickerStyle(.field)
                     .fixedSize()
                     .help("Pick a day")
-                SearchField(text: $model.query, prompt: "Search this day")
             }
-            Text("Everything recorded on this day, as it was read. It stays on this Mac.")
-                .font(.system(size: 12)).foregroundStyle(.secondary)
+            Text(summary).font(.system(size: 13)).foregroundStyle(.secondary)
+            SearchField(text: $model.query, prompt: "Search this day").frame(maxWidth: 320).padding(.top, 8)
         }
     }
 
-    @ViewBuilder private func rowView(_ row: Row) -> some View {
+    @ViewBuilder private func rowView(_ row: Row, palette: Palette) -> some View {
         switch row {
-        case .head(let b): BlockHead(block: b, project: b.project.isEmpty ? nil : projectName(b.project), ai: ai,
-                                     make: { ai.makeCapsule(session: b.session, day: model.dayKey) },
-                                     delete: { model.delete(b) })
+        case .head(let b, let open):
+            let full = model.full(b)
+            RecordingHead(block: full, open: open, names: names(full), ai: ai,
+                          toggle: { model.toggle(b) },
+                          make: { ai.makeCapsule(session: b.session, day: model.dayKey) },
+                          delete: { model.delete(full) })
+                .modifier(PanelSlice(first: true, last: !open))
+                .padding(.top, 10)
         case .nothing:
-            Text("Nothing was recorded.")
+            Text(model.searching ? "Nothing here matches." : "Nothing was recorded.")
                 .font(.system(size: 13)).foregroundStyle(.secondary)
                 .frame(maxWidth: .infinity, alignment: .leading)
-                .padding(14)
-                .modifier(PanelSlice(first: true, last: true))
-        case .item(let item, _, let first, let last):
+                .padding(.horizontal, 14).padding(.bottom, 12).padding(.leading, 30)
+                .modifier(PanelSlice(first: false, last: true))
+        case .entry(let e, let last):
             Group {
-                switch item {
-                case .moment(let m) where m.isNote: NoteRow(moment: m) { model.delete(m) }
-                case .moment(let m):
-                    MomentRow(moment: m, project: m.project.isEmpty ? nil : projectName(m.project), full: model.expanded[m.id],
-                              showAll: { model.showAll(m) }, showLess: { model.showLess(m) }, delete: { model.delete(m) })
+                switch e {
+                case .stretch(let s):
+                    StretchRow(stretch: s, color: palette.color(s), project: s.project.isEmpty ? nil : projectName(s.project),
+                               open: model.showingReads.contains(s.id), toggle: { model.toggleReads(s) },
+                               delete: { model.delete(s) })
+                case .note(let m): NoteRow(moment: m) { model.delete(m) }
                 case .gap(let g): GapRow(gap: g)
                 }
             }
-            .overlay(alignment: .top) { if !first { Divider().padding(.leading, 46) } }
-            .modifier(PanelSlice(first: first, last: last))
-        case .off(let o):
-            HStack(spacing: 10) {
-                Rectangle().fill(Color.primary.opacity(0.12)).frame(width: 24, height: 1)
-                Text("Off  \(TimelineModel.span(o.from, o.to))").font(.system(size: 12)).foregroundStyle(.secondary)
-                Rectangle().fill(Color.primary.opacity(0.12)).frame(height: 1)
-            }
-            .padding(.vertical, 14)
+            .overlay(alignment: .top) { Divider().padding(.leading, 46) }
+            .modifier(PanelSlice(first: false, last: last))
+        case .read(let m, let last):
+            ReadRow(moment: m, full: model.expanded[m.id], showAll: { model.showAll(m) }, showLess: { model.showLess(m) },
+                    delete: { model.delete(m) })
+                .modifier(PanelSlice(first: false, last: last))
         }
+    }
+
+    /// What a folded recording names: its projects by time, or its top 2 apps.
+    private func names(_ b: Timeline.Block) -> String {
+        let n = Timeline.names(b)
+        return (n.byProject ? n.keys.map(projectName) : n.keys).joined(separator: ", ")
     }
 }
 
-/// A piece of a Panel: the rows of one block share one rounded background, drawn row by row so the list stays lazy.
+/// A piece of a Panel: the rows of one recording share one rounded background, drawn row by row so the list stays lazy.
 private struct PanelSlice: ViewModifier {
     let first: Bool
     let last: Bool
@@ -337,30 +466,120 @@ private struct PanelSlice: ViewModifier {
     }
 }
 
-/// "10:02 – 11:30 · 12 moments · Website", Make a capsule from this, and a menu with Delete.
-private struct BlockHead: View {
+/// The day in one row: each stretch a segment in its project's colour, hour labels below. Click a segment to see it.
+private struct DayBar: View {
+    let stretches: [Timeline.Stretch]
+    let palette: Palette
+    let reveal: (Timeline.Stretch) -> Void
+
+    var body: some View {
+        if let range = Timeline.barRange(stretches) {
+            let total = max(1, range.to.timeIntervalSince(range.from))
+            let hours = Int((total / 3600).rounded())
+            let step = max(1, Int((Double(hours) / 8).rounded(.up)))
+            VStack(spacing: 4) {
+                GeometryReader { geo in
+                    let w = geo.size.width
+                    ZStack(alignment: .leading) {
+                        RoundedRectangle(cornerRadius: 4).fill(Color.primary.opacity(0.06))
+                        ForEach(stretches) { s in
+                            let x = w * CGFloat(s.start.timeIntervalSince(range.from) / total)
+                            let width = max(3, w * CGFloat(s.length / total))
+                            Rectangle().fill(palette.color(s))
+                                .frame(width: width, height: 18)
+                                .contentShape(Rectangle())
+                                .help("\(TimelineModel.span(s.start, s.end)) · \(s.name)")
+                                .onTapGesture { reveal(s) }
+                                .offset(x: min(x, w - width))
+                        }
+                    }
+                    .clipShape(RoundedRectangle(cornerRadius: 4))
+                }
+                .frame(height: 18)
+                GeometryReader { geo in
+                    ForEach(Array(stride(from: 0, through: hours, by: step)), id: \.self) { h in
+                        let d = range.from.addingTimeInterval(Double(h) * 3600)
+                        Text(d.formatted(.dateTime.hour()))
+                            .font(.system(size: 10).monospacedDigit()).foregroundStyle(.secondary)
+                            .fixedSize()
+                            .position(x: geo.size.width * CGFloat(Double(h) * 3600 / total), y: 6)
+                    }
+                }
+                .frame(height: 12)
+            }
+        }
+    }
+}
+
+/// Where your time went: one row per project (or app), longest first.
+private struct TimeWent: View {
+    let shares: (byProject: Bool, rows: [Timeline.Share])
+    let palette: Palette
+    let name: (String) -> String
+
+    var body: some View {
+        let most = shares.rows.map(\.seconds).max() ?? 0
+        VStack(alignment: .leading, spacing: 8) {
+            Caption(text: "Where your time went")
+            VStack(alignment: .leading, spacing: 8) {
+                ForEach(shares.rows, id: \.key) { row in
+                    HStack(spacing: 12) {
+                        Text(label(row.key)).font(.system(size: 13)).foregroundStyle(row.key.isEmpty ? .secondary : .primary)
+                            .frame(width: 150, alignment: .leading).lineLimit(1)
+                        Capsule().fill(Color.primary.opacity(0.06))
+                            .frame(height: 8)
+                            .overlay(alignment: .leading) {
+                                GeometryReader { geo in
+                                    Capsule().fill(palette.color(row.key))
+                                        .frame(width: max(6, geo.size.width * CGFloat(most > 0 ? row.seconds / most : 0)))
+                                }
+                            }
+                        Text(Timeline.length(row.seconds)).font(.system(size: 12).monospacedDigit()).foregroundStyle(.secondary)
+                            .frame(width: 90, alignment: .trailing)
+                    }
+                }
+            }
+            .padding(14)
+            .background(RoundedRectangle(cornerRadius: 14, style: .continuous).fill(Color.primary.opacity(0.045)))
+        }
+    }
+
+    private func label(_ key: String) -> String {
+        if key.isEmpty { return shares.byProject ? "Not sorted" : "Other" }
+        return shares.byProject ? name(key) : key
+    }
+}
+
+/// A recording on one line: "10:00 – 11:40 · 1 h 40 min · Website, Client report", Make a capsule, and Delete.
+/// Click it to open or close.
+private struct RecordingHead: View {
     let block: Timeline.Block
-    let project: String?
+    let open: Bool
+    let names: String
     @ObservedObject var ai: AIState
+    let toggle: () -> Void
     let make: () -> Void
     let delete: () -> Void
 
     private var line: String {
-        var parts = [TimelineModel.span(block.start, block.end)]
-        parts.append("\(block.moments) moment\(block.moments == 1 ? "" : "s")")
-        if let project { parts.append(project) }
+        var parts = [TimelineModel.span(block.start, block.end), Timeline.length(block.end.timeIntervalSince(block.start))]
+        if !names.isEmpty { parts.append(names) }
         return parts.joined(separator: " · ")
     }
 
     var body: some View {
         HStack(spacing: 8) {
+            Image(systemName: "chevron.right")
+                .font(.system(size: 11, weight: .semibold)).foregroundStyle(.secondary)
+                .rotationEffect(.degrees(open ? 90 : 0))
+                .frame(width: 20)
             if block.recording {
                 Circle().fill(Color.red).frame(width: 7, height: 7).help("Recording now")
             }
-            Text(line).font(.system(size: 13, weight: .semibold)).lineLimit(1)
-            if block.recording { Text("Recording now").font(.system(size: 12)).foregroundStyle(.secondary) }
-            Spacer()
-            Button("Make a capsule from this", action: make)
+            Text(line).font(.system(size: 13, weight: .semibold)).lineLimit(1).truncationMode(.tail)
+            if block.recording { Text("Recording now").font(.system(size: 12)).foregroundStyle(.secondary).fixedSize() }
+            Spacer(minLength: 8)
+            Button("Make a capsule", action: make)
                 .disabled(ai.working)
                 .help("Your AI makes a capsule from this recording.")
             Menu {
@@ -373,34 +592,42 @@ private struct BlockHead: View {
             .fixedSize()
             .help("More")
         }
-        .padding(.leading, 4)
-        .padding(.top, 18)
-        .padding(.bottom, 8)
+        .padding(.horizontal, 14)
+        .padding(.vertical, 12)
+        .contentShape(Rectangle())
+        .onTapGesture(perform: toggle)
+        .accessibilityAddTraits(.isButton)
+        .accessibilityLabel(line + (open ? ", open" : ", closed"))
     }
 }
 
-/// One moment: time, app icon, title, where, project, the first 3 lines of text with Show all.
-private struct MomentRow: View {
-    let moment: Timeline.Moment
+/// One stretch: app and title, the time and how long, where, a peek at the text, how many reads; Show what was read.
+private struct StretchRow: View {
+    let stretch: Timeline.Stretch
+    let color: Color
     let project: String?
-    let full: String?
-    let showAll: () -> Void
-    let showLess: () -> Void
+    let open: Bool
+    let toggle: () -> Void
     let delete: () -> Void
     @State private var hover = false
 
     private var details: String {
         var parts: [String] = []
-        if !moment.title.isEmpty && !moment.app.isEmpty { parts.append(moment.app) }
-        if !moment.location.isEmpty { parts.append(moment.location) }
+        if !stretch.location.isEmpty { parts.append(stretch.location) }
         if let project { parts.append(project) }
         return parts.joined(separator: " · ")
+    }
+
+    private var reads: String {
+        let n = stretch.reads.count
+        if let found = stretch.found { return "\(found.count) of \(n) read\(n == 1 ? "" : "s") match" }
+        return "\(n) read\(n == 1 ? "" : "s")"
     }
 
     var body: some View {
         HStack(alignment: .top, spacing: 12) {
             Group {
-                if let icon = AppIcons.icon(bundle: moment.bundle, app: moment.app) {
+                if let icon = AppIcons.icon(bundle: stretch.bundle, app: stretch.app) {
                     Image(nsImage: icon).resizable().interpolation(.high)
                 } else {
                     Image(systemName: "macwindow").foregroundStyle(.secondary)
@@ -410,50 +637,97 @@ private struct MomentRow: View {
             .padding(.top, 1)
             VStack(alignment: .leading, spacing: 3) {
                 HStack(alignment: .firstTextBaseline, spacing: 8) {
-                    Text(moment.title.isEmpty ? (moment.app.isEmpty ? "A window" : moment.app) : moment.title)
-                        .font(.system(size: 13, weight: .medium)).lineLimit(1)
-                    if moment.lookedAt {
-                        Text("Looked at")
-                            .font(.system(size: 11, weight: .medium)).foregroundStyle(.secondary)
-                            .padding(.horizontal, 6).padding(.vertical, 1)
-                            .background(Capsule().strokeBorder(Color.secondary.opacity(0.5)))
-                            .help("The mouse was over it on another screen. You weren't typing in it.")
-                    }
+                    Circle().fill(color).frame(width: 7, height: 7)
+                    Text(stretch.name).font(.system(size: 13, weight: .medium)).lineLimit(1)
                     Spacer(minLength: 8)
-                    Text(TimelineModel.span(moment.t, moment.end))
-                        .font(.system(size: 12).monospacedDigit()).foregroundStyle(.secondary).lineLimit(1)
+                    Text("\(TimelineModel.span(stretch.start, stretch.end)) · \(Timeline.length(stretch.length))")
+                        .font(.system(size: 12).monospacedDigit()).foregroundStyle(.secondary).lineLimit(1).fixedSize()
                 }
                 if !details.isEmpty {
                     Text(details).font(.system(size: 12)).foregroundStyle(.secondary).lineLimit(1).truncationMode(.middle)
                 }
-                if let full {
-                    Text(full).font(.system(size: 12)).textSelection(.enabled).fixedSize(horizontal: false, vertical: true)
-                        .padding(.top, 2)
-                    Button("Show less", action: showLess).buttonStyle(.link).font(.system(size: 12))
-                } else if !moment.preview.isEmpty {
-                    Text(moment.preview).font(.system(size: 12)).textSelection(.enabled).lineLimit(3)
+                if !stretch.peek.isEmpty {
+                    Text(stretch.peek).font(.system(size: 12)).lineLimit(2).textSelection(.enabled)
                         .fixedSize(horizontal: false, vertical: true)
                         .padding(.top, 2)
-                    if moment.more { Button("Show all", action: showAll).buttonStyle(.link).font(.system(size: 12)) }
-                } else {
-                    Text("Nothing new on screen").font(.system(size: 12)).foregroundStyle(.tertiary)
                 }
+                HStack(spacing: 10) {
+                    Text(reads).font(.system(size: 12)).foregroundStyle(.secondary)
+                    Button(open ? "Hide what was read" : "Show what was read", action: toggle)
+                        .buttonStyle(.link).font(.system(size: 12))
+                }
+                .padding(.top, 2)
             }
-            MomentMenu(delete: delete).opacity(hover ? 1 : 0.35)
+            RowMenu(title: "Delete this stretch…", delete: delete).opacity(hover ? 1 : 0.35)
         }
         .padding(.horizontal, 14)
         .padding(.vertical, 10)
         .contentShape(Rectangle())
         .onHover { hover = $0 }
-        .contextMenu { Button("Delete this moment…", role: .destructive, action: delete) }
+        .contextMenu { Button("Delete this stretch…", role: .destructive, action: delete) }
     }
 }
 
-private struct MomentMenu: View {
+/// One read inside an open stretch: time, where, Looked at, the first 3 lines of text with Show all.
+private struct ReadRow: View {
+    let moment: Timeline.Moment
+    let full: String?
+    let showAll: () -> Void
+    let showLess: () -> Void
+    let delete: () -> Void
+    @State private var hover = false
+
+    var body: some View {
+        HStack(alignment: .top, spacing: 10) {
+            Text(TimelineModel.span(moment.t, moment.end))
+                .font(.system(size: 11).monospacedDigit()).foregroundStyle(.secondary)
+                .frame(width: 110, alignment: .leading)
+                .padding(.top, 1)
+            VStack(alignment: .leading, spacing: 3) {
+                if moment.lookedAt || !moment.location.isEmpty {
+                    HStack(spacing: 8) {
+                        if moment.lookedAt {
+                            Text("Looked at")
+                                .font(.system(size: 11, weight: .medium)).foregroundStyle(.secondary)
+                                .padding(.horizontal, 6).padding(.vertical, 1)
+                                .background(Capsule().strokeBorder(Color.secondary.opacity(0.5)))
+                                .help("The mouse was over it on another screen. You weren't typing in it.")
+                        }
+                        if !moment.location.isEmpty {
+                            Text(moment.location).font(.system(size: 12)).foregroundStyle(.secondary)
+                                .lineLimit(1).truncationMode(.middle)
+                        }
+                    }
+                }
+                if let full {
+                    Text(full).font(.system(size: 12)).textSelection(.enabled).fixedSize(horizontal: false, vertical: true)
+                    Button("Show less", action: showLess).buttonStyle(.link).font(.system(size: 12))
+                } else if !moment.preview.isEmpty {
+                    Text(moment.preview).font(.system(size: 12)).textSelection(.enabled).lineLimit(3)
+                        .fixedSize(horizontal: false, vertical: true)
+                    if moment.more { Button("Show all", action: showAll).buttonStyle(.link).font(.system(size: 12)) }
+                } else {
+                    Text("Nothing new on screen").font(.system(size: 12)).foregroundStyle(.tertiary)
+                }
+            }
+            Spacer(minLength: 8)
+            RowMenu(title: "Delete this read…", delete: delete).opacity(hover ? 1 : 0.35)
+        }
+        .padding(.leading, 46)
+        .padding(.trailing, 14)
+        .padding(.vertical, 6)
+        .contentShape(Rectangle())
+        .onHover { hover = $0 }
+        .contextMenu { Button("Delete this read…", role: .destructive, action: delete) }
+    }
+}
+
+private struct RowMenu: View {
+    let title: String
     let delete: () -> Void
     var body: some View {
         Menu {
-            Button("Delete this moment…", role: .destructive, action: delete)
+            Button(title, role: .destructive, action: delete)
         } label: {
             Image(systemName: "ellipsis")
         }
@@ -469,6 +743,8 @@ private struct NoteRow: View {
     let moment: Timeline.Moment
     let delete: () -> Void
     @State private var hover = false
+
+    private var deleteTitle: String { moment.kind == Event.voice ? "Delete this voice note…" : "Delete this note…" }
 
     var body: some View {
         HStack(alignment: .top, spacing: 12) {
@@ -486,13 +762,13 @@ private struct NoteRow: View {
                     .font(.system(size: 11)).foregroundStyle(.secondary).padding(.leading, 4)
             }
             Spacer(minLength: 8)
-            MomentMenu(delete: delete).opacity(hover ? 1 : 0.35)
+            RowMenu(title: deleteTitle, delete: delete).opacity(hover ? 1 : 0.35)
         }
         .padding(.horizontal, 14)
         .padding(.vertical, 10)
         .contentShape(Rectangle())
         .onHover { hover = $0 }
-        .contextMenu { Button("Delete this moment…", role: .destructive, action: delete) }
+        .contextMenu { Button(deleteTitle, role: .destructive, action: delete) }
     }
 }
 

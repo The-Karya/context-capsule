@@ -20,16 +20,20 @@ Frames stay in memory and are never written to disk. The file format is in
 time) has everything in one place, with a sidebar:
 - **Home** — Start / Stop contextualizing with a live timer, Speak a note, Add a screen, the
   current project (change it or make a new one), Make today's capsules, See today's timeline.
-- **Timeline** — everything recorded on one day, raw (Today, Yesterday, or pick a day). A block per
-  recording ("10:02 – 11:30 · 12 moments · Website"), "Off" between recordings. Each moment: time, app
-  icon, title, page or file, project, and its first 3 lines of text with **Show all** (the whole text is
-  read from the file only then). "Looked at" marks a window read under the mouse on another screen. Voice
-  and typed notes are speech bubbles with all their words. Stretches that weren't read show as "Not read
-  10:40 – 10:55: a private app was in front" (from `gaps.jsonl`, below). **Search this day** filters by
-  title, page, app and text. Each moment and each block has a menu with **Delete** ("Delete this moment?
-  It can't be undone."); not while that recording is still going ("Stop first"). **Make a capsule from
-  this** opens your AI with `Use Context Capsule to make a capsule from my session <id>.` (a website or
-  any other AI gets Copy my day for that day). While contextualizing, Today updates every few seconds.
+- **Timeline** — one day, short enough to read at a glance (Today, Yesterday, or pick a day). Reads are
+  grouped into stretches: the same app and title in a row (a note, a "Not read" gap or a pause over a minute
+  ends one). The header says the date, the time recorded and how many recordings; a day bar shows each
+  stretch in its project's colour (click one to see it); **Where your time went** lists time per project
+  ("Not sorted" for the rest; per app when nothing has a project). Each recording is one line ("10:00 –
+  11:40 · 1 h 40 min · Website, Client report") with **Make a capsule** and a menu with Delete; the one still
+  recording is open. Opened: stretches (app · title, time and length, page or file, a peek at the text,
+  "24 reads"), voice and typed notes as speech bubbles, and "Not read 10:40 – 10:55: a private app was in
+  front" (from `gaps.jsonl`, below). **Show what was read** lists a stretch's reads: time, page, "Looked at"
+  (read under the mouse on another screen), the first 3 lines with **Show all** (the whole text is read from
+  the file only then). **Search this day** keeps the stretches and notes that match. Delete a read, a stretch
+  or a recording ("It can't be undone."); not while it's still recording ("Stop first"). Make a capsule
+  opens your AI with `Use Context Capsule to make a capsule from my session <id>.` (a website or any other AI
+  gets Copy my day for that day). While contextualizing, Today updates every few seconds.
 - **Capsules** — by project, with Share (Copy file — paste into WhatsApp, Slack, email…; Copy
   text; Save a copy…; Show in Finder; More… for AirDrop/Mail/Messages) and Open. A search field
   filters by title and "In short" as you type (Return only filters); **Ask your AI** opens your AI
@@ -242,7 +246,7 @@ false and `last_error` is `"cancelled"`.
 
 | file | does |
 |---|---|
-| `Sources/Core.swift` | pure logic: paths, JSON, times, redaction, exclusion, event log, picked-content membership, AX text assembly, AX-vs-OCR choice, voice notes (silence, events, the press-to-talk state machine), check before sharing, is-it-a-capsule, search, gaps (gaps.jsonl), the timeline (a day read into blocks, fold, search, delete) |
+| `Sources/Core.swift` | pure logic: paths, JSON, times, redaction, exclusion, event log, picked-content membership, AX text assembly, AX-vs-OCR choice, voice notes (silence, events, the press-to-talk state machine), check before sharing, is-it-a-capsule, search, gaps (gaps.jsonl), the timeline (a day read into recordings and stretches, time per project, fold, search, delete) |
 | `Sources/Library.swift` | Share (with the "Check before sharing" box), opening Claude with a request, opening a received capsule |
 | `Sources/AIBridge.swift` | any AI: runs context-capsule-mcp, Connect your AI, Your AI, Copy my day, Save from clipboard |
 | `Sources/Picker.swift` | the system picker (`SCContentSharingPicker`) and the one `SCStream` of the picked content |

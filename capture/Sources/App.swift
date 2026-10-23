@@ -191,6 +191,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         if CommandLine.arguments.contains("--show-library") { main.show(.capsules) }
         if CommandLine.arguments.contains("--show-welcome") { main.show(.settings) }
         if CommandLine.arguments.contains("--show-reminder") { daily.show() }
+        // --show-timeline [YYYY-MM-DD]: the Timeline, on that day if one is given.
+        if let i = CommandLine.arguments.firstIndex(of: "--show-timeline") {
+            main.show(.timeline)
+            let f = DateFormatter()
+            f.locale = Locale(identifier: "en_US_POSIX")
+            f.dateFormat = "yyyy-MM-dd"
+            if i + 1 < CommandLine.arguments.count, let day = f.date(from: CommandLine.arguments[i + 1]) { main.timeline.show(day) }
+        }
     }
 
     private var lastTrusted = false
