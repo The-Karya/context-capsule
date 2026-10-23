@@ -92,7 +92,27 @@ const hints = (name: string): ToolAnnotations => TOOL_HINTS[name]!;
 export interface ServerOptions {
   /** How long start/stop wait for the app to answer via state.json (default: start 6 s, stop 4 s). */
   confirmTimeoutMs?: number;
+  /** Only these tools (Automatic capsules: the ones that write a day's capsules; nothing that records, exports,
+   * imports or reads other files). */
+  only?: readonly string[];
 }
+
+/** The tools an unattended run needs to make a day's capsules (`serve --make-only`). */
+export const MAKE_TOOLS = [
+  "prepare_day",
+  "finish_day",
+  "get_day_activity",
+  "get_session_activity",
+  "get_moment",
+  "list_sessions",
+  "list_projects",
+  "create_project",
+  "assign_project",
+  "list_capsules",
+  "get_capsule",
+  "save_capsule",
+  "search_capsules",
+] as const;
 
 const text = (t: string): CallToolResult => ({ content: [{ type: "text", text: t }] });
 const fail = (t: string): CallToolResult => ({ content: [{ type: "text", text: t }], isError: true });
@@ -135,6 +155,14 @@ export function createServer(opts: ServerOptions = {}): McpServer {
       instructions: SERVER_INSTRUCTIONS,
     },
   );
+
+  if (opts.only) {
+    const only = new Set(opts.only);
+    const register = server.registerTool.bind(server);
+    // tools outside the list are simply never registered
+    server.registerTool = ((name: string, ...rest: unknown[]) =>
+      only.has(name) ? (register as (...a: unknown[]) => unknown)(name, ...rest) : undefined) as typeof server.registerTool;
+  }
 
   // ---------- recording ----------
 

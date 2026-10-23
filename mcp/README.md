@@ -37,6 +37,8 @@ with `./build-binary.sh` (bun): `dist-bin/context-capsule-mcp-macos` (universal)
 | `connect <id>` / `disconnect <id>` | adds / removes Context Capsule in that app's own MCP settings file; merges (other servers, settings and comments stay), keeps a `.bak`, never touches a file it can't read. `{"ok","message"}` |
 | `day [--date YYYY-MM-DD]` | JSON `{"text","chars"}`: one message (up to ~60,000 characters) to paste into any AI chat: the capsule guide, your day (screen text wrapped as information) and how to answer: each capsule between `=== CAPSULE ===` and `=== END ===` lines |
 | `save [--date YYYY-MM-DD]` | reads that AI's answer on stdin, checks each capsule like `save_capsule` (every section, citations that match real notes, secrets removed) and saves the good ones. JSON `{"saved":[{"title","path"}],"refused":[{"title","why"}]}` |
+| `agents` | JSON `{"agents":[{"id","name"}],"use"}`: the AI command-line tools found on this computer (Claude Code, Codex, Gemini CLI) and the one `make` would use |
+| `make [--date YYYY-MM-DD] [--by auto\|click]` | makes the day's capsules with that tool, headless, in the background: it gets only this server (`serve --make-only`: the tools that write a day's capsules, nothing that records, exports or imports) and no shell, files or web; stopped after 10 minutes; the outcome goes to `auto.json` and `app.log`. JSON `{"ok","status","capsules","reason"}`. The exact flags per tool are in SPEC.md, "Automatic capsules" |
 
 ### The apps `connect` knows
 
