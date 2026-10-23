@@ -18,10 +18,11 @@ import * as projects from "./pages/projects.js";
 import * as settings from "./pages/settings.js";
 import * as help from "./pages/help.js";
 import * as capsule from "./pages/capsule.js";
+import * as share from "./pages/share.js";
 import * as actions from "./actions.js";
 import * as Auto from "./core/auto.js";
 
-const PAGES = { home, timeline, capsules, projects, settings, help, capsule };
+const PAGES = { home, timeline, capsules, projects, settings, help, capsule, share };
 const TITLES = { home: "Home", timeline: "Timeline", capsules: "Capsules", projects: "Projects", settings: "Settings", help: "Help" };
 const query = new URLSearchParams(location.search);
 
@@ -192,12 +193,16 @@ app.go = (page, opts = {}) => {
   if (!PAGES[page]) page = "home";
   // "capsule" is the reading view: not in the sidebar; Back returns to the page it was opened from.
   if (page === "capsule" && !opts.file && !opts.path && !app.reading) page = "home";
+  // "share" is the share page of a saved capsule: Back returns to where Share… was clicked.
+  if (page === "share" && !opts.file && !app.sharing) page = "capsules";
   closePopups();
-  if (page === "capsule" && app.page !== "capsule") app.from = app.page || "capsules";
-  const same = page === app.page && current && page !== "capsule";
+  if (page === "capsule" && app.page !== "capsule" && app.page !== "share") app.from = app.page || "capsules";
+  if (page === "share" && app.page !== "share") app.shareFrom = app.page || "capsules";
+  const same = page === app.page && current && page !== "capsule" && page !== "share";
   app.page = page;
   if (location.hash.slice(1) !== page) history.replaceState(null, "", "#" + page);
-  const lit = page === "capsule" ? app.from : page;
+  const under = page === "share" ? app.shareFrom : page;
+  const lit = under === "capsule" ? app.from : under;
   for (const a of document.querySelectorAll(".side-row")) {
     if (a.dataset.page === lit) a.setAttribute("aria-current", "page");
     else a.removeAttribute("aria-current");
@@ -210,6 +215,8 @@ app.go = (page, opts = {}) => {
 app.read = (view) => app.go("capsule", view);
 app.back = () => app.go(app.from || "capsules");
 app.backTitle = () => TITLES[app.from] || "Capsules";
+app.backFromShare = () => app.go(app.shareFrom || "capsules");
+app.shareBackTitle = () => (app.shareFrom === "capsule" ? "the capsule" : TITLES[app.shareFrom] || "Capsules");
 
 function mount(opts) {
   const root = document.getElementById("page");
@@ -353,6 +360,7 @@ async function start() {
   const first = query.get("page") || location.hash.slice(1) || app.hello.page || (app.hello.firstRun ? "settings" : "home");
   app.go(first, { open: query.get("open") });
   if (query.get("capsule")) app.read({ file: query.get("capsule") }); // dev renders: ?capsule=capsules/….capsule.md
+  if (query.get("share")) app.go("share", { file: query.get("share") }); // dev renders: ?share=capsules/….capsule.md
   window.addEventListener("hashchange", () => app.go(location.hash.slice(1)));
   // Ready for renders once the page's own reads are done.
   setTimeout(async () => {

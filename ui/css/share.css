@@ -1,0 +1,81 @@
+/* context-capsule — ui: the share page — the capsule as it will be shared, what might be private marked where it is,
+   the kinds with switches on the side (below the bar when the window is narrow). Uses app.css's tokens. */
+
+.content.share-page { max-width: 760px; container: share / inline-size; }
+
+/* The bar: Back, Share "title", how many things are hidden, •••, Share copy. It stays at the top while the text
+   scrolls (it reaches up under the window's toolbar strip so nothing shows above it). */
+.share-bar {
+  position: sticky; top: -52px; z-index: 2;
+  display: flex; align-items: center; gap: 6px;
+  margin: -52px 0 0; padding: 52px 0 10px;
+  background: var(--window, var(--bg));
+  border-bottom: 1px solid var(--line, var(--sep));
+}
+:root[data-material="glass"] .share-bar {
+  background: var(--page, transparent);
+  -webkit-backdrop-filter: blur(24px) saturate(1.4); backdrop-filter: blur(24px) saturate(1.4);
+}
+.share-bar .back { margin-left: -6px; }
+.share-title {
+  flex: 1; min-width: 0; margin: 0 0 0 4px;
+  font-size: 13px; font-weight: 600; line-height: 18px;
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+.share-count { font-size: 12px; color: var(--muted, var(--secondary)); white-space: nowrap; margin-right: 2px; font-variant-numeric: tabular-nums; }
+.share-bar .more { padding: 0 8px; letter-spacing: 1px; }
+
+/* Text on the left, kinds on the right; stacked (kinds first) when narrow. */
+.share-grid {
+  display: grid; grid-template-columns: minmax(0, 1fr) 184px; grid-template-areas: "text kinds";
+  gap: 28px; padding-top: 14px; align-items: start;
+}
+.share-grid .share-text { grid-area: text; padding-top: 0; }
+.share-grid .share-kinds { grid-area: kinds; position: sticky; top: 52px; padding-top: 6px; }
+@container share (max-width: 560px) {
+  .share-grid { grid-template-columns: minmax(0, 1fr); grid-template-areas: "kinds" "text"; gap: 8px; }
+  .share-grid .share-kinds { position: static; padding-bottom: 12px; border-bottom: 1px solid var(--line, var(--sep)); }
+  .share-kinds-list { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); column-gap: 20px; }
+}
+@container share (max-width: 340px) {
+  .share-kinds-list { grid-template-columns: minmax(0, 1fr); }
+}
+
+.share-text > h2:first-child, .share-text > h3:first-child { margin-top: 6px; }
+.share-text { overflow-wrap: anywhere; }
+
+/* ---------- the kinds ---------- */
+
+.share-kinds-note { font-size: 12px; line-height: 16px; color: var(--muted, var(--secondary)); margin: 0 0 8px; }
+.share-kinds-list { list-style: none; margin: 0; padding: 0; }
+.share-kind {
+  display: flex; align-items: center; justify-content: space-between; gap: 8px;
+  min-height: 30px; font-size: 13px; border-bottom: 1px solid var(--line, var(--sep));
+}
+.share-kind:last-child { border-bottom: 0; }
+@container share (max-width: 560px) { .share-kind:nth-last-child(2):nth-child(odd) { border-bottom: 0; } }
+.share-kind-n { color: var(--muted, var(--secondary)); font-size: 12px; margin-left: 6px; }
+.share-kind.none .share-kind-name { color: var(--muted, var(--secondary)); }
+.share-kind .switch[aria-checked="true"] { background: var(--c-orange); }
+.share-kind .switch[aria-checked="true"]::after { background: #fff; }
+.share-kind .switch:disabled { opacity: 0.45; }
+.share-kind .switch:focus-visible { box-shadow: 0 0 0 3px var(--focus); }
+
+/* ---------- the marked words ---------- */
+
+.share-text .find { cursor: pointer; border-radius: 4px; -webkit-box-decoration-break: clone; box-decoration-break: clone; }
+.share-text .find.hidden {
+  background: rgba(232, 133, 58, 0.16); color: #b4561a; padding: 0 2px;
+  text-decoration: line-through; text-decoration-color: rgba(180, 86, 26, 0.55);
+}
+:root[data-dark] .share-text .find.hidden { background: rgba(232, 133, 58, 0.2); color: #f2b58b; text-decoration-color: rgba(242, 181, 139, 0.6); }
+.share-text .find.hidden:hover { background: rgba(232, 133, 58, 0.26); }
+.share-text .find.kept { text-decoration: underline dashed; text-decoration-color: var(--faint, var(--tertiary)); text-underline-offset: 3px; }
+.share-text .find.kept:hover { background: var(--hover, rgba(128, 128, 128, 0.1)); text-decoration-color: var(--muted, var(--secondary)); }
+.share-text .find:focus-visible { outline: none; box-shadow: 0 0 0 2px var(--focus); }
+.share-text code .find.hidden { padding: 0; }
+
+@media (forced-colors: active) {
+  .share-text .find.hidden { forced-color-adjust: none; background: Mark; color: MarkText; }
+  .share-text .find.kept { text-decoration-color: CanvasText; }
+}

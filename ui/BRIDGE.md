@@ -6,7 +6,7 @@ it can do (start recording, the clipboard, opening apps, native pickers). Everyt
 durations, the day bar, search, dates and times, every word — is worked out once, in `ui/js/`.
 
 The menu bar / tray, the screen picker, hotkeys, voice notes, file pickers and the update installer stay native.
-Alerts and confirms *inside the window* (Delete…, Check before sharing, Save from clipboard's result) are drawn by
+Alerts and confirms *inside the window* (Delete…, Save from clipboard's result) are drawn by
 the page (`role="alertdialog"`), so they look the same everywhere.
 
 ## Shape
@@ -175,8 +175,7 @@ Mac this app is the default for .capsule.md and would send it to your AI). The p
 opens the reading view (`#capsule`).
 
 **`capsule.share`** `{ "file": "capsules/…", "how": "copy-file" | "copy-text" | "save-copy" | "reveal" | "more", "text"?: "<cleaned copy>" }`
-→ `{ "done": true, "where"?: "Desktop" }` — with `text`, share a copy with that text and the same file name (Check
-before sharing already ran in the page); without, the file itself. `save-copy` shows the native save panel
+→ `{ "done": true, "where"?: "Desktop" }` — with `text`, share a copy with that text and the same file name (made on the share page); without, the file itself. `save-copy` shows the native save panel
 (`done:false` if cancelled); `reveal` = Show in Finder / Explorer / Files; `more` = the system share sheet (Mac) —
 other hosts may leave it out (`hello.platform` tells the page).
 Has code: Swift `Share.*`; Rust windows/linux share code in `main_window.rs` / `window/`.
@@ -245,14 +244,14 @@ received capsule").
 | `projects.js` — projects.json, slug, detect, edit | Swift `Projects`, Rust `core::projects` |
 | `shortcuts.js` — parse, show (⌥C / Alt+C), key events, checks | Swift `Shortcut`, Rust `core::shortcuts` |
 | `yourai.js` — Your AI choice, clients, Copy my day / Save words | Swift `YourAI`/`AIAnswer`, Rust `core::anyai` |
-| `sharecheck.js` — Before you share (emails, phones, People names, private links) | Swift `ShareCheck`, Rust `core::share_check` (spec/share-check.json; the old windows) |
+| `sharecheck.js` — the share page: names, emails, phones, private links, money, companies, file paths, public links; where each is; the copy | Swift `ShareCheck`, Rust `core::share_check` (the first four kinds; spec/share-check.json; the old windows) |
 | `markdown.js` — the reading view's Markdown (blocks, inline; no HTML) | — |
 
 ## Dev harness
 
 `bun ui/dev/server.js [data folder]` serves the page at http://localhost:5174 with a fake host (`ui/dev/shim.js` +
 the server) that answers every method above from a data folder (default `/tmp/mac-ref-data`); writes stay in memory.
-URL options: `#home` … `#help`, `?capsule=capsules/<file>` (the reading view), `?open=first` (open the first recording), `?dark=1`, `?firstRun=1`,
+URL options: `#home` … `#help`, `?capsule=capsules/<file>` (the reading view), `?share=capsules/<file>` (the share page), `?open=first` (open the first recording), `?dark=1`, `?firstRun=1`,
 `?platform=windows|linux`, `?material=glass`, `?locale=en-GB`, `?recording=1`, `?now=2026-10-23T19:00:00` (the page's clock).
 
 Renders: `ui/dev/render-all.sh` (WKWebView, `ui/dev/snap.swift`) writes every page in light and dark to

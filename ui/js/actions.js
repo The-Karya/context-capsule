@@ -1,12 +1,11 @@
 // context-capsule — ui: what the buttons do with Your AI (SPEC "Any AI"): open it with a request, Copy my day,
-// Save from clipboard, connect apps, open a received capsule; and sharing a capsule (Check before sharing)
+// Save from clipboard, connect apps, open a received capsule; and sharing a capsule (the share page)
 
 import { call, why, read } from "./host.js";
-import { alert, toast, h } from "./dom.js";
+import { alert, toast } from "./dom.js";
 import * as AI from "./core/yourai.js";
 import * as Auto from "./core/auto.js";
 import * as Caps from "./core/capsules.js";
-import * as Check from "./core/sharecheck.js";
 import { sessionPrompt } from "./core/timeline.js";
 
 const changed = (app) => app.refresh("ai");
@@ -225,51 +224,19 @@ export async function readCapsule(file) {
 
 // ---------- sharing ----------
 
-/** A long item (a link) shortened in the middle, so its start and end both show: "https://docs.goo…/edit". */
-export function middle(text, max) {
-  const chars = [...text];
-  if (chars.length <= max) return text;
-  const head = Math.ceil((max - 1) * 0.6);
-  return chars.slice(0, head).join("") + "…" + chars.slice(chars.length - (max - 1 - head)).join("");
-}
-
-/** Before you share: the cleaned text to share, undefined to share the file as it is, or null when cancelled. */
-async function checked(file) {
-  const text = (await read([file]))[file];
-  if (text == null) return undefined;
-  const groups = Check.nonEmpty(Check.find(text));
-  if (!groups.length) return undefined;
-  const boxes = [];
-  const list = h("div", { class: "checks", role: "group", "aria-label": "Items that might be private" });
-  for (const g of groups) {
-    list.append(h("h3", null, g.title));
-    for (const item of g.items) {
-      const box = h("input", { type: "checkbox", checked: true });
-      boxes.push([box, item]);
-      list.append(h("label", { title: item }, box, h("span", null, middle(item, 48))));
-    }
-  }
-  const i = await alert({
-    title: "Before you share",
-    message: "Ticked items are replaced with [removed] in the copy you share. Your capsule stays the same.",
-    extra: list,
-    wide: true,
-    buttons: [{ text: "Cancel", kind: "cancel" }, { text: "Share", kind: "default" }],
-  });
-  if (i !== 1) return null;
-  const remove = boxes.filter(([b]) => b.checked).map(([, item]) => item);
-  return remove.length ? Check.remove(text, remove) : undefined;
-}
-
 const SHARED = {
   "copy-file": "Copied. Paste it in WhatsApp, Slack, email or any chat.",
   "copy-text": "Text copied. Paste it into a chat, or into your AI.",
 };
 
-export async function share(app, c, how) {
+/** Share… anywhere: the share page (the capsule as it will be shared; SPEC "Sharing a capsule"). */
+export function openShare(app, c) {
+  app.go("share", { file: c.file });
+}
+
+/** Share a capsule: `text` is the copy from the share page (undefined: the file as it is). */
+export async function share(app, c, how, text) {
   if (how === "reveal") return call("capsule.share", { file: c.file, how }).catch(() => {});
-  const text = await checked(c.file);
-  if (text === null) return;
   try {
     const r = await call("capsule.share", { file: c.file, how, ...(text !== undefined ? { text } : {}) });
     if (how === "save-copy" && r?.done) toast(`Saved to ${r.where || "the folder you chose"}.`);
@@ -279,14 +246,10 @@ export async function share(app, c, how) {
   }
 }
 
-/** The Share menu for a saved capsule: Copy file, Copy text, Save a copy…, Show in Finder (and More… on a Mac). */
+/** A saved capsule's menu items: Share… (the share page) and Show in Finder. */
 export function shareItems(app, c) {
-  const items = [
-    { text: "Copy file", action: () => share(app, c, "copy-file") },
-    { text: "Copy text", action: () => share(app, c, "copy-text") },
-    { text: "Save a copy…", action: () => share(app, c, "save-copy") },
+  return [
+    { text: "Share…", action: () => openShare(app, c) },
     { text: Caps.showLabel(app.platform), action: () => share(app, c, "reveal") },
   ];
-  if (app.platform === "mac") items.push("-", { text: "More…", action: () => share(app, c, "more") });
-  return items;
 }

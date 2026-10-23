@@ -347,14 +347,23 @@ ChatGPT remote connector (needs hosting), images, cloud sync, teams.
 - No secrets, no Karya-internal code or URLs. MIT. Clean, small, readable.
 - Every source file starts with a short header comment naming the project.
 
-## Check before sharing (all recorders)
+## Sharing a capsule (all recorders)
 
-Before a capsule is shared (Copy file, Copy text, Save a copy, AirDrop/Share…), the app shows what's inside that
-might be private ("Before you share"), grouped: **People, Emails, Phone numbers, Private links**. Each item has a
-check box, ticked; "Share" sends a copy with the ticked items replaced by `[removed]` (the saved capsule is never
-changed). With nothing found, there is no dialog: sharing goes straight through. No AI: plain rules, the same on
-every platform (`spec/share-check.json` holds the cases the JS, Swift and Rust code must pass). Capitalised words,
-@handles, money, file paths and ordinary public links are not flagged.
+**The shared window (ui/).** Share… (a capsule's row, the reading view, menus) opens the **share page**, not a dialog:
+a top bar with Back, Share "<title>", "N things hidden" (or "Nothing personal found") and the ink **Share copy**; the
+capsule as in the reading view, with each thing found marked where it is — hidden ones struck through in an orange
+highlight, kept ones with a dashed underline; click (or Return / Space) on one to hide or keep just it, everywhere it
+appears; ← → move between them. On the right (above the text when the window is narrow) the eight kinds with their
+counts and a switch each: **Names, Emails, Phone numbers, Private links, Money** (hidden at first), **Companies, File
+paths, Public links** (kept at first). **Share copy** shares a copy with each hidden thing replaced by `[removed]` (the
+saved capsule never changes): the system share sheet on a Mac, Copy file elsewhere; ••• has Copy file, Copy text and
+Save a copy…. Nothing found: the same page, nothing marked, one click to share. No AI: plain rules, the same on every
+platform (`spec/share-check.json`: the eight kinds per case, and where each thing is — `{kind, text, start, end}`, offsets
+into the whole file). Capitalised words, @handles, percentages, bare numbers, dates and system paths are not flagged.
+
+**The old windows** (Swift `--old-window`, the Rust windows) still show "Before you share" with check boxes for the
+first four kinds (**People, Emails, Phone numbers, Private links**, rules 1–3 below, the first four keys of each
+case); nothing found: no box, it just shares.
 
 Rules (on the body only: a leading `---` front matter block is skipped):
 1. **links** `https?://` up to whitespace, `)`, `>`, `]`; trailing `. , ; :` dropped; then blanked out (same
@@ -378,8 +387,24 @@ Rules (on the body only: a leading `---` front matter block is skipped):
    dos del della di du van von der den ter bin binti al el y e`), and no word one of the things people list there
    (`blog post site website page link repo docs file folder profile account github slack figma notion google
    drive …`, see `notNames` in ui/js/core/sharecheck.js).
-Each group lists items once, in order of first appearance in the body. Removing replaces every occurrence of
-each checked item (longest first) with `[removed]`, in the whole file (front matter too).
+4. **file paths** `~/…`, `/Users/…`, `/home/…`, `C:\…` up to a space, quote or bracket (trailing `. , ; :`
+   dropped; `/usr/…`, `a/b`, `plain/` are not), blanked out; then **money**: a currency sign or code and an amount
+   (`$12,000`, `₹4,50,000`, `US$5`, `Rs. 300`, `EUR 40`, `$2 million`, `$3k`, `€3.5M`) or an amount and a code or
+   word (`12k USD`, `300 rupees`); `18%`, `40 seats`, `2.3.1` are not money. Blanked out before phones, so a path's
+   or an amount's digits are never a phone number.
+5. **public links**: the links of rule 1 that don't look private.
+6. **names** also: a given name on its own ("Ana said…" when the People section has "Ana Ruiz"), 3+ letters, not an
+   ordinary word (Will, May, Mark…). A People bullet whose role says it is an organisation ("Umbrella — client
+   company") is a company, not a name.
+7. **companies**, conservatively: a name with a legal ending (`Acme Inc`, `Ltd`, `LLC`, `LLP`, `PLC`, `GmbH`, `Corp`,
+   `Pvt Ltd`, `Pty Ltd`…) — the full name and the name on its own; a capitalised name right after `client`,
+   `customer`, `company`, `firm`, `agency`, `vendor`, `supplier`, `partner`, `employer`, `startup` ("client Acme") or
+   before `(client)`; in a People bullet's role, the name after `at` / `from` ("head of sales at Acme"). Never public
+   tools and sites (GitHub, Figma, Medium, Hashnode, Google…), a sentence's first word, or words like Report, Team.
+Each kind lists its things once, in order of first appearance in the body (a thing found by two kinds belongs to
+the first). Hiding replaces every place of each hidden thing with `[removed]`, in the whole file (front matter too),
+left to right, the longest thing first at each place, as the page marks them; in the shared window a thing that
+starts or ends with a letter or digit only counts as a whole word ("Ana" is not inside "Analysis").
 
 ## Opening a received capsule (all recorders)
 

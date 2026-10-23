@@ -2,7 +2,7 @@
 // can do with it: Continue in your AI, Share…, Show in Finder. Opened from a capsule row (click or the eye), and for a
 // capsule opened from Finder / Explorer / Files, dropped on the window or picked with "Open a capsule…".
 
-import { h, icon, button, menu } from "../dom.js";
+import { h, button } from "../dom.js";
 import { call } from "../host.js";
 import * as Caps from "../core/capsules.js";
 import * as AI from "../core/yourai.js";
@@ -76,9 +76,7 @@ export function mount(root, app, opts = {}) {
       help: AI.usesCopy(kind) ? "Copies the capsule to paste into your AI's chat." : `${aiName} opens and carries on from this capsule.`,
     })];
     if (saved) {
-      const shareBtn = button("Share…", (e) => menu(e.currentTarget, actions.shareItems(app, saved), "Share"));
-      shareBtn.setAttribute("aria-haspopup", "menu");
-      acts.push(shareBtn, button(Caps.showLabel(app.platform), () => actions.share(app, saved, "reveal")));
+      acts.push(button("Share…", () => actions.openShare(app, saved), { help: "See what's in the copy you share, and hide what's private." }), button(Caps.showLabel(app.platform), () => actions.share(app, saved, "reveal")));
     }
 
     content.replaceChildren(
