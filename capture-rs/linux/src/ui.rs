@@ -26,6 +26,13 @@ pub fn window_only_arg(args: &[String]) -> Option<Section> {
     })
 }
 
+/// The shared window (ui/, in WebKitGTK) instead of the GTK one: `--new-window`, or config.json "new_window": true.
+/// Off unless asked.
+pub fn new_window(args: &[String], config: &[u8]) -> bool {
+    args.iter().any(|a| a == "--new-window")
+        || serde_json::from_slice::<serde_json::Value>(config).ok().and_then(|v| v.get("new_window").and_then(|n| n.as_bool())) == Some(true)
+}
+
 /// "1100x760" → (1100, 760).
 pub fn parse_size(s: &str) -> Option<(i32, i32)> {
     let (w, h) = s.trim().split_once('x')?;
@@ -205,6 +212,11 @@ mod tests {
         assert_eq!(parse_size("1100x760"), Some((1100, 760)));
         assert_eq!(parse_size("0x760"), None);
         assert_eq!(parse_size("big"), None);
+        assert!(!new_window(&args(&["cc"]), b"{}"), "off unless asked");
+        assert!(new_window(&args(&["cc", "--new-window"]), b""));
+        assert!(new_window(&args(&["cc"]), br#"{"new_window": true}"#));
+        assert!(!new_window(&args(&["cc"]), br#"{"new_window": "yes"}"#));
+        assert!(!new_window(&args(&["cc"]), b"not json"));
     }
 
     #[test]

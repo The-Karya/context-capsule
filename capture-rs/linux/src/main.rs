@@ -92,8 +92,10 @@ fn main() {
         ai::refresh();
     });
     #[cfg(feature = "window")]
+    let web = ui::new_window(&args, &std::fs::read(paths.config()).unwrap_or_default());
+    #[cfg(feature = "window")]
     if let Some(section) = ui::window_only_arg(&args) {
-        std::process::exit(window::run_alone(paths, section, locale));
+        std::process::exit(window::run_alone(paths, section, locale, web));
     }
     let probe = args.iter().any(|a| a == "--probe");
     // Opened with a capsule someone sent (Open with → Context Capsule: `%f` in the desktop entry, or `--open`).
@@ -261,7 +263,7 @@ fn main() {
     // The window: GTK's loop runs here until the engine stops (Quit, Ctrl+C). Closing the window only hides it.
     #[cfg(feature = "window")]
     if let (Some(gtk), true) = (gtk, engine.is_ok()) {
-        gtk.run(window::Setup { paths: ui_paths, tx: tx.clone(), open: open_at_start, locale: ui_locale, hotkeys: control });
+        gtk.run(window::Setup { paths: ui_paths, tx: tx.clone(), open: open_at_start, locale: ui_locale, hotkeys: control, web });
     }
     #[cfg(not(feature = "window"))]
     drop(control);

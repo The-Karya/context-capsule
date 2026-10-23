@@ -181,6 +181,30 @@ AI / Copy my day can't work). The x86_64
 release file comes from the `appimage` job of the manual CI workflow (an artifact). The file lands in
 `../target-appimage/`, and the script prints its size and SHA-256 (for `latest.json`).
 
+## The new window (shared with the Mac and Windows)
+
+`--new-window`, or `"new_window": true` in config.json, shows the window that the Mac and Windows apps
+share: the page in `ui/` at the repo root, in WebKitGTK 6.0 (`src/window/web.rs`). The GTK window
+stays the default until it is switched over.
+The page is built into the program and served as `capsule://app/…`; nothing loads from the network,
+links open in the browser. Its calls go through the shared bridge (`core/src/bridge.rs`, `ui/BRIDGE.md`):
+files are read only from an allow-list inside the data folder; dialogs, the clipboard and opening apps stay native
+(`LinuxHost` in `web.rs`). `--window-only --new-window` shows it alone (for pictures).
+Linux never shows glass (`material: "none"`).
+
+WebKitGTK is not in the AppImage: it is the system's, loaded only when the new window opens (`dlopen`,
+`src/window/wk.rs`), so the app still starts without it and shows the GTK window instead (it says why on
+stderr). Bundling it would make the AppImage about 80 MB bigger (about 220 MB of libraries and helpers
+unpacked, measured on Debian 12; today's AppImage is 6.7 MB), and WebKit's helper processes expect to be at
+their system paths. The package:
+
+| system | package |
+|---|---|
+| Debian 12+, Ubuntu 22.04+ | `libwebkitgtk-6.0-4` |
+| Fedora | `webkitgtk6.0` |
+| Arch | `webkitgtk-6.0` |
+| openSUSE | `libwebkitgtk-6_0-4` |
+
 ## Updates
 
 A minute after launch and then once a day (never while contextualizing or during a voice note), it
@@ -207,6 +231,7 @@ sudo apt install build-essential pkg-config clang libclang-dev cmake \
   libgtk-4-dev libadwaita-1-dev      # the window: GTK 4.8+, libadwaita 1.2+ (Debian 12, Ubuntu 22.10+)
 # run
 sudo apt install xdg-desktop-portal pipewire at-spi2-core tesseract-ocr zenity libgtk-4-1 libadwaita-1-0
+sudo apt install libwebkitgtk-6.0-4    # the new window (--new-window); building needs nothing more
 sudo apt install xdg-desktop-portal-gnome gnome-shell-extension-appindicator   # GNOME
 sudo apt install xdg-desktop-portal-kde                                        # KDE
 ```
@@ -217,6 +242,7 @@ Fedora:
 sudo dnf install gcc-c++ pkgconf clang clang-devel cmake dbus-devel pipewire-devel alsa-lib-devel \
   gtk4-devel libadwaita-devel
 sudo dnf install xdg-desktop-portal pipewire at-spi2-core tesseract zenity gtk4 libadwaita
+sudo dnf install webkitgtk6.0          # the new window (--new-window)
 sudo dnf install xdg-desktop-portal-gnome gnome-shell-extension-appindicator   # GNOME
 sudo dnf install xdg-desktop-portal-kde                                        # KDE
 ```
@@ -267,7 +293,7 @@ repo's `mcp/dist-bin` when you run from `../target/release`).
 | `tray.rs`, `link.rs` | the tray menu; the line from the tray and engine to the window |
 | `reminder.rs` | the evening reminder; the clipboard tools; Claude with a request; sounds |
 | `notify.rs` | notifications, dialogs (zenity / kdialog) |
-| `window/` | the window: `home.rs`, `timeline.rs` (the Timeline), `capsules.rs`, `projects.rs`, `settings.rs`, `shortcuts.rs`, `help.rs`, `share.rs`, `yourai.rs` (Your AI in the window), `widgets.rs` |
+| `window/` | the window: `home.rs`, `timeline.rs` (the Timeline), `capsules.rs`, `projects.rs`, `settings.rs`, `shortcuts.rs`, `help.rs`, `share.rs`, `yourai.rs` (Your AI in the window), `widgets.rs`; the new window: `web.rs` (WebKitGTK, the bridge host), `wk.rs` (WebKitGTK loaded at run time) |
 | `platform.rs`, `portal.rs`, `pipewire.rs`, `atspi_*.rs`, `ocr.rs`, `x11.rs`, `desktop.rs` | recording: screen sharing, frames, window text |
 | `hotkeys.rs`, `voice.rs`, `model.rs`, `update.rs`, `appimage.rs`, `autostart.rs` | shortcuts, voice notes, updates, the AppImage's app entry, open at login |
 

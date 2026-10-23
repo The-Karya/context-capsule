@@ -280,7 +280,7 @@ pub fn save_copy(ctx: &Rc<Ctx>, path: &Path, text: Option<String>) {
 }
 
 /// Show the file in the file manager (selected); else open its folder.
-fn show_in_folder(ctx: &Rc<Ctx>, path: &Path) {
+pub(super) fn show_in_folder(ctx: &Rc<Ctx>, path: &Path) {
     let uri = gio::File::for_path(path).uri().to_string();
     let folder: PathBuf = path.parent().map(Path::to_path_buf).unwrap_or_default();
     let fallback = {

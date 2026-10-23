@@ -412,7 +412,7 @@ impl Home {
 }
 
 /// "New project": a name (prefilled with the window's clue), then the engine makes it.
-fn ask_new_project(ctx: &Rc<Ctx>) {
+pub(super) fn ask_new_project(ctx: &Rc<Ctx>) {
     let clue = ctx.status.borrow().new_project_clue.clone();
     let d = adw::MessageDialog::new(Some(&ctx.win), Some(ui::NEW_PROJECT_TITLE), Some(&ui::new_project_body(clue.as_deref())));
     let entry = gtk::Entry::new();

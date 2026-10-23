@@ -664,7 +664,7 @@ fn installed_apps() -> Vec<(String, String)> {
     installed_apps_with_icons().into_iter().map(|(id, name, _)| (id, name)).collect()
 }
 
-fn installed_apps_with_icons() -> Vec<(String, String, Option<gio::Icon>)> {
+pub(super) fn installed_apps_with_icons() -> Vec<(String, String, Option<gio::Icon>)> {
     let mut apps: Vec<(String, String, Option<gio::Icon>)> = gio::AppInfo::all()
         .into_iter()
         .filter(|a| a.should_show())
@@ -691,7 +691,7 @@ fn note_row(text: &str) -> gtk::Widget {
 
 /// Voice notes: the speech model, downloaded once after the user agrees.
 #[cfg(feature = "voice")]
-mod voice {
+pub(super) mod voice {
     use super::*;
     use crate::model;
     use std::sync::{Arc, Mutex};

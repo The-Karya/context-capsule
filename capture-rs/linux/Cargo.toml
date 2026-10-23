@@ -11,12 +11,15 @@ name = "context-capsule"
 path = "src/main.rs"
 
 [features]
-default = ["voice", "window"]
+default = ["voice", "window", "webview"]
 # On-device voice notes: whisper.cpp + the microphone. Off: voice notes say they are not built in.
 voice = ["dep:whisper-rs", "dep:cpal", "dep:sha2"]
 # The Context Capsule window (Home, Capsules, Projects, Settings, Help): GTK 4.8+ and libadwaita 1.2+.
 # Off: tray and hotkeys only.
 window = ["dep:gtk", "dep:adw"]
+# The shared window (ui/ at the repo root) in WebKitGTK 6.0, used with `--new-window` or config.json
+# "new_window": true. Loads the system's WebKitGTK 6.0 when asked (not linked: without it, the GTK window opens).
+webview = ["window"]
 
 [dependencies]
 context-capsule-core = { path = "../core" }

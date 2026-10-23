@@ -14,6 +14,10 @@ mod settings;
 mod share;
 mod shortcuts;
 mod timeline;
+#[cfg(feature = "webview")]
+mod web;
+#[cfg(feature = "webview")]
+mod wk;
 mod widgets;
 mod yourai;
 
@@ -53,6 +57,8 @@ pub struct Setup {
     pub locale: String,
     /// Changes the hotkeys (Settings → Shortcuts).
     pub hotkeys: crate::hotkeys::Control,
+    /// The shared window (ui/, in WebKitGTK) instead of this GTK one: `--new-window` or config "new_window".
+    pub web: bool,
 }
 
 thread_local! {
@@ -137,7 +143,7 @@ fn handle(msg: UiMsg) {
 
 /// `--window-only`: the window by itself, with an idle status and this computer's data (no tray, engine or
 /// portal). Buttons that would talk to the engine do nothing. Returns the exit code.
-pub fn run_alone(paths: Paths, section: Section, locale: String) -> i32 {
+pub fn run_alone(paths: Paths, section: Section, locale: String, web: bool) -> i32 {
     if let Err(e) = gtk::init() {
         eprintln!("Context Capsule: cannot open a window: {e}");
         return 1;
@@ -151,7 +157,7 @@ pub fn run_alone(paths: Paths, section: Section, locale: String) -> i32 {
     let (tx, rx) = std::sync::mpsc::channel::<Msg>();
     let status = Status { projects: Projects::load(&paths.projects()), ..Default::default() };
     let hotkeys = crate::hotkeys::Control::none();
-    let setup = Rc::new(RefCell::new(Some((Setup { paths, tx, open: Some(section), locale, hotkeys }, status))));
+    let setup = Rc::new(RefCell::new(Some((Setup { paths, tx, open: Some(section), locale, hotkeys, web }, status))));
     app.connect_activate(move |app| {
         if let Some((setup, status)) = setup.borrow_mut().take() {
             let ui = Ui::new(app, setup);
@@ -159,6 +165,10 @@ pub fn run_alone(paths: Paths, section: Section, locale: String) -> i32 {
             ui.open(Some(section));
             // Closing the window ends this mode.
             if let Some(w) = ui.window.borrow().as_ref() {
+                w.ctx.win.set_hide_on_close(false);
+            }
+            #[cfg(feature = "webview")]
+            if let Some(w) = web::WebWindow::get() {
                 w.ctx.win.set_hide_on_close(false);
             }
             UI.with(|u| *u.borrow_mut() = Some(ui));
@@ -178,6 +188,9 @@ struct Ui {
     hotkeys: crate::hotkeys::Control,
     status: RefCell<Status>,
     window: RefCell<Option<Rc<Window>>>,
+    /// Show the shared window (ui/) instead.
+    #[cfg_attr(not(feature = "webview"), allow(dead_code))]
+    web: bool,
 }
 
 impl Ui {
@@ -194,10 +207,15 @@ impl Ui {
             hotkeys: setup.hotkeys,
             status: RefCell::new(Status::default()),
             window: RefCell::new(None),
+            web: setup.web && web_available(),
         })
     }
 
     fn handle(self: &Rc<Self>, msg: UiMsg) {
+        #[cfg(feature = "webview")]
+        if self.web {
+            return self.handle_web(msg);
+        }
         match msg {
             UiMsg::Open(section) => self.open(section),
             UiMsg::Status(status) => {
@@ -238,13 +256,73 @@ impl Ui {
         })
     }
 
+    /// The shared window, built the first time (not shown).
+    #[cfg(feature = "webview")]
+    fn web_window(self: &Rc<Self>, section: Option<Section>) -> Rc<web::WebWindow> {
+        web::WebWindow::get().unwrap_or_else(|| {
+            let section = section.unwrap_or(Section::Home);
+            web::WebWindow::build(&self.app, &self.paths, &self.tx, &self.locale, &self.hotkeys, self.status.borrow().clone(), section)
+        })
+    }
+
+    #[cfg(feature = "webview")]
+    fn handle_web(self: &Rc<Self>, msg: UiMsg) {
+        match msg {
+            UiMsg::Open(section) => self.open(section),
+            UiMsg::Status(status) => {
+                *self.status.borrow_mut() = (*status).clone();
+                if let Some(w) = web::WebWindow::get() {
+                    w.set_status(*status);
+                }
+            }
+            UiMsg::OpenCapsule(path) => self.web_window(None).open_capsule(&path),
+            UiMsg::MakeCapsules => {
+                let w = self.web_window(None);
+                if crate::ai::state().kind() != YourAi::Claude {
+                    w.open(None);
+                }
+                w.ctx.make_capsules();
+            }
+            UiMsg::SaveFromClipboard => {
+                let w = self.web_window(None);
+                w.open(None);
+                w.ctx.save_from_clipboard();
+            }
+            UiMsg::AiChanged => {
+                if let Some(w) = web::WebWindow::get() {
+                    w.emit("data-changed", serde_json::json!({ "what": ["clients"] }));
+                }
+            }
+            UiMsg::Quit => self.app.quit(),
+        }
+    }
+
     /// Show the window (built the first time), on `section` if given, with fresh numbers.
     fn open(self: &Rc<Self>, section: Option<Section>) {
+        #[cfg(feature = "webview")]
+        if self.web {
+            let built = web::WebWindow::get().is_some();
+            let w = self.web_window(section);
+            w.open(if built { section } else { None });
+            return;
+        }
         let w = self.window();
         w.show(section.unwrap_or(w.section.get()));
         w.reload_numbers();
         w.ctx.win.present();
     }
+}
+
+/// The shared window can open: built with it, and WebKitGTK 6.0 is installed (else the GTK window, and a line why).
+fn web_available() -> bool {
+    #[cfg(feature = "webview")]
+    {
+        if wk::available() {
+            return true;
+        }
+        eprintln!("Context Capsule: the new window needs WebKitGTK 6.0 ({}, see the README); showing the usual window", wk::LIBRARY);
+    }
+    false
 }
 
 /// light / dark: like the computer, or always one (Settings → Appearance).
