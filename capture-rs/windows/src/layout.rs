@@ -135,6 +135,8 @@ pub enum Style {
     Cell { selected: bool },
     /// A recording's line on the Timeline: a chevron, then the line in semibold.
     Fold,
+    /// One choice of a segmented control (System / Light / Dark): the chosen one filled with the accent.
+    Segment { selected: bool },
 }
 
 /// The text boxes the window shows (real Windows edit controls, placed where the layout says).
@@ -217,7 +219,8 @@ pub enum Action {
     /// Settings → Every day → When you start: pick a screen or window, or all my screens.
     ShareScreens,
     Language,
-    Appearance,
+    /// Settings → Look: a segment of System / Light / Dark.
+    SetAppearance(Appearance),
     RemoveApp(String),
     AddApp,
     /// Settings → Updates.
@@ -271,6 +274,8 @@ pub enum Node {
     Card(Rect),
     /// The sidebar's rounded panel.
     Panel(Rect),
+    /// A segmented control's capsule, behind its choices.
+    Track(Rect),
     /// A square-cornered patch of a project's colour (a segment of the Timeline's day bar); None: its track.
     Segment { r: Rect, colour: Option<Colour> },
     /// A thin line.
@@ -301,7 +306,7 @@ impl Node {
     }
     pub fn rect(&self) -> Rect {
         match self {
-            Node::Card(r) | Node::Panel(r) | Node::Divider(r) | Node::Bubble(r) => *r,
+            Node::Card(r) | Node::Panel(r) | Node::Track(r) | Node::Divider(r) | Node::Bubble(r) => *r,
             Node::Text { r, .. }
             | Node::Button { r, .. }
             | Node::Toggle { r, .. }
@@ -1803,7 +1808,8 @@ fn settings_page(col: &mut Col, v: &View) {
             }
             let r = step.row();
             let right = if done.get(*step) { 24.0 } else { button_width(m, r.button, Style::Standard) };
-            let (bottom, h) = row(out, m, x, w, y, Some(step_icon(*step)), r.title, Some(r.help), right);
+            // As the Mac: an icon and the title only; a check when done, else a small button.
+            let (bottom, h) = row(out, m, x, w, y, Some(step_icon(*step)), r.title, None, right);
             if done.get(*step) {
                 out.push(Node::Text { r: Rect::new(x + w - CARD_PAD - 24.0, y, 24.0, h), text: glyph::CHECK.into(), font: Font::Icon, ink: Ink::Secondary, align: Align::Center, lines: 1 });
             } else {
@@ -1836,21 +1842,54 @@ fn settings_page(col: &mut Col, v: &View) {
     col.x += 4.0;
     col.para(&anyai::settings_line(&ai.kind(), &ai.name()), Font::Small, Ink::Secondary);
     col.x -= 4.0;
-    col.gap(GAP);
 
+    shortcuts_section(col, v);
+
+    // Screens: what's shared when you start.
+    col.gap(GAP);
+    col.caption(SCREENS);
+    let share = c.share_screens.label();
+    col.card(|out, x, w, top, m| {
+        let bw = button_width(m, share, Style::Dropdown);
+        let (bottom, h) = row(out, m, x, w, top, None, w::WHEN_YOU_START, None, bw);
+        right_button(out, m, x, w, top, h, share, Action::ShareScreens, Style::Dropdown);
+        bottom
+    });
+
+    // Look: System / Light / Dark.
+    col.gap(GAP);
+    col.caption(LOOK);
+    let look = v.data.appearance;
+    col.card(|out, x, w, top, m| {
+        let seg: Vec<f64> = Appearance::ALL.iter().map(|a| (m.text(a.label(), Font::Body, 400.0, 1).0 + 28.0).max(64.0)).collect();
+        let total: f64 = seg.iter().sum::<f64>() + 4.0;
+        let (bottom, h) = row(out, m, x, w, top, None, w::APPEARANCE, None, total);
+        let (mut sx, sy) = (x + w - CARD_PAD - total, top + (h - BUTTON_H) / 2.0);
+        out.push(Node::Track(Rect::new(sx, sy, total, BUTTON_H)));
+        sx += 2.0;
+        for (a, sw) in Appearance::ALL.iter().zip(&seg) {
+            out.push(Node::Button {
+                r: Rect::new(sx, sy + 2.0, *sw, BUTTON_H - 4.0),
+                action: Action::SetAppearance(*a),
+                label: a.label().into(),
+                icon: None,
+                style: Style::Segment { selected: *a == look },
+                enabled: true,
+                check: false,
+            });
+            sx += sw;
+        }
+        bottom
+    });
+
+    col.gap(GAP);
     col.caption(w::EVERY_DAY);
     let remind_at = c.remind_at.clone();
     let keep = c.keep_days;
     let sounds = c.sounds;
-    let share = c.share_screens.label();
     col.card(|out, x, w, top, m| {
-        let bw = button_width(m, share, Style::Dropdown);
-        let (mut y, h) = row(out, m, x, w, top, None, w::WHEN_YOU_START, None, bw);
-        right_button(out, m, x, w, top, h, share, Action::ShareScreens, Style::Dropdown);
-        divider(out, x, w, y);
-        let (bottom, h) = row(out, m, x, w, y, None, w::REMIND, None, TOGGLE_W);
-        right_toggle(out, x, w, y, h, remind_at.is_some(), Action::Remind);
-        y = bottom;
+        let (mut y, h) = row(out, m, x, w, top, None, w::REMIND, None, TOGGLE_W);
+        right_toggle(out, x, w, top, h, remind_at.is_some(), Action::Remind);
         if let Some(at) = &remind_at {
             divider(out, x, w, y);
             let label = settings::normalize_time(at);
@@ -1875,8 +1914,6 @@ fn settings_page(col: &mut Col, v: &View) {
     col.para(w::KEPT, Font::Small, Ink::Secondary);
     col.x -= 4.0;
 
-    shortcuts_section(col, v);
-
     if v.voice {
         col.gap(GAP);
         col.caption(w::VOICE_NOTES);
@@ -1889,16 +1926,6 @@ fn settings_page(col: &mut Col, v: &View) {
             bottom
         });
     }
-
-    col.gap(GAP);
-    col.caption(w::APPEARANCE);
-    let look = v.data.appearance.label();
-    col.card(|out, x, w, top, m| {
-        let bw = button_width(m, look, Style::Dropdown);
-        let (bottom, h) = row(out, m, x, w, top, None, LIGHT_OR_DARK, None, bw);
-        right_button(out, m, x, w, top, h, look, Action::Appearance, Style::Dropdown);
-        bottom
-    });
 
     col.gap(GAP);
     col.caption(w::NEVER_RECORD);
@@ -1930,7 +1957,7 @@ fn settings_page(col: &mut Col, v: &View) {
 /// note after connecting, and the line about any other AI. Returns the bottom.
 fn connect_rows(out: &mut Vec<Node>, m: &dyn Measure, x: f64, w: f64, top: f64, done: bool, ai: &AiState) -> f64 {
     let r = Step::Claude.row();
-    let (mut y, h) = row(out, m, x, w, top, Some(step_icon(Step::Claude)), r.title, Some(r.help), if done { 24.0 } else { 0.0 });
+    let (mut y, h) = row(out, m, x, w, top, Some(step_icon(Step::Claude)), r.title, None, if done { 24.0 } else { 0.0 });
     if done {
         out.push(Node::Text { r: Rect::new(x + w - CARD_PAD - 24.0, top, 24.0, h), text: glyph::CHECK.into(), font: Font::Icon, ink: Ink::Secondary, align: Align::Center, lines: 1 });
     }
@@ -2014,7 +2041,7 @@ fn shortcuts_section(col: &mut Col, v: &View) {
             let waiting = recording == Some(*which);
             let shown = if waiting { keys::PRESS_KEYS.to_string() } else { label.clone() };
             let help = if waiting { Some(keys::PRESS_HELP) } else { note.filter(|(n, _)| n == which).map(|(_, t)| t) };
-            let bw = button_width(m, &shown, Style::Standard).max(120.0);
+            let bw = button_width(m, &shown, Style::Standard).max(72.0);
             let (bottom, h) = row(out, m, x, w, y, None, which.title(), help, bw);
             out.push(Node::Button {
                 r: Rect::new(x + w - CARD_PAD - bw, y + (h - BUTTON_H) / 2.0, bw, BUTTON_H),
@@ -2025,18 +2052,25 @@ fn shortcuts_section(col: &mut Col, v: &View) {
                 enabled: true,
                 check: false,
             });
-            divider(out, x, w, bottom);
+            if *which == Which::Record {
+                divider(out, x, w, bottom);
+            }
             y = bottom;
         }
-        let bw = button_width(m, keys::RESET, Style::Standard);
-        let (bottom, h) = row(out, m, x, w, y, None, keys::SHORTCUTS_HELP, None, bw);
-        right_button(out, m, x, w, y, h, keys::RESET, Action::ResetShortcuts, Style::Standard);
-        bottom
+        y
     });
+    // The note under the card, and Reset (borderless) on its right, as the Mac's.
+    col.gap(6.0);
+    let rw = col.text_w(keys::RESET, Font::Small) + 16.0;
+    let nh = col.text_h(keys::SHORTCUTS_HELP, Font::Small, (col.w - rw - 12.0).max(40.0), 0);
+    col.nodes.push(Node::Text { r: Rect::new(col.x + 4.0, col.y, (col.w - rw - 16.0).max(40.0), nh), text: keys::SHORTCUTS_HELP.into(), font: Font::Small, ink: Ink::Secondary, align: Align::Left, lines: 0 });
+    col.nodes.push(Node::Button { r: Rect::new(col.x + col.w - rw, col.y - 4.0, rw, nh + 8.0), action: Action::ResetShortcuts, label: keys::RESET.into(), icon: None, style: Style::Plain, enabled: true, check: false });
+    col.y += nh + 4.0;
 }
 
-/// The row label next to System / Light / Dark.
-pub const LIGHT_OR_DARK: &str = "Light or dark";
+/// Settings' group captions for what's shared and light or dark (as the Mac's).
+pub const SCREENS: &str = "Screens";
+pub const LOOK: &str = "Look";
 
 /// "Slack.exe" → "Slack"
 pub fn app_label(app: &str) -> String {
@@ -2424,7 +2458,7 @@ mod tests {
         let (status, data) = (Status::default(), data());
         let l = layout(&view(Section::Home, &status, &data), 1200.0, 800.0, &Fake);
         let t = texts(&l);
-        for word in ["Your work", "Context Capsule", "Home", "Good evening, Saachi.", "Tuesday, 20 October", "Today 40 min", "Not contextualizing",
+        for word in ["Your work", w::GROUP_APP, "Home", "Good evening, Saachi.", "Tuesday, 20 October", "Today 40 min", "Not contextualizing",
             "Start contextualizing", "Website", "Not sorted", "Recent capsules", "See all", "Shortcuts", "Working on", "Find by itself",
             "New project", "Make today's capsules", "Copy my day", "Save from clipboard", "Your AI: any AI", "Change", "Streak", "3 days", "in a row", "2 capsules", "contextualized", "See today's timeline"] {
             assert!(t.iter().any(|x| x == word), "{word} on Home: {t:?}");
@@ -2666,6 +2700,7 @@ mod tests {
                 let r = n.rect().moved(dy);
                 match n {
                     Node::Card(_) => out += &format!("<rect x='{}' y='{}' width='{}' height='{}' rx='14' fill='{card}' stroke='{border}'/>", r.x, r.y, r.w, r.h),
+                    Node::Track(_) => out += &format!("<rect x='{}' y='{}' width='{}' height='{}' rx='{}' fill='{}'/>", r.x, r.y, r.w, r.h, r.h / 2.0, hex(t.control)),
                     Node::Panel(_) => out += &format!("<rect x='{}' y='{}' width='{}' height='{}' rx='16' fill='{}' stroke='{}'/>", r.x, r.y, r.w, r.h, hex(t.sidebar), hex(t.sidebar_border)),
                     Node::Segment { colour, .. } => {
                         let fill = colour.map_or(card.clone(), |c| hex(t.colour(c)));
@@ -2683,7 +2718,8 @@ mod tests {
                     }
                     Node::Button { label, style, .. } => {
                         let (fill, ink) = match style {
-                            Style::Accent | Style::Cell { selected: true } | Style::Nav { selected: true } => (accent.clone(), on_accent.clone()),
+                            Style::Accent | Style::Cell { selected: true } | Style::Nav { selected: true } | Style::Segment { selected: true } => (accent.clone(), on_accent.clone()),
+                            Style::Segment { .. } => ("none".into(), text.clone()),
                             Style::Cell { .. } | Style::Fold | Style::Heading => ("none".into(), text.clone()),
                             Style::Nav { .. } | Style::Row { .. } => ("none".into(), text.clone()),
                             Style::Subtle => ("none".into(), accent.clone()),

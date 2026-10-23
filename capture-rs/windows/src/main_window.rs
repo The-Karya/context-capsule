@@ -1159,13 +1159,8 @@ fn perform(action: Action, at: POINT) {
                 with_win(|w| w.set(settings::KEY_VOICE_LOCALE, (!id.is_empty()).then(|| id.into())));
             }
         }
-        Action::Appearance => {
-            let labels: Vec<String> = Appearance::ALL.iter().map(|a| a.label().to_string()).collect();
-            let current = with_win(|w| w.data.appearance).unwrap_or_default();
-            let checked = Appearance::ALL.iter().position(|a| *a == current);
-            if let Some(i) = menu(hwnd, &labels, checked, at) {
-                with_win(|w| w.set(settings::KEY_APPEARANCE, Some(Appearance::ALL[i].value().into())));
-            }
+        Action::SetAppearance(a) => {
+            with_win(|w| w.set(settings::KEY_APPEARANCE, Some(a.value().into())));
         }
         Action::RemoveApp(app) => {
             let list = settings::remove_excluded(&config.exclude_apps, &app);

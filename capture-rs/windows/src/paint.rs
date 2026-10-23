@@ -355,6 +355,10 @@ pub fn node(dc: HDC, fonts: &mut Fonts, t: &Theme, n: &Node, dy: f64, feel: Feel
             g.fill(p, 16.0 * k, t.sidebar_border);
             g.fill([p[0] + k, p[1] + k, p[2] - 2.0 * k, p[3] - 2.0 * k], 15.0 * k, t.sidebar);
         }
+        Node::Track(r) => {
+            let p = px(*r);
+            Shapes::on(dc).fill(p, p[3] / 2.0, t.control);
+        }
         Node::Divider(r) => {
             let p = px(*r);
             let g = Shapes::on(dc);
@@ -534,6 +538,14 @@ fn button(dc: HDC, fonts: &mut Fonts, t: &Theme, p: [f32; 4], label: &str, icon:
                 radius = 8.0 * k;
             }
             Style::Fold => {}
+            Style::Segment { selected } => {
+                if selected {
+                    g.fill(p, radius, t.accent_fill);
+                    ink = t.on_accent;
+                } else if feel.hover || feel.pressed {
+                    g.fill(p, radius, if feel.pressed { t.control_pressed } else { t.control_hover });
+                }
+            }
             Style::Check { on } => {
                 hover(&g, 6.0 * k);
                 let b = [p[0] + 10.0 * k, p[1] + (p[3] - 16.0 * k) / 2.0, 16.0 * k, 16.0 * k];
