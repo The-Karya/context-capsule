@@ -94,7 +94,7 @@ function Click($text, [int] $seconds = 20) {
 
 function Dialogs { $d = [W]::Dialogs(); if ($d) { Note "dialogs: $d" } }
 function Running { @(Get-Process -Name 'context-capsule' -ErrorAction SilentlyContinue) }
-function MainWindow { [W]::FindWindow('ContextCapsuleWindow', $null) }
+function MainWindow { [W]::FindWindow('ContextCapsuleWindow', [NullString]::Value) }
 function StopApp {
     Running | Stop-Process -Force -ErrorAction SilentlyContinue
     WaitFor { (Running).Count -eq 0 } 10 | Out-Null

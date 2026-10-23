@@ -8,12 +8,18 @@ on:
       release:
         description: Release tag to test
         default: v0.2.0
+      part:
+        description: Which part
+        type: choice
+        options: [both, shipped, pages]
+        default: both
 
 permissions:
   contents: read
 
 jobs:
   shipped:
+    if: inputs.part != 'pages'
     runs-on: windows-latest
     timeout-minutes: 12
     defaults:
@@ -39,6 +45,7 @@ jobs:
           path: ${{ runner.temp }}/smoke
 
   pages:
+    if: inputs.part != 'shipped'
     runs-on: windows-latest
     timeout-minutes: 30
     defaults:
