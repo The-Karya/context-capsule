@@ -429,23 +429,56 @@ Nothing goes to the internet except what the person pastes into their AI themsel
 
 ## Timeline (all recorders)
 
-A **Timeline** page (sidebar, under Your work) shows everything recorded, raw, for one day (Today, Yesterday,
-or a date picker). Nothing leaves the computer.
+A **Timeline** page (sidebar, under Your work) shows everything recorded for one day (Today, Yesterday,
+or a date picker), short enough to read at a glance. Nothing leaves the computer.
 
-- **Blocks:** one per session that overlaps the day: "10:02 – 11:30 · 12 moments · Website" (start–end from the
-  first/last event or the session id; projects = the most-used one). Time between sessions shows as "Off".
-- **Moments**, in time order: time (start–end), app icon, title, `where` (address/file), project, and the text
-  folded to its first 3 lines with **Show all**. `focus:"pointer"` moments are marked "Looked at". Voice notes
-  (`kind` voice/note) are speech bubbles with the full words.
-- **Gaps:** recorders now write `gaps.jsonl` in the session folder, one line per stretch that wasn't read:
-  `{"t":"…","end":"…","why":"private_app|not_shared|no_text|system|locked"}` (the same skip reasons the menu
-  shows; consecutive skips with the same reason extend one line, like events; under 5 s isn't written). The
-  timeline shows them as "Not read 10:40–10:55: a private app was in front" ("this window wasn't shared",
-  "nothing readable", "system screen", "the screen was locked").
-- **Search** (the day): filters moments whose title, where, app or text contains the words.
-- **Delete** a moment (removes that line from events.jsonl, matched by its `t` and exact line) or a whole block
-  (the session folder), after a confirm. Not while that session is still recording ("Stop first"). Permanent.
-- **Make a capsule from this** (per block): opens Your AI with
-  `Use Context Capsule to make a capsule from my session <session id>.` (the AI uses get_session_activity).
+The recorder writes a new event every few seconds when the screen text changes, so the page never lists events
+one by one at first. It groups them into **stretches**.
+
+**Stretches** (shared core: Swift `Timeline`, Rust `core::timeline`, same rules, parity tests):
+- A stretch is a run of consecutive screen events in one session with the same `app` and the same `title`
+  (an empty title matches only an empty title).
+- A stretch also ends at a voice/typed note, at a gap from `gaps.jsonl`, and when the next event starts more
+  than 60 s after the previous one's `end`.
+- Each stretch shows: start–end (`t` of the first event, `end` of the last) and its length ("38 min";
+  under one minute: "under 1 min"); **app · title** (app alone when the title is empty); the first non-empty
+  `where`; a **peek**: the first line of 20 or more characters (trimmed) from the event with the most text,
+  cut at 120 characters with "…" (none if no line is that long); and the number of reads ("24 reads").
+- Its project is the most-used `project` among its events (after `assign.json`), or none.
+- **Show what was read** opens the stretch's events (the reads): time, `where`, `focus:"pointer"` → "Looked at",
+  and the text folded to 3 lines with **Show all**.
+
+**The page, top to bottom:**
+1. **Header:** "Today" (or the date), then "Thursday 23 October · 1 h 50 min recorded · 3 recordings", and
+   **Search**. Recorded time = the sum of the stretches' lengths in the day.
+2. **Day bar:** one row from the hour before the first stretch to the hour after the last, hour labels below;
+   each stretch is a segment coloured by its project (none → grey). Clicking a segment opens its recording and
+   scrolls to the stretch.
+3. **Where your time went:** one row per project (name, bar, minutes), longest first; work with no project is
+   "Not sorted". If no stretch has a project, the rows are per app instead. Project colours: a fixed order of
+   plain system colours (blue, teal, orange, green, pink, brown), "Not sorted" grey. No purple.
+4. **Recordings**, one per session that overlaps the day, folded to one line: "10:00 – 11:40 · 1 h 40 min ·
+   Website, Client report" (projects by time, or the top 2 apps if none) and **Make a capsule**. Open by default:
+   the one still recording, else none. Opened, it lists in time order: stretches; voice/typed notes as speech
+   bubbles with the full words; gaps as one grey line "Not read 11:00–11:05: a private app was in front"
+   ("this window wasn't shared", "nothing readable", "system screen", "the screen was locked").
+   Time between recordings is not shown.
+
+**Gaps:** recorders write `gaps.jsonl` in the session folder, one line per stretch that wasn't read:
+`{"t":"…","end":"…","why":"private_app|not_shared|no_text|system|locked"}` (the same skip reasons the menu
+shows; consecutive skips with the same reason extend one line, like events; under 5 s isn't written).
+
+**Search** (the day): keeps only stretches with a read whose title, where, app or text contains the words (and
+notes containing them); recordings with a match open, and **Show what was read** lists only matching reads.
+
+**Delete**, after a confirm, permanent, not while that session is still recording ("Stop first"): a read
+(removes that line from events.jsonl, matched by its `t` and exact line), a whole stretch (all its lines), or a
+whole recording (the session folder).
+
+**Make a capsule** (per recording): opens Your AI with
+`Use Context Capsule to make a capsule from my session <session id>.` (the AI uses get_session_activity).
+
+Today updates by itself every few seconds while recording, keeping what is open and the scroll position.
+
 The Claude side (`get_day_activity`, `get_session_activity`) also lists gaps in one short line each, so the AI
 knows what wasn't seen.
