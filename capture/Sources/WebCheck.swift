@@ -301,7 +301,7 @@ enum WebCheck {
         check(wait("!document.querySelector('#pill .dot')"), "event state: stopped")
         w.navigate("capsules")
         let newCapsule = paths.capsules.appendingPathComponent("web-check.capsule.md")
-        try? "---\ntitle: Web check capsule\nproject: website\ndate: 2026-10-23\ncreated: 2026-10-23T18:00:00Z\n---\n\n## In short\nMade by the web window check.\n"
+        try? "---\ntitle: Web check capsule\nproject: website\ndate: 2026-10-23\ncreated: 2026-10-23T18:00:00Z\n---\n\n## In short\nMade by the web window check. Ask ana@example.com.\n"
             .write(to: newCapsule, atomically: true, encoding: .utf8)
         _ = js("const f = document.querySelector('#page input[type=search]'); if (f) { f.value = ''; f.dispatchEvent(new Event('input')) } return 1")
         check(wait("document.getElementById('page').innerText.includes('Web check capsule')", 8), "event data-changed: a new capsule shows by itself")
@@ -322,6 +322,16 @@ enum WebCheck {
         check(wait("location.hash === '#capsules'"), "reading view: Back")
         _ = js("[...document.querySelectorAll('.cap-row')].find(r => r.innerText.includes('Web check capsule'))?.querySelector('button[aria-label=Open]')?.click(); return 1")
         check(wait("document.querySelector('.reader h1')?.innerText === 'Web check capsule'"), "capsule row's eye: the reading view")
+        _ = js("[...document.querySelectorAll('.reader-acts button')].find(b => b.innerText === 'Share…')?.click(); return 1")
+        check(wait("location.hash === '#share' && !document.querySelector('[role=alertdialog]') && document.querySelector('.share-count')?.innerText === '1 thing hidden'"
+                   + " && document.querySelector('.share-text .find.hidden')?.innerText === 'ana@example.com'"), "Share…: the share page (no dialog), the email hidden")
+        _ = js("document.querySelector('.share-text .find').click(); return 1")
+        check(wait("document.querySelector('.share-count')?.innerText === 'Nothing hidden' && document.querySelector('.share-text .find.kept')"), "share page: a click keeps just that one")
+        _ = js("document.querySelector('.share-text .find').click(); document.querySelector('.share-bar .btn.prominent').click(); return 1")
+        _ = wait("false", 1)
+        check(log.contains("share more"), "share page: Share copy (the system share sheet, not shown in tests)")
+        _ = js("document.querySelector('.share-bar .back').click(); return 1")
+        check(wait("location.hash === '#capsule' && document.querySelector('.reader h1')?.innerText === 'Web check capsule'"), "share page: Back to the capsule")
         w.navigate("capsules")
         try? fm.removeItem(at: received)
 
