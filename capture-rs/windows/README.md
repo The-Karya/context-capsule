@@ -33,7 +33,7 @@ The taskbar, Start, Search, the notification and action centers, Quick Settings,
 Task View are never "the app you work in": when one is in front, the top window of a real app
 is used instead (a private app on top still means nothing is read).
 
-Tray icon: hollow circle = idle, **red** filled circle = recording (the running time is in its
+Tray icon: the Karya panther = idle (white on a dark taskbar, black on a light one), **red** filled circle = recording (the running time is in its
 tooltip and the menu's first line: the tray can't show text), **red** microphone with bars that
 move with your voice = listening. Nothing appears on screen: soft sounds mark start and stop, and
 the mic opening and closing (only problems are shown as text) (`"sounds": false` in config.json turns them off). The menu shows

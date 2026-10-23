@@ -19,6 +19,7 @@ pub mod geometry;
 pub mod image;
 pub mod json;
 pub mod look;
+pub mod mark;
 pub mod membership;
 pub mod newlines;
 pub mod paths;

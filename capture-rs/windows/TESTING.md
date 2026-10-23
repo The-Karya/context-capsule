@@ -23,7 +23,7 @@ your PC, in `C:\Users\<you>\.context-capsule\`.
    It asks *Install Context Capsule?* Click **Just run it** for now (part 14 tries Install).
 3. If Windows says *"Windows protected your PC"*: click **More info → Run anyway**. (The
    test build is not signed yet.)
-4. ✅ A small **circle icon** appears in the system tray, bottom right. It may be hidden
+4. ✅ A small **panther icon** appears in the system tray, bottom right. It may be hidden
    under the **^** arrow.
 5. ✅ The **Context Capsule** window opens by itself on **Settings** (only the first time).
 
@@ -115,7 +115,7 @@ In the window's **Settings**, the **Set up** card has three parts: Voice notes, 
 
 1. In the picker, choose **one window**, e.g. a browser window with a long web page.
 2. ✅ A yellow border appears around that window (Windows shows what is shared), the
-   tray circle turns **red and filled**, and you hear a soft sound. ✅ No text appears on
+   tray icon turns into a **red filled circle**, and you hear a soft sound. ✅ No text appears on
    screen.
 3. Hold the mouse over the tray icon. ✅ The tooltip says *● Recording 0:12 — …*, and the
    time goes up while you watch (move the mouse off and back to refresh it).
@@ -124,8 +124,8 @@ In the window's **Settings**, the **Set up** card has three parts: Voice notes, 
 6. Right-click the tray icon. ✅ The first line says *● Recording 2:05 — since … — N events*.
    While you were in the other app it should have said *Skipping: the front window is not
    in what you picked*.
-7. Press **Alt + C** again to stop. ✅ A soft sound, no text on screen, and the circle is
-   hollow again.
+7. Press **Alt + C** again to stop. ✅ A soft sound, no text on screen, and the panther is
+   back.
 
 ## 4. Record a whole screen
 
@@ -172,7 +172,7 @@ In the window's **Settings**, the **Set up** card has three parts: Voice notes, 
    screens**. Go to **Home**. ✅ The status card says *Alt+C to start. Shares all your screens.
    Private apps are never read.*
 10. Press **Alt + C**. ✅ No picker opens: a yellow border appears around **every** screen at
-    once, the tray circle turns red, a soft sound, no text on screen. ✅ Home says
+    once, the tray icon turns into a red circle, a soft sound, no text on screen. ✅ Home says
     *0 moments saved · 2 screens shared* (or your number of screens, 4 at most), and **Add a
     screen** is greyed out (in the tray menu too: *Add a screen (2 shared)*).
 11. Work in a window on one screen for 20 seconds, then on the other for 20 seconds.

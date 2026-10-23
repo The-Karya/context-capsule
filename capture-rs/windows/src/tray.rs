@@ -1,7 +1,6 @@
-// context-capsule — windows: the tray icon (hollow circle idle, red filled circle recording, a red mic with
-// bars that move with the voice while listening, drawn in code; idle matches the taskbar theme — not the panther:
-// at 16–24 px its brush mark is a blur, and the tray's job is to show the state at a glance) and the words
-// of its menu and tooltip. The tray can't show text next to its icon, so the running time is in the tooltip
+// context-capsule — windows: the tray icon (the Karya panther idle — white on a dark taskbar, black on a light
+// one, drawn for the taskbar's real icon size so Windows never scales it; a red filled circle recording, a red
+// mic with bars that move with the voice while listening, drawn in code) and the words of its menu and tooltip. The tray can't show text next to its icon, so the running time is in the tooltip
 // and the menu's first line. Nothing on screen.
 
 use context_capsule_core::Hotkeys;
@@ -11,7 +10,8 @@ use std::time::SystemTime;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Glyph {
-    Ring,
+    /// The panther (idle, picking).
+    Mark,
     Disc,
     /// The mic with bars, at one of `LEVEL_FRAMES` loudness steps.
     Bars(u8),
@@ -21,7 +21,7 @@ impl Glyph {
     /// The icon for an indicator; listening shows the bars at `level` (a `look::level_frame`).
     pub fn for_indicator(i: Indicator, level: usize) -> Glyph {
         match i {
-            Indicator::Idle | Indicator::Picking => Glyph::Ring,
+            Indicator::Idle | Indicator::Picking => Glyph::Mark,
             Indicator::Recording => Glyph::Disc,
             Indicator::Listening => Glyph::Bars(level.min(LEVEL_FRAMES - 1) as u8),
         }
@@ -29,19 +29,14 @@ impl Glyph {
 
     /// Every icon the tray needs.
     pub fn all() -> Vec<Glyph> {
-        let mut all = vec![Glyph::Ring, Glyph::Disc];
+        let mut all = vec![Glyph::Mark, Glyph::Disc];
         all.extend((0..LEVEL_FRAMES as u8).map(Glyph::Bars));
         all
     }
 
-    /// Is (x, y) — 0…1 across the icon, top left origin — inside the shape? `t` = stroke width.
-    fn covers(self, x: f64, y: f64, t: f64) -> bool {
-        let d = ((x - 0.5).powi(2) + (y - 0.5).powi(2)).sqrt();
-        match self {
-            Glyph::Disc => d <= 0.40,
-            Glyph::Ring => d <= 0.40 && d >= 0.40 - t,
-            Glyph::Bars(_) => false, // drawn by `look::mic_bars`
-        }
+    /// Is (x, y) — 0…1 across the icon, top left origin — inside the recording dot?
+    fn covers(x: f64, y: f64) -> bool {
+        ((x - 0.5).powi(2) + (y - 0.5).powi(2)).sqrt() <= 0.40
     }
 }
 
@@ -52,17 +47,20 @@ pub const RED: [u8; 3] = [0xE8, 0x11, 0x23];
 pub fn glyph_color(glyph: Glyph, light_taskbar: bool) -> [u8; 3] {
     match glyph {
         Glyph::Disc | Glyph::Bars(_) => RED,
-        Glyph::Ring if light_taskbar => [0x20, 0x20, 0x20],
-        Glyph::Ring => [0xFF, 0xFF, 0xFF],
+        Glyph::Mark if light_taskbar => [0x20, 0x20, 0x20],
+        Glyph::Mark => [0xFF, 0xFF, 0xFF],
     }
 }
 
-/// A `size`×`size` BGRA image (straight alpha, top row first), anti-aliased by 4×4 supersampling.
+/// A `size`×`size` BGRA image (straight alpha, top row first). The panther is drawn for this exact size
+/// (`mark::panther`); the dot is anti-aliased by 4×4 supersampling.
 pub fn glyph_pixels(glyph: Glyph, size: usize, rgb: [u8; 3]) -> Vec<u8> {
-    if let Glyph::Bars(frame) = glyph {
-        return look::mic_bars(size, frame as usize).into_iter().flat_map(|a| [rgb[2], rgb[1], rgb[0], a]).collect();
+    let bgra = |alpha: Vec<u8>| alpha.into_iter().flat_map(|a| [rgb[2], rgb[1], rgb[0], a]).collect();
+    match glyph {
+        Glyph::Bars(frame) => return bgra(look::mic_bars(size, frame as usize)),
+        Glyph::Mark => return bgra(context_capsule_core::mark::panther(size)),
+        Glyph::Disc => {}
     }
-    let t = (1.6 / size as f64).max(0.11);
     let mut out = Vec::with_capacity(size * size * 4);
     for py in 0..size {
         for px in 0..size {
@@ -71,7 +69,7 @@ pub fn glyph_pixels(glyph: Glyph, size: usize, rgb: [u8; 3]) -> Vec<u8> {
                 for sx in 0..4 {
                     let x = (px as f64 + (sx as f64 + 0.5) / 4.0) / size as f64;
                     let y = (py as f64 + (sy as f64 + 0.5) / 4.0) / size as f64;
-                    hits += glyph.covers(x, y, t) as u32;
+                    hits += Glyph::covers(x, y) as u32;
                 }
             }
             let alpha = (hits * 255 / 16) as u8;
@@ -146,13 +144,17 @@ mod win {
     use super::*;
     use crate::win::reg_dword;
     use windows::Win32::Foundation::{HWND, RECT};
-    use windows::Win32::Graphics::Gdi::{CreateBitmap, CreateDIBSection, DeleteObject, BITMAPINFO, BITMAPINFOHEADER, BI_RGB, DIB_RGB_COLORS};
-    use windows::Win32::UI::HiDpi::GetSystemMetricsForDpi;
+    use windows::core::w;
+    use windows::Win32::Graphics::Gdi::{
+        CreateBitmap, CreateDIBSection, DeleteObject, MonitorFromWindow, BITMAPINFO, BITMAPINFOHEADER, BI_RGB, DIB_RGB_COLORS,
+        MONITOR_DEFAULTTOPRIMARY,
+    };
+    use windows::Win32::UI::HiDpi::{GetDpiForMonitor, GetDpiForWindow, GetSystemMetricsForDpi, MDT_EFFECTIVE_DPI};
     use windows::Win32::UI::Shell::{
         Shell_NotifyIconGetRect, Shell_NotifyIconW, NIF_ICON, NIF_MESSAGE, NIF_SHOWTIP, NIF_TIP, NIM_ADD, NIM_DELETE, NIM_MODIFY,
         NIM_SETVERSION, NOTIFYICONDATAW, NOTIFYICONIDENTIFIER, NOTIFYICON_VERSION_4,
     };
-    use windows::Win32::UI::WindowsAndMessaging::{CreateIconIndirect, DestroyIcon, HICON, ICONINFO, SM_CXSMICON};
+    use windows::Win32::UI::WindowsAndMessaging::{CreateIconIndirect, DestroyIcon, FindWindowW, HICON, ICONINFO, SM_CXSMICON};
 
     const ID: u32 = 1;
     const THEME_KEY: &str = r"Software\Microsoft\Windows\CurrentVersion\Themes\Personalize";
@@ -174,14 +176,13 @@ mod win {
             tray
         }
 
-        /// (Re)draw the icons for the current taskbar theme and DPI.
+        /// (Re)draw the icons for the current taskbar theme and DPI: at the small-icon size of the taskbar's
+        /// monitor (16 px at 100 %, 20 at 125 %, 24 at 150 %, 32 at 200 % …), so Windows shows them unscaled.
         pub fn make_icons(&mut self) {
             self.destroy_icons();
             let light = reg_dword(THEME_KEY, "SystemUsesLightTheme") == Some(1);
             // SAFETY: plain metrics query.
-            let dpi = unsafe { windows::Win32::UI::HiDpi::GetDpiForWindow(self.hwnd) }.max(96);
-            // SAFETY: as above.
-            let size = unsafe { GetSystemMetricsForDpi(SM_CXSMICON, dpi) }.max(16) as usize;
+            let size = unsafe { GetSystemMetricsForDpi(SM_CXSMICON, taskbar_dpi(self.hwnd)) }.max(16) as usize;
             for glyph in Glyph::all() {
                 if let Some(icon) = make_icon(&glyph_pixels(glyph, size, glyph_color(glyph, light)), size) {
                     self.icons.push((glyph, icon));
@@ -283,10 +284,25 @@ mod win {
         }
     }
 
-    /// The drawn ring as a window icon: only when the exe has no panther inside (`win::app_icon`).
+    /// The DPI of the monitor the taskbar is on (where the tray icon shows); else our window's.
+    fn taskbar_dpi(hwnd: HWND) -> u32 {
+        // SAFETY: plain window and monitor queries; the out values are ours.
+        unsafe {
+            if let Ok(bar) = FindWindowW(w!("Shell_TrayWnd"), None) {
+                let monitor = MonitorFromWindow(bar, MONITOR_DEFAULTTOPRIMARY);
+                let (mut x, mut y) = (0, 0);
+                if GetDpiForMonitor(monitor, MDT_EFFECTIVE_DPI, &mut x, &mut y).is_ok() && x > 0 {
+                    return x;
+                }
+            }
+            GetDpiForWindow(hwnd).max(96)
+        }
+    }
+
+    /// The bare mark as a window icon: only when the exe has no panther tile inside (`win::app_icon`).
     pub fn window_icon(size: usize) -> Option<HICON> {
         let light = reg_dword(THEME_KEY, "SystemUsesLightTheme") == Some(1);
-        make_icon(&glyph_pixels(Glyph::Ring, size, glyph_color(Glyph::Ring, light)), size)
+        make_icon(&glyph_pixels(Glyph::Mark, size, glyph_color(Glyph::Mark, light)), size)
     }
 
     /// A 32-bit icon with alpha from BGRA pixels.
@@ -329,32 +345,35 @@ mod tests {
     #[test]
     fn glyph_shapes() {
         let s = 32;
-        let ring = glyph_pixels(Glyph::Ring, s, [255, 255, 255]);
+        let mark = glyph_pixels(Glyph::Mark, s, [255, 255, 255]);
         let disc = glyph_pixels(Glyph::Disc, s, [255, 255, 255]);
         let mic = glyph_pixels(Glyph::Bars(0), s, [255, 255, 255]);
-        assert_eq!(ring.len(), s * s * 4);
-        assert_eq!(alpha(&ring, s, 16, 16), 0, "hollow in the middle");
+        assert_eq!(mark.len(), s * s * 4);
+        let panther = context_capsule_core::mark::panther(s);
+        assert!((0..s * s).all(|i| mark[i * 4 + 3] == panther[i]), "idle: the panther, drawn for this size");
+        assert_eq!(alpha(&mark, s, 0, 0), 0, "corners clear");
         assert_eq!(alpha(&disc, s, 16, 16), 255, "filled in the middle");
-        assert_eq!(alpha(&ring, s, 16, 4), 255, "the ring's top edge");
-        assert_eq!(alpha(&ring, s, 0, 0), 0, "corners clear");
         assert_eq!(alpha(&mic, s, 9, 9), 255, "mic body");
         assert_eq!(alpha(&mic, s, 24, 16), 255, "a bar");
         assert_eq!(alpha(&mic, s, 0, 0), 0);
         let loud = glyph_pixels(Glyph::Bars(3), s, [255, 255, 255]);
         assert!(alpha(&loud, s, 24, 6) > alpha(&mic, s, 24, 6), "louder: taller bars");
-        let idle = glyph_pixels(Glyph::Ring, 16, glyph_color(Glyph::Ring, true));
+        let idle = glyph_pixels(Glyph::Mark, 16, glyph_color(Glyph::Mark, true));
         let px = |p: &[u8], x: usize, y: usize| p[(y * 16 + x) * 4..(y * 16 + x) * 4 + 3].to_vec();
-        assert_eq!(px(&idle, 8, 2), [0x20, 0x20, 0x20], "idle: dark ring on a light taskbar (BGR)");
+        assert_eq!(px(&idle, 8, 8), [0x20, 0x20, 0x20], "idle: dark panther on a light taskbar (BGR)");
+        assert!((0..256).all(|i| [0, 255].contains(&idle[i * 4 + 3])), "16 px: crisp, on or off");
+        let at150 = glyph_pixels(Glyph::Mark, 24, [255, 255, 255]);
+        assert!(at150.chunks(4).filter(|p| p[3] == 255).count() > 24 * 24 / 4, "150 %: its own 24 px drawing");
         let rec = glyph_pixels(Glyph::Disc, 16, glyph_color(Glyph::Disc, false));
         assert_eq!(px(&rec, 8, 8), [0x23, 0x11, 0xE8], "recording: red (BGR)");
         assert_eq!(glyph_color(Glyph::Bars(2), true), RED, "listening: red on any taskbar");
-        assert_eq!(glyph_color(Glyph::Ring, false), [0xFF, 0xFF, 0xFF]);
+        assert_eq!(glyph_color(Glyph::Mark, false), [0xFF, 0xFF, 0xFF], "idle: white on a dark taskbar");
     }
 
     #[test]
     fn icons_per_indicator() {
-        assert_eq!(Glyph::for_indicator(Indicator::Idle, 2), Glyph::Ring);
-        assert_eq!(Glyph::for_indicator(Indicator::Picking, 0), Glyph::Ring);
+        assert_eq!(Glyph::for_indicator(Indicator::Idle, 2), Glyph::Mark);
+        assert_eq!(Glyph::for_indicator(Indicator::Picking, 0), Glyph::Mark);
         assert_eq!(Glyph::for_indicator(Indicator::Recording, 3), Glyph::Disc);
         assert_eq!(Glyph::for_indicator(Indicator::Listening, 2), Glyph::Bars(2));
         assert_eq!(Glyph::for_indicator(Indicator::Listening, 9), Glyph::Bars(3), "clamped");

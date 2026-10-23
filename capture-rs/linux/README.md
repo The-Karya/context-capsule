@@ -32,7 +32,7 @@ lines; never a private app). Those events say `"focus":"pointer"`: seen, not cou
 spent. Scrolls come from XInput 2 raw events (no permission, no grab). On Wayland no app may know
 where the mouse is, so only the focused window is read.
 
-Tray icon: hollow circle idle, filled red circle recording (the running time in its title and
+Tray icon: the Karya panther idle (white, or black on a light panel), filled red circle recording (the running time in its title and
 tooltip), a red microphone with bars that move with your voice while listening; nothing else on
 screen. Soft sounds when recording or the mic starts and stops (`pw-play`, `paplay` or `aplay`;
 `"sounds": false` in config.json turns them off). Menu: Open Context Capsule (the window, below), status line with the time, "Skipping: …"

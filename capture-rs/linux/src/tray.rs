@@ -1,11 +1,13 @@
 // context-capsule — linux: the tray icon (StatusNotifierItem) and its menu, like the Mac menu bar —
-// hollow circle idle, filled red while recording (the running time in its title and tooltip), a red mic with
+// the Karya panther idle (at every size it's drawn at, white on a dark panel, black on a light one), filled red
+// while recording (the running time in its title and tooltip), a red mic with
 // bars that move with the voice while listening; status, skip reason and actions (Make today's capsules, and
 // Save from clipboard when Your AI works through Copy my day). Nothing on screen.
 
 use crate::link::WindowLink;
 use crate::notify::Notifier;
 use context_capsule_core::look::{self, LEVEL_FRAMES};
+use context_capsule_core::mark;
 use context_capsule_core::anyai::{self, YourAi};
 use context_capsule_core::window::{APP_NAME, MAKE_TITLE, OPEN_WINDOW};
 use context_capsule_core::{Hotkeys, Indicator, Msg, ProjectItem, Shortcut, Status, Voice};
@@ -28,6 +30,8 @@ pub struct CapsuleTray {
     indicator: Indicator,
     /// The listening step (`look::level_frame`).
     level: usize,
+    /// The panel is light: the panther is drawn black.
+    light_panel: bool,
 }
 
 /// The menu's first line, as of `now` (the running time).
@@ -116,7 +120,10 @@ impl ksni::Tray for CapsuleTray {
         title_text(&self.status, SystemTime::now())
     }
     fn icon_pixmap(&self) -> Vec<ksni::Icon> {
-        [22, 44].iter().map(|s| icon(self.indicator, self.level, *s)).collect()
+        match self.indicator {
+            Indicator::Idle | Indicator::Picking => mark::SIZES.iter().map(|&s| mark_icon(s, self.light_panel)).collect(),
+            _ => [22, 44].iter().map(|s| icon(self.indicator, self.level, *s)).collect(),
+        }
     }
     fn tool_tip(&self) -> ksni::ToolTip {
         let h = crate::hotkeys::current();
@@ -282,6 +289,7 @@ impl Tray {
             status: Status::default(),
             indicator: Indicator::Idle,
             level: 0,
+            light_panel: false,
         };
         let handle = match rt.block_on(tray.spawn()) {
             Ok(h) => Some(h),
@@ -294,7 +302,8 @@ impl Tray {
         };
         let look = Arc::new(Mutex::new(Look::default()));
         if let Some(h) = handle.clone() {
-            rt.spawn(refresh(h, look.clone()));
+            rt.spawn(refresh(h.clone(), look.clone()));
+            rt.spawn(follow_panel(h));
         }
         let tray = Tray { rt: rt.clone(), handle, look, window, make };
         // Your AI changed: the menu shows Save from clipboard or not.
@@ -388,9 +397,68 @@ async fn refresh(h: ksni::Handle<CapsuleTray>, look: Arc<Mutex<Look>>) {
     }
 }
 
-/// A `size`×`size` ARGB32 (network order) icon: hollow circle (idle, picking), filled red circle
-/// (recording), a red mic with bars at `level` (listening). Light strokes with a dark edge, so it shows on
-/// any panel.
+/// Is the panel light? GNOME's (and Ubuntu's) top bar is dark in either style; elsewhere (KDE, …) the panel
+/// follows the desktop's light / dark choice: the portal's color-scheme (1 dark, 2 light, 0 or none: no
+/// preference — dark, as most panels are). `desktop`: XDG_CURRENT_DESKTOP.
+pub fn panel_is_light(desktop: &str, color_scheme: Option<u32>) -> bool {
+    let always_dark = desktop.split(':').any(|d| ["gnome", "ubuntu", "unity", "pantheon"].contains(&d.to_ascii_lowercase().as_str()));
+    !always_dark && color_scheme == Some(2)
+}
+
+const APPEARANCE: &str = "org.freedesktop.appearance";
+
+/// The color-scheme from a Settings reply (ReadOne gives the number; the older Read wraps it once more).
+fn scheme_of(v: &zbus::zvariant::Value<'_>) -> Option<u32> {
+    match v {
+        zbus::zvariant::Value::U32(n) => Some(*n),
+        zbus::zvariant::Value::Value(inner) => scheme_of(inner),
+        _ => None,
+    }
+}
+
+/// Keep the panther white or black as the desktop switches light / dark (xdg-desktop-portal Settings).
+/// Without a portal it stays white.
+async fn follow_panel(h: ksni::Handle<CapsuleTray>) {
+    use futures_util::StreamExt;
+    use zbus::zvariant::OwnedValue;
+    let desktop = std::env::var("XDG_CURRENT_DESKTOP").unwrap_or_default();
+    let Ok(bus) = zbus::Connection::session().await else { return };
+    let Ok(p) = zbus::Proxy::new(&bus, "org.freedesktop.portal.Desktop", "/org/freedesktop/portal/desktop", "org.freedesktop.portal.Settings").await
+    else {
+        return;
+    };
+    let Ok(mut changes) = p.receive_signal("SettingChanged").await else { return };
+    let mut scheme = match p.call::<_, _, OwnedValue>("ReadOne", &(APPEARANCE, "color-scheme")).await {
+        Ok(v) => scheme_of(&v),
+        Err(_) => p.call::<_, _, OwnedValue>("Read", &(APPEARANCE, "color-scheme")).await.ok().and_then(|v| scheme_of(&v)),
+    };
+    loop {
+        let light = panel_is_light(&desktop, scheme);
+        if h.update(move |t| t.light_panel = light).await.is_none() {
+            return; // the tray is gone
+        }
+        loop {
+            let Some(m) = changes.next().await else { return };
+            if let Ok((ns, key, v)) = m.body().deserialize::<(String, String, OwnedValue)>() {
+                if ns == APPEARANCE && key == "color-scheme" {
+                    scheme = scheme_of(&v);
+                    break;
+                }
+            }
+        }
+    }
+}
+
+/// The panther at `size` px (one of `mark::SIZES`) as an ARGB32 (network order) icon: white, or black on a
+/// light panel.
+pub fn mark_icon(size: usize, light_panel: bool) -> ksni::Icon {
+    let v = if light_panel { 0x20 } else { 0xFF };
+    let data = mark::panther(size).into_iter().flat_map(|a| [a, v, v, v]).collect();
+    ksni::Icon { width: size as i32, height: size as i32, data }
+}
+
+/// A `size`×`size` ARGB32 (network order) icon: filled red circle (recording), a red mic with bars at
+/// `level` (listening); the drawn hollow circle for anything else (the tray shows `mark_icon` then).
 pub fn icon(indicator: Indicator, level: usize, size: i32) -> ksni::Icon {
     if indicator == Indicator::Listening {
         let data = look::mic_bars(size as usize, level.min(LEVEL_FRAMES - 1))
@@ -439,6 +507,14 @@ mod tests {
         assert_eq!(idle.data.len(), 22 * 22 * 4);
         assert_eq!(alpha(&idle, 11, 11), 0, "hollow");
         assert!(alpha(&idle, 11, 3) > 200, "ring");
+        for &s in &mark::SIZES {
+            let dark = mark_icon(s, false);
+            assert_eq!((dark.width, dark.height, dark.data.len()), (s as i32, s as i32, s * s * 4));
+            let panther = mark::panther(s);
+            assert!((0..s * s).all(|i| dark.data[i * 4] == panther[i]), "{s} px: the panther drawn for it");
+            assert_eq!(dark.data[1..4], [0xFF, 0xFF, 0xFF], "white on a dark panel");
+            assert_eq!(mark_icon(s, true).data[1..4], [0x20, 0x20, 0x20], "black on a light one");
+        }
         let rec = icon(Indicator::Recording, 0, 22);
         assert_eq!(alpha(&rec, 11, 11), 255, "filled");
         assert_eq!(rec.data[(11 * 22 + 11) * 4 + 1], 0xE0, "red");
@@ -448,6 +524,20 @@ mod tests {
         assert_eq!(alpha(&mic, 0, 0), 0);
         let loud = icon(Indicator::Listening, 3, 44);
         assert!(alpha(&loud, 33, 8) > alpha(&mic, 33, 8), "louder: taller bars");
+    }
+
+    #[test]
+    fn panel_colour() {
+        assert!(!panel_is_light("GNOME", Some(2)), "GNOME's top bar is dark in light style too");
+        assert!(!panel_is_light("ubuntu:GNOME", Some(2)));
+        assert!(panel_is_light("KDE", Some(2)));
+        assert!(!panel_is_light("KDE", Some(1)));
+        assert!(!panel_is_light("XFCE", Some(0)), "no preference: dark");
+        assert!(!panel_is_light("", None), "no portal: dark");
+        use zbus::zvariant::Value;
+        assert_eq!(scheme_of(&Value::U32(2)), Some(2));
+        assert_eq!(scheme_of(&Value::Value(Box::new(Value::U32(1)))), Some(1), "Read's reply, wrapped");
+        assert_eq!(scheme_of(&Value::from("dark")), None);
     }
 
     #[test]

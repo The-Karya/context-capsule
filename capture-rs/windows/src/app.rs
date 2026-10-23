@@ -35,7 +35,7 @@ use windows::Win32::UI::WindowsAndMessaging::{
     DispatchMessageW, FindWindowW, GetCursorPos, GetMessageW, PostMessageW, PostQuitMessage, RegisterClassW, RegisterWindowMessageW,
     SendMessageW, SetForegroundWindow, TrackPopupMenu, TranslateMessage, ASFW_ANY, HMENU, MF_CHECKED, MF_GRAYED, MF_POPUP,
     MF_SEPARATOR, MF_STRING, MSG, TPM_BOTTOMALIGN, TPM_NONOTIFY, TPM_RETURNCMD, TPM_RIGHTBUTTON, WINDOW_EX_STYLE, WM_APP, WM_CLOSE,
-    WM_CONTEXTMENU, WM_COPYDATA, WM_DESTROY, WM_ENDSESSION, WM_HOTKEY, WM_NULL,
+    WM_CONTEXTMENU, WM_COPYDATA, WM_DESTROY, WM_DISPLAYCHANGE, WM_DPICHANGED, WM_ENDSESSION, WM_HOTKEY, WM_NULL,
     WM_QUERYENDSESSION, WM_SETTINGCHANGE, WM_TIMER, WNDCLASSW, WS_EX_TOOLWINDOW, WS_POPUP, KillTimer, SetTimer,
 };
 
@@ -394,8 +394,9 @@ extern "system" fn proc(hwnd: HWND, msg: u32, wp: WPARAM, lp: LPARAM) -> LRESULT
         WM_TIMER if wp.0 == LOOK_TIMER => {
             with_app(|a| look_tick(hwnd, a));
         }
-        WM_SETTINGCHANGE => {
-            with_app(|a| a.tray.retheme()); // light / dark taskbar
+        // Light / dark taskbar, or a new display scale (the icons are drawn for the taskbar's icon size).
+        WM_SETTINGCHANGE | WM_DISPLAYCHANGE | WM_DPICHANGED => {
+            with_app(|a| a.tray.retheme());
         }
         // A second copy, opened with a capsule, hands it to us.
         WM_COPYDATA => {
@@ -413,7 +414,10 @@ extern "system" fn proc(hwnd: HWND, msg: u32, wp: WPARAM, lp: LPARAM) -> LRESULT
             unsafe { PostQuitMessage(0) };
         }
         m if m != 0 && m == TASKBAR_CREATED.load(Ordering::Relaxed) => {
-            with_app(|a| a.tray.add());
+            with_app(|a| {
+                a.tray.make_icons(); // the taskbar may be on another monitor now
+                a.tray.add();
+            });
         }
         // SAFETY: default handling for everything else.
         _ => return unsafe { DefWindowProcW(hwnd, msg, wp, lp) },
