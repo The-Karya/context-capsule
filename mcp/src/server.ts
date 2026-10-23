@@ -54,7 +54,7 @@ import {
   summarizeSession,
 } from "./sessions.js";
 
-export const VERSION = "0.1.1";
+export const VERSION = "0.2.0";
 
 /** What each tool may do, for MCP clients deciding what to ask the user before calling. Nothing here reaches the
  * internet (openWorldHint false); nothing deletes or overwrites (a project capsule's old version goes to .history). */

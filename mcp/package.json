@@ -1,6 +1,6 @@
 {
   "name": "context-capsule-mcp",
-  "version": "0.1.1",
+  "version": "0.2.0",
   "mcpName": "io.github.The-Karya/context-capsule",
   "description": "MCP server for Context Capsule: turn what you worked on into capsules any AI can continue from. Stays on your computer.",
   "license": "MIT",
