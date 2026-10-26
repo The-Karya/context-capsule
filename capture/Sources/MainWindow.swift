@@ -8,57 +8,6 @@ import AppKit
 import Speech
 import SwiftUI
 
-/// What the window shows about the recorder, and what it can ask the app to do. Updated by the app delegate.
-final class AppModel: ObservableObject {
-    @Published var recording = false
-    @Published var listening = false
-    @Published var picking = false
-    @Published var startedAt: Date?
-    @Published var moments = 0
-    /// The recording's session id, and who chose the project ("you", or how it was found): for the shared window.
-    @Published var sessionID: String?
-    @Published var projectBy: String?
-    @Published var projectID: String?
-    @Published var projectPinned = false
-    @Published var projects: [Project] = []
-    @Published var screens = 0
-    @Published var canAddScreen = false
-    @Published var hasSeveralScreens = false
-    @Published var allScreens = false
-    /// The shortcuts, as the Mac writes them ("⌥C").
-    @Published var recordKey = Shortcut.defaultRecord.symbols
-    @Published var voiceKey = Shortcut.defaultVoice.symbols
-    /// For the personal Home.
-    @Published var name = ""
-    @Published var today = WorkStats.Totals()
-    @Published var week = WorkStats.Totals()
-    @Published var weekCapsules = 0
-    @Published var recentCapsules: [CapsuleSummary] = []
-    @Published var streak = 0
-
-    var toggleRecord: () -> Void = {}
-    var toggleVoice: () -> Void = {}
-    var addScreen: () -> Void = {}
-    var makeCapsules: () -> Void = {}
-    var pickProject: (String?) -> Void = { _ in }
-    var newProject: () -> Void = {}
-    var askAccessibility: () -> Void = {}
-    /// New keys for Start or stop (true) or Speak a note; nil = done, else why not.
-    var setShortcut: (Bool, Shortcut) -> String? = { _, _ in nil }
-    /// While Settings listens for new keys, the shortcuts are off (so pressing them doesn't start anything).
-    var pauseHotKeys: (Bool) -> Void = { _ in }
-    var resetShortcuts: () -> Void = {}
-    /// Updates (Settings → Updates).
-    @Published var version = ""
-    @Published var updateLine = ""
-    @Published var updateReady = false
-    @Published var updateWorking = false
-    var checkForUpdates: () -> Void = {}
-    var restartToUpdate: () -> Void = {}
-
-    var projectName: String? { projectID.flatMap { id in projects.first { $0.id == id }?.name ?? id } }
-}
-
 enum Section: String, CaseIterable, Identifiable {
     case home, timeline, capsules, projects, settings, help
     var id: String { rawValue }
