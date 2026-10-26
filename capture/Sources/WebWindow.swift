@@ -731,7 +731,7 @@ final class WebWindow: NSObject, NSWindowDelegate, WKNavigationDelegate, WKUIDel
             let steps = ["read", "voice", "dictation", "ai", "login"].map { ["id": $0, "done": fixed[$0] ?? false] as [String: Any] }
             return ["steps": steps, "screenRecording": options.screenRecording ?? true]
         }
-        setup.refresh() // asks the AI apps every 10th time, as the old window did
+        setup.refresh() // asks the AI apps every 10th time
         let steps: [(String, Bool)] = [("read", setup.readsText), ("voice", setup.microphone && setup.speech),
                                        ("dictation", setup.dictation), ("ai", setup.ai), ("login", setup.atLogin)]
         return ["steps": steps.map { ["id": $0.0, "done": $0.1] as [String: Any] },
