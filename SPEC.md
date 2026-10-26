@@ -242,9 +242,10 @@ Tools:
 | `save_capsule` `{title, markdown, session_ids?}` | validates + writes `capsules/<slug>.capsule.md` with front matter; returns path |
 | `list_capsules` | title, author, created, path |
 | `get_capsule` `{name}` | full text |
-| `import_capsule` `{path}` | copies a received capsule (any file name: `.capsule.md`, `.md`…) into `capsules/` (validates format; "isn't a Context Capsule" otherwise) |
+| `import_capsule` `{path}` | copies a received capsule (any file name: `.capsule.md`, `.md`…) into `capsules/` (validates format; "isn't a Context Capsule" otherwise); says when it is a newer or older version of a saved capsule (see "Two versions of a capsule") |
 | `search_capsules` `{query, limit?=8}` | read-only: ranks every saved capsule's `## ` sections by the query's words (stop words dropped; Decisions / Where things stand / Next steps and newer capsules weigh more); returns title, name, kind, date, section and text, each in a `<capsule>` block, cited as *(Pricing page, 19 Oct, Decisions)*; nothing found → says so and points to `get_day_activity` |
-| `export_capsule` `{name, to_path?}` | copies to Desktop (default) or a path; returns the path, ready to email |
+| `export_capsule` `{name, to_path?, format?}` | copies to Desktop (default) or a path; returns the path, ready to email. `format: "html"` (or a `to_path` ending in `.html`): the capsule's web page instead (see "The capsule as a web page") |
+| `compare_capsules` `{a, b}` | read-only: two versions of one capsule (saved names/titles or file paths): which is newer, what changed per section, decisions that differ, and the merged capsule (see "Two versions of a capsule"); saves nothing |
 | `list_projects` | projects with their clues, time spent today, and their capsules |
 | `create_project` `{name, match?}` | adds a project to `projects.json` |
 | `set_project` `{project}` | pins the recorder to a project (`"auto"` to detect again); waits for `state.json` |
@@ -406,6 +407,39 @@ the first). Hiding replaces every place of each hidden thing with `[removed]`, i
 left to right, the longest thing first at each place, as the page marks them; in the shared window a thing that
 starts or ends with a letter or digit only counts as a whole word ("Ana" is not inside "Analysis").
 
+## The capsule as a web page (mcp/)
+
+For someone who gets a capsule and has no AI: `export_capsule` with `format: "html"`, or `context-capsule-mcp view`,
+writes one `.html` file that opens in any browser. Self-contained: CSS inline, no scripts, and a
+`Content-Security-Policy` of `default-src 'none'; style-src 'unsafe-inline'` so nothing is loaded from anywhere.
+The page: the title, one line "By <author> · <day> · Project: <id>" ("Updated <day> · Whole project: <id>" for a
+project capsule), a line saying what a capsule is, a note when it is a draft, then the sections. The Markdown is
+read with the reading view's rules (`ui/js/core/markdown.js`, ported to `mcp/src/markdown.ts`); everything from the
+capsule is escaped, links are http(s) only, `rel="noopener noreferrer"`. The system font, light and dark by
+`prefers-color-scheme`, no colours beyond grey and the link blue; printed, links show their address.
+
+## Two versions of a capsule (mcp/)
+
+People send a capsule, the other person's AI carries on and sends an updated one back. No new front matter:
+- **The same capsule**: both have `project`, the same one, the same `kind` (missing = `daily`) and, for a daily
+  capsule, the same `date`; or neither has a project and their titles match (any case). **Newer**: the later
+  `created`; if that can't tell, the second one given.
+- **What changed**, per `## ` section in the newer one's order (sections only in the older one last): each section
+  is a list of items (a bullet, a numbered step, a paragraph, a quote, a code block); items equal apart from
+  Markdown marks, case and spacing are unchanged; a decision is matched by its **bold** name, alike names
+  ("Teams at $12/seat" / "Teams at $14/seat") being the same decision; other items with half their words in common
+  (little words left out, simple endings like -ed, -ing, -s ignored) are the same item reworded; the rest is added or
+  removed.
+- **Merge**: the newer `In short`, `For Claude` and `Where things stand`; every other section is the newer text
+  plus the items only the older one had (continuing its list and numbering), so decisions, next steps and open
+  questions are the union. A decision reworded between the two is a **conflict**: the merge keeps the newer one and
+  `compare_capsules` lists it for the person to settle. An older next step that the newer `What was done` covers
+  (three quarters of its words) is done, so it isn't brought back.
+- `compare_capsules` never saves: the AI saves the merge with `save_capsule` (title, project, kind, date of the
+  newer one) only if the user wants. Capsule text in its answer stays inside `<capsule>` blocks.
+- `import_capsule` names any saved capsule that is another version of the one imported, whether it is newer or
+  older, and the `compare_capsules` call to make.
+
 ## Opening a received capsule (all recorders)
 
 Context Capsule is offered for `.md` files ("Open With", not the default app) and accepts capsule files dropped
@@ -452,6 +486,7 @@ exe, Linux `usr/bin/context-capsule-mcp` in the AppImage. Commands (JSON on stdo
 | `clients` | `[{"id","name","installed","connected","how"}]`: every AI app it knows on this computer; `how` is `"extension"` (Claude: the .mcpb) or `"config"` |
 | `connect <id>` / `disconnect <id>` | adds / removes Context Capsule in that app's MCP settings (merges, never overwrites others; keeps a `.bak`); `{"ok","message"}`. For `claude` it answers `{"ok":false,"how":"extension"}` and the app installs the .mcpb as before |
 | `day [--date YYYY-MM-DD]` | `{"text","chars"}`: one paste-ready message for any AI chat (≤ 60,000 characters): the capsule guide, the day's work (wrapped as untrusted, budgeted like `get_day_activity`), the current project capsules to merge into, and how to answer |
+| `view <file or name> [--to path]` | `{"ok","path"}`: the web page of a capsule file (written next to it) or of a saved capsule (written to the Desktop); `--to` a folder or file; never overwrites; `{"ok":false,"message"}` when it isn't a capsule |
 | `save [--date YYYY-MM-DD]` | reads a pasted AI reply on stdin; finds capsules between `=== CAPSULE ===` and `=== END ===` lines (or one bare capsule); checks each with the same rules as `save_capsule` (never saved as a draft: every refusal is reported); `{"saved":[{"title","path"}],"refused":[{"title","why"}]}`. `--date`: the day a capsule is about when it doesn't say (default today) |
 
 Clients (`id`: settings file; Windows under `%USERPROFILE%` unless noted): `claude` (extension; detected by the app or
