@@ -1,5 +1,5 @@
 // context-capsule — mcp: the context-capsule-mcp commands. `serve` (or nothing) is the MCP server; every other
-// command prints JSON on stdout for the apps: clients, connect, disconnect, day, save, agents, make.
+// command prints JSON on stdout for the apps: clients, connect, disconnect, day, save, agents, make, view.
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
 import { chatDay, saveReply } from "./anyai.js";
 import { agentsInfo, make } from "./auto.js";
@@ -7,6 +7,7 @@ import { connect, disconnect, listClients } from "./clients.js";
 import { checkDay } from "./day.js";
 import { DEFAULT_PORT, startHttp, tokenFile } from "./http.js";
 import { MAKE_TOOLS, VERSION, createServer } from "./server.js";
+import { viewCapsule } from "./viewer.js";
 
 export const USAGE = `context-capsule-mcp ${VERSION} — Context Capsule for any AI
 
@@ -23,6 +24,8 @@ export const USAGE = `context-capsule-mcp ${VERSION} — Context Capsule for any
   make [--date D] [--by auto|click]
                              make the day's capsules with one of them, headless, with only Context Capsule's tools;
                              writes auto.json: {"ok","status","capsules","reason"}
+  view <file or name> [--to path]
+                             a capsule as a web page anyone can open (next to the file, or on the Desktop): {"ok","path"}
   --version                  the version`;
 
 /** "--date 2026-10-19" or "--date=2026-10-19". */
@@ -112,6 +115,19 @@ export async function main(argv: string[]): Promise<void> {
       } catch (e) {
         process.exitCode = 1;
         return print({ ok: false, status: "failed", error: (e as Error).message });
+      }
+    }
+    case "view": {
+      const from = args.find((a, i) => !a.startsWith("--") && args[i - 1] !== "--to");
+      if (!from) {
+        process.exitCode = 2;
+        return print({ ok: false, message: "Say which capsule: view <file or name> [--to path]." });
+      }
+      try {
+        return await print({ ok: true, path: viewCapsule(from, flag(args, "to")) });
+      } catch (e) {
+        process.exitCode = 1;
+        return print({ ok: false, message: (e as Error).message });
       }
     }
     case "--version":

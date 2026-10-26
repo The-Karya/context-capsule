@@ -80,6 +80,23 @@ describe("commands", () => {
     expect(run(["save"], "nothing here").json().refused.length).toBe(1);
   });
 
+  test("view: a received file's web page goes next to it; a bad file says why", () => {
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), "cc-view-"));
+    const file = path.join(dir, "from alex.capsule.md");
+    fs.writeFileSync(file, `---\ncapsule: 1\ntitle: From Alex\n---\n${VALID_BODY}`);
+    const r = run(["view", file]);
+    expect(r.code).toBe(0);
+    expect(r.json()).toEqual({ ok: true, path: path.join(dir, "from alex.html") });
+    expect(fs.readFileSync(path.join(dir, "from alex.html"), "utf8")).toContain("<h1>From Alex</h1>");
+    const to = path.join(dir, "out", "page.html");
+    expect(run(["view", "--to", to, file]).json()).toEqual({ ok: true, path: to });
+    fs.writeFileSync(path.join(dir, "notes.md"), "# just notes\n");
+    const bad = run(["view", path.join(dir, "notes.md")]);
+    expect(bad.code).toBe(1);
+    expect(bad.json().message).toContain("isn't a Context Capsule");
+    expect(run(["view"]).code).toBe(2);
+  }, 30000);
+
   test("unknown command, version", () => {
     expect(run(["frobnicate"]).code).toBe(2);
     expect(run(["--version"]).out.trim()).toMatch(/^\d+\.\d+\.\d+$/);

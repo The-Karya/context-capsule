@@ -1,8 +1,10 @@
 // context-capsule — mcp: a capsule as a web page anyone can open. One self-contained HTML file: no scripts, no
 // network (a Content-Security-Policy forbids loading anything), inline CSS in the plain macOS look, light and dark,
 // prints cleanly. Capsule text is untrusted: every piece of it is escaped, links are http(s) only.
+import fs from "node:fs";
+import path from "node:path";
 import { localDay } from "./activity.js";
-import { readCapsule, validateCapsuleText, writeExport, type FrontMatter } from "./capsules.js";
+import { CAPSULE_EXT, cleanCapsulePath, readCapsule, validateCapsuleText, writeExport, type FrontMatter } from "./capsules.js";
 import { blocks, inline, type Inline } from "./markdown.js";
 
 /** Text safe inside HTML elements and quoted attributes. */
@@ -141,4 +143,18 @@ ${bodyHtml(v.body.trim())}
 export function exportCapsuleHtml(name: string, toPath?: string): string {
   const { info, text } = readCapsule(name);
   return writeExport(toPath, info.slug, ".html", capsuleHtml(text));
+}
+
+/**
+ * The `view` command: a capsule file (e.g. one received by email) or a saved capsule's name -> its web page.
+ * A file's page goes next to it, a saved capsule's to the Desktop, unless `toPath` says where.
+ */
+export function viewCapsule(from: string, toPath?: string): string {
+  const file = cleanCapsulePath(from);
+  if (fs.existsSync(file) && fs.statSync(file).isFile()) {
+    const base = path.basename(file);
+    const stem = base.endsWith(CAPSULE_EXT) ? base.slice(0, -CAPSULE_EXT.length) : base.replace(/\.[^.]*$/, "") || base;
+    return writeExport(toPath ?? path.dirname(file), stem, ".html", capsuleHtml(fs.readFileSync(file, "utf8")));
+  }
+  return exportCapsuleHtml(from, toPath);
 }
