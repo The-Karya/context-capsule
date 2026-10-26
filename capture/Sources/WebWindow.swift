@@ -84,7 +84,8 @@ final class WebWindow: NSObject, NSWindowDelegate, WKNavigationDelegate, WKUIDel
     /// Show the window (on `page`, or where it is). Open already: the page goes there.
     func show(_ page: String? = nil) {
         NSApp.setActivationPolicy(.regular)
-        // While the window is open the app is a normal app, so it needs the usual menus (see MainMenu).
+        // While the window is open the app is a normal app, so it needs the usual menus (MainMenu): without them, a
+        // full-screen window never shows its close / minimise buttons, and ⌘C / ⌘V don't work in text fields.
         if NSApp.mainMenu?.items.isEmpty ?? true { NSApp.mainMenu = MainMenu.make { [weak self] in self?.show("settings") } }
         if let window {
             if let page { navigate(page) }
@@ -862,5 +863,66 @@ final class WebWindow: NSObject, NSWindowDelegate, WKNavigationDelegate, WKUIDel
             guard let target else { replyHandler(nil, "The window is closed."); return }
             target.userContentController(c, didReceive: m, replyHandler: replyHandler)
         }
+    }
+}
+
+/// The menu bar while the window is open: Karya Context Capsule, Edit, View, Window.
+enum MainMenu {
+    private final class Target: NSObject {
+        let settings: () -> Void
+        init(_ settings: @escaping () -> Void) { self.settings = settings }
+        @objc func openSettings() { settings() }
+    }
+    private static var target: Target?
+
+    static func make(settings: @escaping () -> Void) -> NSMenu {
+        let target = Target(settings)
+        Self.target = target
+        let main = NSMenu()
+        func submenu(_ title: String, _ items: [NSMenuItem]) {
+            let menu = NSMenu(title: title)
+            items.forEach(menu.addItem)
+            let holder = NSMenuItem(title: title, action: nil, keyEquivalent: "")
+            holder.submenu = menu
+            main.addItem(holder)
+        }
+        func item(_ title: String, _ action: Selector?, _ key: String, _ mods: NSEvent.ModifierFlags = .command) -> NSMenuItem {
+            let i = NSMenuItem(title: title, action: action, keyEquivalent: key)
+            i.keyEquivalentModifierMask = mods
+            return i
+        }
+        let settingsItem = item("Settings…", #selector(Target.openSettings), ",")
+        settingsItem.target = target
+        submenu(AppName.full, [
+            item("About \(AppName.full)", #selector(NSApplication.orderFrontStandardAboutPanel(_:)), ""),
+            .separator(),
+            settingsItem,
+            .separator(),
+            item("Hide \(AppName.full)", #selector(NSApplication.hide(_:)), "h"),
+            .separator(),
+            item("Quit \(AppName.full)", #selector(NSApplication.terminate(_:)), "q"),
+        ])
+        submenu("Edit", [
+            item("Undo", Selector(("undo:")), "z"),
+            item("Redo", Selector(("redo:")), "z", [.command, .shift]),
+            .separator(),
+            item("Cut", #selector(NSText.cut(_:)), "x"),
+            item("Copy", #selector(NSText.copy(_:)), "c"),
+            item("Paste", #selector(NSText.paste(_:)), "v"),
+            item("Select All", #selector(NSText.selectAll(_:)), "a"),
+        ])
+        submenu("View", [
+            item("Enter Full Screen", #selector(NSWindow.toggleFullScreen(_:)), "f", [.command, .control]),
+        ])
+        let windowMenu = NSMenu(title: "Window")
+        [item("Minimize", #selector(NSWindow.performMiniaturize(_:)), "m"),
+         item("Zoom", #selector(NSWindow.performZoom(_:)), ""),
+         .separator(),
+         item("Close", #selector(NSWindow.performClose(_:)), "w")].forEach(windowMenu.addItem)
+        let windowHolder = NSMenuItem(title: "Window", action: nil, keyEquivalent: "")
+        windowHolder.submenu = windowMenu
+        main.addItem(windowHolder)
+        NSApp.windowsMenu = windowMenu
+        return main
     }
 }
