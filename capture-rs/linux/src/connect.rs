@@ -20,8 +20,6 @@ pub const CONNECT_BODY: &str = "Claude has no app for Linux yet. In Claude Code,
 pub const CONNECT_AFTER: &str = "Then start a new Claude Code chat. Needs Node 18 or newer.";
 /// After the command that runs the program (no Node needed).
 pub const CONNECT_AFTER_PROGRAM: &str = "Then start a new Claude Code chat.";
-/// Disconnect, for Claude Code (Linux's Claude).
-pub const REMOVE_IN_CLAUDE_CODE: &str = "Using Claude Code? Run this in a terminal: claude mcp remove --scope user context-capsule";
 pub const COPY: &str = "Copy";
 pub const CLOSE: &str = "Close";
 pub const COPIED: &str = "Copied.";
