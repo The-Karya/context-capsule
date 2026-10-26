@@ -26,17 +26,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     /// Automatic capsules: runs `make` at the time (or on a click) with a local AI command-line tool.
     private lazy var auto = AutoRunner(paths: paths) { [weak self] in self?.recorder.isRecording ?? false }
     private let appModel = AppModel()
-    private lazy var main: MainWindow = {
-        let window = MainWindow(app: appModel, paths: paths)
-        window.library.onProjectsChanged = { [weak self] in
-            self?.recorder.reloadProjects(force: true)
-            self?.refresh()
-        }
-        return window
-    }()
-    /// The shared window (ui/ in a web view), the default. The old SwiftUI window only with --old-window or
-    /// config.json "new_window": false.
-    private lazy var useWeb = BridgeFiles.newWindow(config: paths.config, arguments: CommandLine.arguments)
+    /// The window: the shared page (ui/) in a web view, the same as on Windows and Linux.
     private lazy var web: WebWindow = {
         let w = WebWindow(app: appModel, paths: paths)
         w.onProjectsChanged = { [weak self] in
@@ -48,10 +38,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         return w
     }()
 
-    /// Open the window on a page (the shared one or the SwiftUI one).
-    private func showWindow(_ section: Section) {
-        if useWeb { web.show(section.rawValue) } else { main.show(section) }
-    }
+    /// Open the window on a page ("home", "timeline", "capsules", "projects", "settings", "help").
+    private func showWindow(_ page: String) { web.show(page) }
     private var wasRecording = false
     private var wasListening = false
     private var control: ControlWatcher?
@@ -116,12 +104,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
             guard let self else { return }
             self.toast.show(text, under: self.statusItem.button, seconds: 8)
         }
-        ai.onSaved = { [weak self] in
-            guard let self else { return }
-            if self.useWeb { self.web.dataChanged(["capsules"]); return }
-            self.main.library.reload()
-            self.main.refreshStats()
-        }
+        ai.onSaved = { [weak self] in self?.web.dataChanged(["capsules"]) }
         ai.onChange = { [weak self] in self?.refresh() }
         ai.refresh()
         recorder.onNeedsScreenRecording = { [weak self] in self?.askScreenRecording() }
@@ -187,23 +170,15 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         // First launch: the window opens on Settings, to set things up.
         if !MainWindow.seen {
             UserDefaults.standard.set(true, forKey: MainWindow.seenKey)
-            if useWeb { web.firstRun = true }
-            showWindow(.settings)
+            web.firstRun = true
+            showWindow("settings")
         }
         daily.onMake = { [weak self] in self?.makeCapsules() }
         daily.makesByItself = { [weak self] in self?.auto.makesByItself ?? false }
         daily.start()
-        auto.onChange = { [weak self] in
-            guard let self, self.useWeb else { return }
-            self.web.autoChanged()
-        }
-        auto.onSaved = { [weak self] in
-            guard let self else { return }
-            if self.useWeb { self.web.dataChanged(["capsules"]); return }
-            self.main.library.reload()
-            self.main.refreshStats()
-        }
-        auto.openCapsules = { [weak self] in self?.showWindow(.capsules) }
+        auto.onChange = { [weak self] in self?.web.autoChanged() }
+        auto.onSaved = { [weak self] in self?.web.dataChanged(["capsules"]) }
+        auto.openCapsules = { [weak self] in self?.showWindow("capsules") }
         auto.start()
 
         appModel.version = Updater.currentVersion
@@ -222,19 +197,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         trustWatch = repeating(2) { [weak self] in self?.checkTrust() }
 
         // For testing: open a window at launch.
-        if CommandLine.arguments.contains("--show-main") { showWindow(.home) }
-        if CommandLine.arguments.contains("--show-library") { showWindow(.capsules) }
-        if CommandLine.arguments.contains("--show-welcome") { showWindow(.settings) }
+        if CommandLine.arguments.contains("--show-main") { showWindow("home") }
+        if CommandLine.arguments.contains("--show-library") { showWindow("capsules") }
+        if CommandLine.arguments.contains("--show-welcome") { showWindow("settings") }
         if CommandLine.arguments.contains("--show-reminder") { daily.show() }
-        // --show-timeline [YYYY-MM-DD]: the Timeline, on that day if one is given.
-        if let i = CommandLine.arguments.firstIndex(of: "--show-timeline") {
-            showWindow(.timeline)
-            if useWeb { return }
-            let f = DateFormatter()
-            f.locale = Locale(identifier: "en_US_POSIX")
-            f.dateFormat = "yyyy-MM-dd"
-            if i + 1 < CommandLine.arguments.count, let day = f.date(from: CommandLine.arguments[i + 1]) { main.timeline.show(day) }
-        }
+        if CommandLine.arguments.contains("--show-timeline") { showWindow("timeline") }
     }
 
     private var lastTrusted = false
@@ -248,7 +215,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         refresh() // Settings shows the ✓
     }
 
-    @objc private func showMain() { showWindow(.home) }
+    @objc private func showMain() { showWindow("home") }
 
     /// "Check for Updates", or "Restart to Update" once a new version is ready.
     @objc private func updateClicked() {
@@ -295,7 +262,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         let files = urls.filter(\.isFileURL)
         DispatchQueue.main.async { [weak self] in
             guard let self else { return }
-            if self.useWeb { files.forEach(self.web.openCapsule) } else { files.forEach(Claude.continueFrom) }
+            files.forEach(self.web.openCapsule)
         }
     }
 
