@@ -29,6 +29,9 @@ struct WebHostOptions {
 final class WebWindow: NSObject, NSWindowDelegate, WKNavigationDelegate, WKUIDelegate, WKScriptMessageHandlerWithReply {
     static let scheme = "capsule"
     static let pages = ["home", "timeline", "capsules", "projects", "settings", "help"]
+    /// Set once the window has opened on first launch (the old welcome screen used the same key).
+    static let seenKey = "welcomeSeen"
+    static var seen: Bool { UserDefaults.standard.bool(forKey: seenKey) }
 
     /// Contents/Resources/ui, or CONTEXT_CAPSULE_UI (a folder) when developing.
     static var uiRoot: URL? {

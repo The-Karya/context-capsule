@@ -168,8 +168,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
             if paused { self.hotKey = nil; self.voiceKey = nil } else { self.registerHotKeys() }
         }
         // First launch: the window opens on Settings, to set things up.
-        if !MainWindow.seen {
-            UserDefaults.standard.set(true, forKey: MainWindow.seenKey)
+        if !WebWindow.seen {
+            UserDefaults.standard.set(true, forKey: WebWindow.seenKey)
             web.firstRun = true
             showWindow("settings")
         }

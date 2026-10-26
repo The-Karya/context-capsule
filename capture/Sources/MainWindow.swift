@@ -991,10 +991,6 @@ private struct HelpView: View {
 
 /// The window: one at a time; shows in the Dock and ⌘-Tab while it's open.
 final class MainWindow: NSObject, NSWindowDelegate {
-    /// Set once the window has opened on first launch (the old welcome screen used the same key).
-    static let seenKey = "welcomeSeen"
-    static var seen: Bool { UserDefaults.standard.bool(forKey: seenKey) }
-
     let app: AppModel
     let library: LibraryModel
     let nav = Navigation()
