@@ -162,9 +162,6 @@ pub fn run_alone(paths: Paths, section: Section, locale: String) -> i32 {
             *ui.status.borrow_mut() = status;
             ui.open(Some(section));
             // Closing the window ends this mode.
-            if let Some(w) = ui.window.borrow().as_ref() {
-                w.ctx.win.set_hide_on_close(false);
-            }
             #[cfg(feature = "webview")]
             if let Some(w) = web::WebWindow::get() {
                 w.ctx.win.set_hide_on_close(false);
@@ -177,7 +174,7 @@ pub fn run_alone(paths: Paths, section: Section, locale: String) -> i32 {
     0
 }
 
-/// The app side of the window: the latest status, and the window once it was opened.
+/// The app side of the window: the latest status; the window is built the first time it opens.
 struct Ui {
     app: adw::Application,
     paths: Paths,
@@ -185,10 +182,11 @@ struct Ui {
     locale: String,
     hotkeys: crate::hotkeys::Control,
     status: RefCell<Status>,
-    window: RefCell<Option<Rc<Window>>>,
     /// The shared window (ui/) can open (WebKitGTK 6.0 is installed).
     #[cfg_attr(not(feature = "webview"), allow(dead_code))]
     web: bool,
+    /// The "needs WebKitGTK" message, while it shows.
+    webkit_message: Rc<RefCell<Option<adw::MessageDialog>>>,
 }
 
 impl Ui {
@@ -204,8 +202,8 @@ impl Ui {
             locale: setup.locale,
             hotkeys: setup.hotkeys,
             status: RefCell::new(Status::default()),
-            window: RefCell::new(None),
             web: web_available(),
+            webkit_message: Rc::default(),
         })
     }
 
@@ -214,46 +212,13 @@ impl Ui {
         if self.web {
             return self.handle_web(msg);
         }
+        // Without WebKitGTK: what would open the window says what to install.
         match msg {
-            UiMsg::Open(section) => self.open(section),
-            UiMsg::Status(status) => {
-                *self.status.borrow_mut() = (*status).clone();
-                if let Some(w) = self.window.borrow().clone() {
-                    w.set_status(*status);
-                }
-            }
-            UiMsg::OpenCapsule(path) => self.window().ctx.open_received(&path),
-            // From the tray or the reminder: the window comes to the front (its clipboard and messages need it),
-            // except for Claude, which opens by itself.
-            UiMsg::MakeCapsules => {
-                if crate::ai::state().kind() != YourAi::Claude {
-                    self.open(None);
-                }
-                self.window().ctx.make_capsules();
-            }
-            UiMsg::SaveFromClipboard => {
-                self.open(None);
-                self.window().ctx.save_from_clipboard();
-            }
-            UiMsg::AiChanged => {
-                if let Some(w) = self.window.borrow().clone() {
-                    w.set_ai();
-                }
-            }
-            // Only the shared window's page listens.
-            UiMsg::Event(..) => {}
+            UiMsg::Open(_) | UiMsg::OpenCapsule(_) | UiMsg::MakeCapsules | UiMsg::SaveFromClipboard => self.needs_webkit(),
+            UiMsg::Status(status) => *self.status.borrow_mut() = *status,
+            UiMsg::AiChanged | UiMsg::Event(..) => {}
             UiMsg::Quit => self.app.quit(),
         }
-    }
-
-    /// The window, built the first time (not shown).
-    fn window(self: &Rc<Self>) -> Rc<Window> {
-        let existing = self.window.borrow().clone();
-        existing.unwrap_or_else(|| {
-            let w = Window::build(&self.app, &self.paths, &self.tx, &self.locale, &self.hotkeys, self.status.borrow().clone());
-            *self.window.borrow_mut() = Some(w.clone());
-            w
-        })
     }
 
     /// The shared window, built the first time (not shown).
@@ -276,6 +241,8 @@ impl Ui {
                 }
             }
             UiMsg::OpenCapsule(path) => self.web_window(None).open_capsule(&path),
+            // From the tray or the reminder: the window comes to the front (its clipboard and messages need it),
+            // except for Claude, which opens by itself.
             UiMsg::MakeCapsules => {
                 let w = self.web_window(None);
                 if crate::ai::state().kind() != YourAi::Claude {
@@ -302,7 +269,7 @@ impl Ui {
         }
     }
 
-    /// Show the window (built the first time), on `section` if given, with fresh numbers.
+    /// Show the window (built the first time), on `section` if given.
     fn open(self: &Rc<Self>, section: Option<Section>) {
         #[cfg(feature = "webview")]
         if self.web {
@@ -311,24 +278,42 @@ impl Ui {
             w.open(if built { section } else { None });
             return;
         }
-        let w = self.window();
-        w.show(section.unwrap_or(w.section.get()));
-        w.reload_numbers();
-        w.ctx.win.present();
+        let _ = section;
+        self.needs_webkit();
+    }
+
+    /// WebKitGTK 6.0 isn't installed: a message says which package to install (one at a time).
+    fn needs_webkit(&self) {
+        if let Some(d) = self.webkit_message.borrow().as_ref() {
+            return d.present();
+        }
+        let d = adw::MessageDialog::new(None::<&gtk::Window>, Some(ui::NEEDS_WEBKIT_TITLE), Some(ui::NEEDS_WEBKIT_BODY));
+        d.set_application(Some(&self.app));
+        d.set_title(Some(words::APP_NAME));
+        d.add_response("ok", ui::OK);
+        d.set_default_response(Some("ok"));
+        d.set_close_response("ok");
+        let cell = self.webkit_message.clone();
+        d.connect_response(None, move |_, _| {
+            cell.borrow_mut().take();
+        });
+        *self.webkit_message.borrow_mut() = Some(d.clone());
+        d.present();
     }
 }
 
-/// The shared window can open: built with it, and WebKitGTK 6.0 is installed (else the GTK window, and a line why).
+/// The shared window can open: built with it, and WebKitGTK 6.0 is installed (else a line why).
 fn web_available() -> bool {
     #[cfg(feature = "webview")]
     {
         if wk::available() {
             return true;
         }
-        eprintln!("Context Capsule: the new window needs WebKitGTK 6.0 ({}, see the README); showing the usual window", wk::LIBRARY);
+        eprintln!("Context Capsule: the window needs WebKitGTK 6.0 ({}, see the README); the tray and hotkeys still work", wk::LIBRARY);
     }
     false
 }
+
 
 /// light / dark: like the computer, or always one (Settings → Appearance).
 pub fn apply_appearance(a: Appearance) {

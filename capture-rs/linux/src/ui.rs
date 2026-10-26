@@ -182,6 +182,18 @@ pub const SCREENS: &str = "Screens";
 pub const LOOK: &str = "Look";
 pub const CANT_OPEN_CLAUDE: &str = "Couldn't open Claude";
 
+/// Said when the window can't open because WebKitGTK 6.0 isn't installed (the tray and recording still work).
+pub const NEEDS_WEBKIT_TITLE: &str = "Install WebKitGTK to open the window";
+pub const NEEDS_WEBKIT_BODY: &str = "Context Capsule's window needs WebKitGTK 6.0. Install it with your software app or package manager, then open Context Capsule again.
+
+Debian and Ubuntu: libwebkitgtk-6.0-4
+Fedora: webkitgtk6.0
+Arch: webkitgtk-6.0
+openSUSE: libwebkitgtk-6_0-4
+
+Until then, recording, the tray menu and the shortcuts still work.";
+pub const OK: &str = "OK";
+
 /// What to say when Claude couldn't be opened: type the request yourself.
 pub fn cant_open_claude_body(prompt: &str) -> String {
     format!("Open Claude (Claude Code, or claude.ai in your browser), start a new chat and type:\n\n{prompt}")
@@ -260,6 +272,9 @@ mod tests {
         assert_eq!(download_line(50, 200), "Downloading… 25%");
         assert_eq!(download_line(5, 0), "Downloading… 0%");
         assert!(cant_open_claude_body("Hi").ends_with("\n\nHi"));
+        for package in ["libwebkitgtk-6.0-4", "webkitgtk6.0", "webkitgtk-6.0"] {
+            assert!(NEEDS_WEBKIT_BODY.contains(package), "{package}");
+        }
     }
 
     #[test]
