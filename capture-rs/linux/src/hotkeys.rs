@@ -20,9 +20,6 @@ use tokio::runtime::Handle;
 pub const RECORD_ID: &str = "toggle-recording";
 pub const VOICE_ID: &str = "toggle-voice-note";
 
-/// Under Settings → Shortcuts on Wayland: the desktop has the last word.
-pub const DESKTOP_NOTE: &str = "Your desktop may ask you to confirm, or keep its own keys.";
-
 /// How long a change waits for the desktop (it may show a dialog).
 const DESKTOP_WAIT: Duration = Duration::from_secs(120);
 
@@ -86,21 +83,6 @@ pub fn unbound(bound: &[(String, String)], h: &Hotkeys) -> Vec<String> {
         .collect()
 }
 
-/// The line under a Settings row after the desktop bound a shortcut (`described`: its own words for the keys).
-/// None: it took the keys asked for.
-pub fn desktop_line(asked: &Shortcut, described: &str) -> Option<String> {
-    let plain = |s: &str| {
-        s.to_lowercase().replace("control", "ctrl").chars().filter(|c| !c.is_whitespace() && !"+<>".contains(*c)).collect::<String>()
-    };
-    if described.trim().is_empty() {
-        Some("Your desktop didn't set these keys".into())
-    } else if plain(described) == plain(&asked.label()) {
-        None
-    } else {
-        Some(format!("Your desktop uses {}", described.trim()))
-    }
-}
-
 /// What came of a change that was not refused.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum Applied {
@@ -136,11 +118,6 @@ impl Control {
     /// Nothing to grab (`--window-only`).
     pub fn none() -> Control {
         Control::default()
-    }
-
-    /// The desktop binds the keys (Wayland portal): it may ask, or keep its own.
-    pub fn on_portal(&self) -> bool {
-        matches!(self.backend, Backend::Portal(_))
     }
 
     /// Let go of the keys while the window listens for new ones (X11: the grab would take them first).
@@ -357,18 +334,8 @@ mod tests {
     }
 
     #[test]
-    fn what_the_desktop_bound() {
-        assert_eq!(desktop_line(&s("Ctrl+Shift+R"), "Ctrl+Shift+R"), None);
-        assert_eq!(desktop_line(&s("Ctrl+Shift+R"), "Control + Shift + R"), None, "the same keys in other words");
-        assert_eq!(desktop_line(&s("Alt+C"), "<Alt>c"), None);
-        assert_eq!(desktop_line(&s("Ctrl+Shift+R"), "Alt+C").as_deref(), Some("Your desktop uses Alt+C"));
-        assert_eq!(desktop_line(&s("Alt+C"), " ").as_deref(), Some("Your desktop didn't set these keys"));
-    }
-
-    #[test]
     fn current_keys_and_no_backend() {
         let c = Control::none();
-        assert!(!c.on_portal());
         let mine = Hotkeys::DEFAULT.with(Which::Voice, s("Ctrl+Alt+N"));
         assert_eq!(c.apply(Hotkeys::DEFAULT, mine), Ok(Applied::Done));
         assert_eq!(current(), mine, "every place that names a shortcut reads this");
