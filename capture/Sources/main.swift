@@ -35,29 +35,14 @@ if let i = CommandLine.arguments.firstIndex(of: "--render-icons"), i + 1 < Comma
     exit(0)
 }
 
-if let i = CommandLine.arguments.firstIndex(of: "--render-page"), i + 2 < CommandLine.arguments.count {
-    // For a design reference: --render-page <page> <out.png> [light|dark] [width height] draws the window's page
-    // offscreen at 2×, with the data in CONTEXT_CAPSULE_HOME. Pages: MainWindow.renderPages. Default 860 × 620, light.
-    let a = Array(CommandLine.arguments[(i + 1)...])
-    let dark = a.count > 2 && a[2] == "dark"
-    let size = a.count > 4 ? NSSize(width: Double(a[3]) ?? 860, height: Double(a[4]) ?? 620) : NSSize(width: 860, height: 620)
-    // The Mac's default blue accent, whatever this Mac is set to (only for this run).
-    UserDefaults.standard.setVolatileDomain(["AppleAccentColor": 4, "AppleHighlightColor": "0.698039 0.843137 1.000000 Blue"],
-                                            forName: UserDefaults.argumentDomain)
-    _ = MainWindow.RenderApplication.shared
-    NSApp.setActivationPolicy(.accessory)
-    NSApp.finishLaunching()
-    guard MainWindow.renderPages.contains(a[0]) else { print("pages: \(MainWindow.renderPages.joined(separator: ", "))"); exit(2) }
-    exit(MainWindow.renderPage(a[0], to: URL(fileURLWithPath: a[1]), dark: dark, size: size) ? 0 : 1)
-}
-
 if let i = CommandLine.arguments.firstIndex(of: "--render-web-page"), i + 2 < CommandLine.arguments.count {
     // The shared window (ui/) in its real web view: --render-web-page <page> <out.png> [light|dark] [width height] [glass|flat]
-    // with the data in CONTEXT_CAPSULE_HOME. Pages as --render-page. Default 860 × 620, light, flat.
+    // offscreen at 2×, with the data in CONTEXT_CAPSULE_HOME. Pages: WebWindow.renderPages. Default 860 × 620, light, flat.
     let a = Array(CommandLine.arguments[(i + 1)...])
     let dark = a.count > 2 && a[2] == "dark"
     let size = a.count > 4 ? NSSize(width: Double(a[3]) ?? 860, height: Double(a[4]) ?? 620) : NSSize(width: 860, height: 620)
     let material = a.contains("glass") ? "glass" : "none"
+    // The Mac's default blue accent, whatever this Mac is set to (only for this run).
     UserDefaults.standard.setVolatileDomain(["AppleAccentColor": 4, "AppleHighlightColor": "0.698039 0.843137 1.000000 Blue"],
                                             forName: UserDefaults.argumentDomain)
     _ = MainWindow.RenderApplication.shared
