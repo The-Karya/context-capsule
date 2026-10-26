@@ -9,7 +9,7 @@ use crate::platform::WinPlatform;
 use crate::toast::Toast;
 use crate::tray::{self, menu_text, Tray};
 use crate::uia::Uia;
-use crate::{ai, changes, input, main_window, reminder, setup, voice, win, windows_list};
+use crate::{ai, changes, input, reminder, setup, voice, win, windows_list};
 use context_capsule_core::{
     hotkeys_taken_message, look, AppLog, Config, Cue, Engine, Exclusion, Front, Indicator, Location,
     Msg, Options, Paths, PlatformText, ProjectItem, Projects, Redactor, Status, Voice,
@@ -79,10 +79,6 @@ pub enum UiCmd {
     AddSource,
     /// Evening: "Make today's capsules?"
     Remind,
-    /// Fresh numbers and lists for the Context Capsule window, read off the UI thread.
-    WindowData(Box<crate::layout::Data>),
-    /// One day of the Timeline, read off the UI thread.
-    Timeline(Box<crate::layout::TimelineData>),
     /// A capsule someone sent was opened (Open with → Context Capsule, maybe forwarded by a second copy).
     OpenCapsule(PathBuf),
     /// Make today's capsules with Your AI (the window, or the evening reminder's Make).
@@ -273,7 +269,6 @@ pub fn run() {
         // For testing: open the window on a page.
         crate::web_window::set_query(crate::web_window::show_query(show.date, show.open.as_deref()));
         open_window(hwnd, Some(show.section));
-        main_window::show_day(show.date, show.open.as_deref());
     } else if !setup::seen() {
         open_window(hwnd, Some(context_capsule_core::window::Section::Settings)); // first launch
     }
@@ -459,7 +454,6 @@ fn handle(hwnd: HWND, cmd: UiCmd) {
                 cues(a, &s);
                 a.status = *s;
                 look_tick(hwnd, a);
-                main_window::set_status(&a.status);
                 crate::web_window::set_status(&a.status);
             });
         }
@@ -500,8 +494,6 @@ fn handle(hwnd: HWND, cmd: UiCmd) {
                 reminder::ask_and_make(Ui::of(hwnd), log);
             }
         }
-        UiCmd::WindowData(data) => main_window::set_data(*data),
-        UiCmd::Timeline(data) => main_window::set_timeline(*data),
         UiCmd::OpenCapsule(path) => {
             if let Some(log) = with_app(|a| a.log.clone()) {
                 ai::open_received(&Ui::of(hwnd), &log, &path);
@@ -559,7 +551,6 @@ fn look_tick(hwnd: HWND, a: &mut App) {
 }
 
 fn close(hwnd: HWND) {
-    main_window::close();
     crate::web_window::close();
     with_app(|a| a.tray.remove());
     // SAFETY: our own window; WM_DESTROY ends the loop.

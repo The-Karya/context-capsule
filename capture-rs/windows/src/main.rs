@@ -41,8 +41,6 @@ mod app;
 #[cfg(windows)]
 mod changes;
 #[cfg(windows)]
-mod main_window;
-#[cfg(windows)]
 mod paint;
 #[cfg(windows)]
 mod platform;
