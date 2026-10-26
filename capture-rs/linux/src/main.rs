@@ -12,8 +12,8 @@ mod atspi_text;
 mod connect;
 mod desktop;
 mod hotkeys;
-#[cfg(any(feature = "webview", test))]
-#[cfg_attr(not(feature = "webview"), allow(dead_code))]
+#[cfg(any(feature = "window", test))]
+#[cfg_attr(not(feature = "window"), allow(dead_code))]
 mod icon_match;
 mod net;
 mod link;

@@ -14,9 +14,7 @@ mod settings;
 mod share;
 mod shortcuts;
 mod timeline;
-#[cfg(feature = "webview")]
 mod web;
-#[cfg(feature = "webview")]
 mod wk;
 mod widgets;
 mod yourai;
@@ -162,7 +160,6 @@ pub fn run_alone(paths: Paths, section: Section, locale: String) -> i32 {
             *ui.status.borrow_mut() = status;
             ui.open(Some(section));
             // Closing the window ends this mode.
-            #[cfg(feature = "webview")]
             if let Some(w) = web::WebWindow::get() {
                 w.ctx.win.set_hide_on_close(false);
             }
@@ -183,7 +180,6 @@ struct Ui {
     hotkeys: crate::hotkeys::Control,
     status: RefCell<Status>,
     /// The shared window (ui/) can open (WebKitGTK 6.0 is installed).
-    #[cfg_attr(not(feature = "webview"), allow(dead_code))]
     web: bool,
     /// The "needs WebKitGTK" message, while it shows.
     webkit_message: Rc<RefCell<Option<adw::MessageDialog>>>,
@@ -208,7 +204,6 @@ impl Ui {
     }
 
     fn handle(self: &Rc<Self>, msg: UiMsg) {
-        #[cfg(feature = "webview")]
         if self.web {
             return self.handle_web(msg);
         }
@@ -222,7 +217,6 @@ impl Ui {
     }
 
     /// The shared window, built the first time (not shown).
-    #[cfg(feature = "webview")]
     fn web_window(self: &Rc<Self>, section: Option<Section>) -> Rc<web::WebWindow> {
         web::WebWindow::get().unwrap_or_else(|| {
             let section = section.unwrap_or(Section::Home);
@@ -230,7 +224,6 @@ impl Ui {
         })
     }
 
-    #[cfg(feature = "webview")]
     fn handle_web(self: &Rc<Self>, msg: UiMsg) {
         match msg {
             UiMsg::Open(section) => self.open(section),
@@ -271,15 +264,12 @@ impl Ui {
 
     /// Show the window (built the first time), on `section` if given.
     fn open(self: &Rc<Self>, section: Option<Section>) {
-        #[cfg(feature = "webview")]
-        if self.web {
-            let built = web::WebWindow::get().is_some();
-            let w = self.web_window(section);
-            w.open(if built { section } else { None });
-            return;
+        if !self.web {
+            return self.needs_webkit();
         }
-        let _ = section;
-        self.needs_webkit();
+        let built = web::WebWindow::get().is_some();
+        let w = self.web_window(section);
+        w.open(if built { section } else { None });
     }
 
     /// WebKitGTK 6.0 isn't installed: a message says which package to install (one at a time).
@@ -302,18 +292,14 @@ impl Ui {
     }
 }
 
-/// The shared window can open: built with it, and WebKitGTK 6.0 is installed (else a line why).
+/// The shared window can open: WebKitGTK 6.0 is installed (else a line why).
 fn web_available() -> bool {
-    #[cfg(feature = "webview")]
-    {
-        if wk::available() {
-            return true;
-        }
-        eprintln!("Context Capsule: the window needs WebKitGTK 6.0 ({}, see the README); the tray and hotkeys still work", wk::LIBRARY);
+    if wk::available() {
+        return true;
     }
+    eprintln!("Context Capsule: the window needs WebKitGTK 6.0 ({}, see the README); the tray and hotkeys still work", wk::LIBRARY);
     false
 }
-
 
 /// light / dark: like the computer, or always one (Settings → Appearance).
 pub fn apply_appearance(a: Appearance) {
