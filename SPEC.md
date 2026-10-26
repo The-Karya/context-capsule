@@ -362,10 +362,6 @@ Save a copy…. Nothing found: the same page, nothing marked, one click to share
 platform (`spec/share-check.json`: the eight kinds per case, and where each thing is — `{kind, text, start, end}`, offsets
 into the whole file). Capitalised words, @handles, percentages, bare numbers, dates and system paths are not flagged.
 
-**The old windows** (Swift `--old-window`, the Rust windows) still show "Before you share" with check boxes for the
-first four kinds (**People, Emails, Phone numbers, Private links**, rules 1–3 below, the first four keys of each
-case); nothing found: no box, it just shares.
-
 Rules (on the body only: a leading `---` front matter block is skipped):
 1. **links** `https?://` up to whitespace, `)`, `>`, `]`; trailing `. , ; :` dropped; then blanked out (same
    length), and **emails** `name@domain.tld` found and blanked out, so later rules can't match inside them.
