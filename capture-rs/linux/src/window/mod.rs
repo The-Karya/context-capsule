@@ -1,7 +1,6 @@
-// context-capsule — linux: the Context Capsule window (GTK 4 + libadwaita) — a sidebar (Your work: Home,
-// Timeline, Capsules, Projects; Context Capsule: Settings, Help), a header with the section's name and a small
-// status pill, and the page, centered and scrolling, at any window size. Raw recordings show only on the Timeline;
-// elsewhere, time per project, counts and capsules.
+// context-capsule — linux: the Context Capsule window — the shared page (ui/ at the repo root, the same as on the
+// Mac and Windows) in WebKitGTK 6.0 (`web.rs`), with GTK 4 + libadwaita for its own dialogs. Without WebKitGTK
+// 6.0 a message says which package to install; the tray and the hotkeys work either way.
 //! Threads: GTK runs on the main thread (`Gtk::run`); the tray and the engine reach it through a
 //! [`WindowLink`], which queues each message on GTK's main context. The window is built the first time it
 //! opens; closing it only hides it (the app lives in the tray).

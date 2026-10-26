@@ -1,7 +1,8 @@
 // context-capsule — linux: the little of WebKitGTK 6.0 the shared window uses — a web context with our `capsule:`
 // scheme, the script and message handler, the view, running a script, the navigation and context-menu signals.
-//! WebKitGTK is loaded when the shared window is asked for (`dlopen`), not linked: Context Capsule starts and runs
-//! its GTK window on computers without it. (The webkit6 crate also needs GTK 4.10; the app runs on GTK 4.8.)
+//! WebKitGTK is loaded when the window is asked for (`dlopen`), not linked: Context Capsule starts on computers
+//! without it, and says what to install when the window is opened. (The webkit6 crate also needs GTK 4.10; the app
+//! runs on GTK 4.8.)
 
 use context_capsule_core::bridge;
 use gtk::glib::translate::{from_glib, from_glib_full, ToGlibPtr};
