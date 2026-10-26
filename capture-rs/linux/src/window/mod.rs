@@ -9,7 +9,6 @@
 mod capsules;
 mod native;
 mod share;
-mod shortcuts;
 mod web;
 mod wk;
 mod widgets;
