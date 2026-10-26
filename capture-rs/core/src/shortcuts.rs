@@ -107,16 +107,6 @@ impl Shortcut {
         parts.join("+")
     }
 
-    /// As the Mac shows it: "⌃⌥⇧⌘K".
-    pub fn mac_label(&self) -> String {
-        let mut s = String::new();
-        for (on, sign) in [(self.ctrl, '⌃'), (self.alt, '⌥'), (self.shift, '⇧'), (self.cmd, '⌘')] {
-            if on {
-                s.push(sign);
-            }
-        }
-        s + &self.key.to_string()
-    }
 }
 
 impl fmt::Display for Shortcut {
@@ -135,7 +125,7 @@ pub enum Which {
 impl Which {
     pub const ALL: [Which; 2] = [Which::Record, Which::Voice];
 
-    /// The row's words in Settings → Shortcuts.
+    /// Its name in sentences ("Already used for Start or stop").
     pub fn title(self) -> &'static str {
         match self {
             Which::Record => START_OR_STOP,
@@ -262,40 +252,10 @@ impl Hotkeys {
     }
 }
 
-/// What a key press in "record a shortcut" means.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub enum Pressed {
-    /// Esc alone: stop recording, nothing changes.
-    Cancel,
-    /// Only modifiers so far, or a key a shortcut can't use: keep listening.
-    Wait,
-    /// A whole shortcut (still to be checked).
-    Done(Shortcut),
-}
+// MARK: words
 
-/// One key press while recording a shortcut. `key`: the key, when it is one a shortcut can use; `escape`: the key
-/// was Esc. Modifiers are those held.
-pub fn pressed(ctrl: bool, alt: bool, shift: bool, cmd: bool, key: Option<Key>, escape: bool) -> Pressed {
-    if escape && !(ctrl || alt || shift || cmd) {
-        return Pressed::Cancel;
-    }
-    match key {
-        Some(key) => Pressed::Done(Shortcut { ctrl, alt, shift, cmd, key }),
-        None => Pressed::Wait,
-    }
-}
-
-// MARK: words (Settings → Shortcuts)
-
-pub const SHORTCUTS: &str = "Shortcuts";
 pub const START_OR_STOP: &str = "Start or stop";
 pub const SPEAK_A_NOTE: &str = "Speak a note";
-pub const RESET: &str = "Reset";
-/// On the button while it waits for keys.
-pub const PRESS_KEYS: &str = "Press keys…";
-/// The line under the rows while recording.
-pub const PRESS_HELP: &str = "Press the new keys. Esc cancels.";
-pub const SHORTCUTS_HELP: &str = "Click a shortcut, then press the new keys.";
 
 #[cfg(test)]
 mod tests {
@@ -313,8 +273,6 @@ mod tests {
         assert_eq!(s("Cmd+Shift+Alt+Ctrl+F12").label(), "Ctrl+Alt+Shift+Cmd+F12");
         assert_eq!(s("Option+Command+9").label(), "Alt+Cmd+9");
         assert_eq!(s("F5").label(), "F5");
-        assert_eq!(s("Ctrl+Alt+Shift+Cmd+K").mac_label(), "⌃⌥⇧⌘K");
-        assert_eq!(Shortcut::RECORD.mac_label(), "⌥C");
         assert_eq!(s("⌥+⌘+X").label(), "Alt+Cmd+X");
         for bad in ["", "Alt", "Alt+", "Alt+CC", "Alt+Alt+C", "Super+C", "Alt+F13", "Alt+F0", "Alt+F01", "C+Alt", "Alt+Tab", "Alt+é"] {
             assert_eq!(Shortcut::parse(bad), None, "{bad:?}");
@@ -378,14 +336,5 @@ mod tests {
         assert_eq!(saved["author"], "Saachi", "other keys kept");
         assert_eq!(saved["hotkeys"]["record"], "Ctrl+Alt+R");
         std::fs::remove_dir_all(&dir).unwrap();
-    }
-
-    #[test]
-    fn recording_keys() {
-        assert_eq!(pressed(false, false, false, false, None, true), Pressed::Cancel);
-        assert_eq!(pressed(false, true, false, false, None, false), Pressed::Wait, "only Alt so far");
-        assert_eq!(pressed(true, false, false, false, Key::parse("k"), false), Pressed::Done(s("Ctrl+K")));
-        assert_eq!(pressed(false, false, false, false, Key::parse("K"), false), Pressed::Done(s("K")), "checked later");
-        assert_eq!(pressed(false, true, false, false, None, true), Pressed::Wait, "Alt+Esc is not a cancel, nor a shortcut");
     }
 }
