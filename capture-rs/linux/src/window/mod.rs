@@ -8,7 +8,6 @@
 
 mod capsules;
 mod native;
-mod settings;
 mod share;
 mod shortcuts;
 mod web;
