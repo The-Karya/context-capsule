@@ -117,105 +117,22 @@ the path to it (`WM_COPYDATA` to the tray window) and quits; else it starts as u
 ## The Context Capsule window
 
 Everything in one place, like the Mac's window: tray menu → **Open Context Capsule**. The first
-launch opens it by itself on **Settings**. A sidebar in two groups, *Your work* (Home, Timeline,
-Capsules, Projects) and *Context Capsule* (Settings, Help); the page title and a small status pill
-("● 0:12" while contextualizing, else "Today 2 m") at the top.
-
-- **Home**: "Good evening, Saachi." and the date; one panel with Today (time contextualized),
-  This week (time, capsules made) and Streak (days in a row); the status card (Start
-  contextualizing / Stop, Speak a note, Add a screen; when idle it says *Pick the screen or window
-  you work on. Only that is read.* or, with All my screens, *Shares all your screens. Private apps
-  are never read.*); Today's time per project as bars (and **See today's timeline**);
-  Recent capsules (the 3 newest, See all). Beside it when wide (below when narrow): Shortcuts
-  (the current ones, Alt+C and Alt+V unless changed), Working on (Find by itself, your projects, New project), and Make today's
-  capsules, which follows Your AI: Claude or another app → a line (*Claude opens with the request
-  typed in. Press Enter.* / *Cursor opens. Paste the request in a new chat.*) and **Make capsules**;
-  a website or any other AI → *Copy your day, paste it into ChatGPT, then save its reply here.* (after
-  Copy my day: *Paste it into your AI. When it answers, copy its whole reply, then click Save from
-  clipboard.*), **Copy my day** and **Save from clipboard** (both off while one runs). Under it
-  *Your AI: Cursor* and a **Change** link (to Settings).
-- **Timeline**: one day, short enough to read at a glance (it never leaves this PC), with the Mac's words.
-  The day control *‹  Thursday 23 October  ›* (› off on today; the date opens a month calendar with a dot
-  on days with a recording; **Today** when another day is shown), *1 h 50 min recorded · 3 recordings*, and
-  *Search this day*. A day bar from the first stretch's hour to the last one's, each stretch coloured by its
-  project (blue, teal, orange, green, pink, brown; none grey; a click opens its recording and scrolls to it);
-  **Where your time went** (per project, *Not sorted* grey; per app when nothing has a project); then
-  **Recordings**, each folded to one line (*10:00 – 11:40 · 1 h 40 min · Website, Client report*, **Make a
-  capsule**: Your AI gets *Use Context Capsule to make a capsule from my session 20261020-100200.*; ⋯ →
-  *Delete this recording…*), the one still recording open. Opened, in time order: stretches (reads in a row
-  in one window, the same app and title, until a note, a gap or a minute's pause: the app's badge, its
-  colour, app · title, *10:00 – 10:38 · 38 min*, where · project, a peek line, *24 reads* and **Show what
-  was read**, which lists each read's time, where, *Looked at*, its first 3 lines with **Show all**; ⋯ →
-  *Delete this stretch…* / *Delete this read…*), voice and typed notes as speech bubbles, and the stretches
-  that weren't read (*Not read 10:40 – 10:55: a private app was in front*, from `gaps.jsonl`). Search keeps
-  every recording, opens those with a match and lists only matching reads (*2 of 24 reads match*).
-  Deleting asks first, is permanent, and refuses the recording still going (*Stop first*). Today is read
-  again every 5 s while recording, keeping what's open and the scroll position. Home's *Today* has a **See
-  today's timeline** link.
-- **Capsules**: by project, the growing *Whole project* capsule first, then days, newest first.
-  Open, and ⋯ → Copy file (paste it into a chat, an email or a folder), Copy text, Save a copy…,
-  Show in folder. A search box filters by title and *In short* as you type; **Ask Claude** (when
-  Your AI is Claude; else **Ask your AI**; or Enter in the box; off while it's empty) sends *Use
-  Context Capsule to search my capsules: …* the same way as a received capsule (Claude with it typed
-  in, or another app with it on the clipboard). **Open a capsule…** picks a `.md` file someone sent
-  (see below). Under the search, for an AI on the web or any other AI: *Using an AI on the web, or any
-  other AI?* (after Copy my day, what to do next), **Copy my day** and **Save from clipboard**.
-- **Check before sharing**: Copy file, Copy text and Save a copy… first show *Before you share*: what in
-  the capsule might be private, by group (People, Emails, Phone numbers, Private links), each with a
-  check box, all ticked, in the window instead of the page. **Share** uses a copy with the ticked
-  ones replaced by `[removed]` (Copy file: a temporary file `%TEMP%\Context Capsule\shared\<name>`);
-  the saved capsule never changes. **Cancel** (or Esc) goes back. Nothing found: it shares at once.
-  Plain rules, no AI, the same as the Mac's (core `share_check`, cases in `spec/share-check.json`).
-- **Projects**: rename, change the words they're found by, delete (asks first).
-- **Settings**: your name (config.json `author`; it goes on your capsules), Set up (Voice notes:
-  microphone allowed? **Allow** opens the Windows microphone settings; **Connect your AI** (a check
-  mark when any AI is connected), with one row per AI app installed on this PC — **Connect**, or a
-  check mark and ⋯ → **Disconnect**; *Connecting…* while it works — the ones not installed under
-  **More** (*Not installed*), a short note after connecting (*Connected to Cursor. Restart Cursor to
-  use it.*; for Claude: *Click Install in Claude. The ✓ shows when it's done.*), and *Any other AI
-  (ChatGPT website, Gemini, Copilot…): use Copy my day.* — see *Any AI* and *Finding Claude* below;
-  Open at login: a `Run` entry under HKCU — each row shows a check mark when done), **Your AI**
-  (*Make today's capsules with*: a choice of the installed apps — *Cursor (not connected)* when not —,
-  ChatGPT (website), Gemini (website) and Any other AI; config.json `ai`; under it what Make today's
-  capsules will do), Every day (When you start: *Pick a screen or window* or *All my screens*,
-  `share_screens`; evening reminder and its time, when to delete old recordings, sounds), Shortcuts
-  (see *Shortcuts* below), Voice notes language, Appearance (System / Light / Dark, `appearance`),
-  Never record (pick an open app, or find its .exe), Updates (Update automatically, the version,
-  Check for updates). Every change is saved at once.
-- **Help**: shortcuts (the last one follows Your AI: *in your AI*, or *Copy my day*), how it works,
-  privacy.
-
-Raw recordings show only on the Timeline; everywhere else the window shows time per project, counts
-and capsules. The Timeline is read by core (`timeline`: recordings, stretches, gaps, the day bar, time per
-project, search, delete), the same rules as the Mac's.
-Time per project follows the same rules as the Mac and Claude (core `WorkStats`). Connected
-means the extension is in Claude's `Claude Extensions` folder or `claude_desktop_config.json`
-has a `context-capsule` server.
-
-Look: drawn in code with Windows 11's colors and the system accent, Segoe UI Variable (Segoe
-UI on Windows 10), light or dark following Windows (or the Appearance setting), a dark title
-bar and dark menus in dark mode. The palette (`src/palette.rs`) is plain values, tested on any OS
-(light is light, dark is dark, text is readable on every surface). The whole window is filled with
-the page color first, with plain GDI (an earlier build drew it as a GDI+ path with zero-size corner
-arcs, which GDI+ refuses: the page stayed black, and only dark mode looked right). Switching Windows
-between light and dark, the accent, or the Appearance setting repaints everything at once. Text boxes are real edit controls; choices are standard
-popup menus. Keyboard: Tab / Shift+Tab, Enter or Space, arrows and Page Up / Down scroll.
-
-## The shared window
-
-The window is the same page as the Mac's (`ui/` at the repo root). The old custom-drawn window is kept as a hidden
-way back: start with `--old-window`, or put `"new_window": false` in config.json. It also opens by itself when the
-WebView2 runtime is missing.
+launch opens it by itself on **Settings**. It is the same page as the Mac's and Linux's (`ui/` at the
+repo root: Home, Timeline, Capsules, Projects, Settings, Help), shown in WebView2.
 
 - **WebView2.** The page is shown in WebView2 (through `wry`), served from inside the exe at
   `https://capsule.localhost/` (no network, no files on disk); its bridge is `core::bridge` (ui/BRIDGE.md), answered
   off the UI thread (`web_window.rs`). WebView2's own files go to `%LOCALAPPDATA%\Context Capsule\WebView2`.
-- **No WebView2 runtime** (possible on Windows 10 without a recent Edge): the custom-drawn window opens instead, as
-  before (app.log says so). Windows 11 always has it.
+- **No WebView2 runtime** (possible on Windows 10 without a recent Edge), or WebView2 failing: a plain message says the
+  window needs Microsoft Edge WebView2, with Microsoft's download link and a **Download** button (app.log says why).
+  Recording and the tray menu work without it. Windows 11 always has it.
 - **Glass.** On Windows 11 22H2 and later the window has Mica behind a transparent page, and the page is told
   `material: "glass"`; with Settings → Personalization → Colors → Transparency effects off it is told `"none"` (and
   again live when that changes). Windows 10: flat.
+- Light or dark follows Windows (or the Appearance setting); popup menus follow it too.
 - The title bar and its buttons, the tray, hotkeys, the picker and the dialogs stay Windows'.
+- For testing, `--show <page> [YYYY-MM-DD] [<recording id>]` opens the window at launch on that page (the Timeline
+  on that day, with that recording open).
 
 ## Any AI
 
@@ -353,8 +270,8 @@ if set, else `%USERPROFILE%\.context-capsule` (the same rule as the MCP server).
 
 The pure rules (which window or screen was picked, UI Automation roles, window classes for
 toasts and overviews, 16 kHz resampling, model checks, menu text, toast placement, the window's
-layout at any size (the Timeline too), the light and dark palettes, finding Claude, the any-AI state, writing out the
-any-AI program, shortcut keys, Check before sharing and the Open with
+small rules (glass, region settings, `--show`, which pages it may open), finding Claude, the any-AI state, writing out
+the any-AI program, shortcut keys, Check before sharing and the Open with
 registry values) run on any OS. What
 "Check before sharing" finds, and the Claude links, are tested in core (`cargo test -p
 context-capsule-core`, including every case in `spec/share-check.json`):
@@ -372,13 +289,10 @@ cd capture-rs && cargo test -p context-capsule-windows
 | `src/update.rs` | update checks, "ready, restart to update", restart into the new exe |
 | `src/net.rs` | https downloads through WinINet (the speech model, updates) |
 | `src/app.rs` | the UI thread: hidden owner window, tray menu, cues, alerts; starts the engine thread |
-| `src/main_window.rs` | the Context Capsule window: messages, scrolling, keyboard, actions (the Timeline's too), text boxes |
-| `src/layout.rs` | what goes where in the window (pure, tested on any OS) |
-| `src/palette.rs` | the window's light and dark colors and shape outlines (pure, tested on any OS) |
-| `src/paint.rs` | drawing: fonts, GDI text and fills, GDI+ shapes |
-| `src/setup.rs` | setting up: voice notes, Connect your AI, open at login (the Settings rows) |
+| `src/web_window.rs` | the Context Capsule window: `ui/` in WebView2, its bridge host, Mica, light / dark, the WebView2 message |
+| `src/setup.rs` | setting up: voice notes, Connect your AI, open at login (Settings → Set up) |
 | `src/connect.rs` | finding the Claude app, Connect for Claude: the extension next to the exe, connected or not |
-| `src/ai.rs` | any AI: the AI apps, Your AI, Connect / Disconnect, Make today's capsules, Copy my day, Save from clipboard |
+| `src/ai.rs` | any AI: the AI apps, Your AI, Connect, Make today's capsules, Copy my day, Save from clipboard |
 | `src/program.rs` | the any-AI program: inside the exe (zstd), written next to it, found (or the repo's, developing) |
 | `src/platform.rs` | the core's `Platform` for Windows |
 | `src/picker.rs` | `GraphicsCapturePicker`, which item was picked, every monitor at once (All my screens), the captures and their latest frames |
