@@ -371,16 +371,6 @@ fn locale_info(kind: u32) -> Option<String> {
     (n > 1).then(|| String::from_utf16_lossy(&buf[..n as usize - 1]))
 }
 
-/// Weeks start on Sunday in the user's region format.
-pub fn sunday_first() -> bool {
-    locale_info(windows::Win32::Globalization::LOCALE_IFIRSTDAYOFWEEK).is_some_and(|d| d.trim() == "6")
-}
-
-/// Today as the user's long date, without the year ("Tuesday, 20 October").
-pub fn long_date_today() -> String {
-    long_date(chrono::Local::now().date_naive(), false)
-}
-
 /// A day as the user's long date (Settings → Time & language → Region), with or without the year: what Home and
 /// the Timeline show.
 pub fn long_date(day: chrono::NaiveDate, year: bool) -> String {
