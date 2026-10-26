@@ -1685,16 +1685,6 @@ enum BridgeFiles {
         default: return "application/octet-stream"
         }
     }
-
-    /// The shared window is the default. The old SwiftUI window stays only as a hidden way back:
-    /// `--old-window`, or config.json "new_window": false (`--new-window` wins over the config).
-    static func newWindow(config: URL, arguments: [String]) -> Bool {
-        if arguments.contains("--old-window") { return false }
-        if arguments.contains("--new-window") { return true }
-        guard let data = try? Data(contentsOf: config),
-              let obj = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else { return true }
-        return obj["new_window"] as? Bool != false
-    }
 }
 
 // MARK: - Reading where you look (the mouse) as well as where you type
