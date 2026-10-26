@@ -622,7 +622,6 @@ let csCRLF = CapsuleSummary.parse(capText.replacingOccurrences(of: "\n", with: "
 check(csCRLF.title == cs.title && csCRLF.project == "website" && csCRLF.kind == "daily" && csCRLF.date == "2026-10-19"
       && csCRLF.author == "Saachi" && csCRLF.draft && csCRLF.inShort == cs.inShort, "capsule with \\r\\n line ends", "\(csCRLF)")
 check(CapsuleSummary.isCapsule(capText.replacingOccurrences(of: "\n", with: "\r\n")), "\\r\\n capsule is a capsule")
-check(!ShareCheck.body(capText.replacingOccurrences(of: "\n", with: "\r\n")).contains("project: website"), "\\r\\n front matter skipped by share check")
 try! FileManager.default.createDirectory(at: capURL.deletingLastPathComponent().appendingPathComponent(".history"), withIntermediateDirectories: true)
 try! capText.write(to: capURL, atomically: true, encoding: .utf8)
 try! capText.replacingOccurrences(of: "2026-10-19T18", with: "2026-10-20T09").write(
@@ -650,47 +649,6 @@ check(ClaudeLink.searchPrompt("  what did we decide on pricing? ")
 check(cs.matches("") && cs.matches("pricing") && cs.matches("WEBSITE redesigned") && !cs.matches("pricing kittens"),
       "search filters by title and In short, every word")
 check(CapsuleSummary(url: capURL, title: "Café plans").matches("cafe"), "search ignores accents")
-
-// MARK: check before sharing (spec/share-check.json, shared with the Windows/Linux app)
-
-let caseFile = URL(fileURLWithPath: #filePath).deletingLastPathComponent().appendingPathComponent("../../spec/share-check.json")
-if let data = try? Data(contentsOf: caseFile), let cases = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
-   let finds = cases["find"] as? [[String: Any]], let removes = cases["remove"] as? [[String: Any]], !finds.isEmpty, !removes.isEmpty {
-    for c in finds {
-        let name = c["name"] as? String ?? "?"
-        let expect = c["expect"] as? [String: [String]] ?? [:]
-        let got = ShareCheck.find(c["text"] as? String ?? "")
-        check(got.map(\.kind) == ShareCheck.Kind.allCases, "share check: all four groups, in order (\(name))")
-        for g in got {
-            check(g.items == (expect[g.kind.rawValue] ?? ["<missing in json>"]), "share check: \(name) / \(g.kind.rawValue)",
-                  "\(g.items) vs \(expect[g.kind.rawValue] ?? [])")
-        }
-    }
-    for c in removes {
-        let got = ShareCheck.remove(c["text"] as? String ?? "", c["remove"] as? [String] ?? [])
-        check(got == c["expect"] as? String, "share check: remove", got)
-    }
-} else {
-    check(false, "share check: cannot read \(caseFile.standardized.path)")
-}
-check(ShareCheck.find("## In short\nCall (020) 7946 0958 or 2026-10-19.\n")[2].items == ["(020) 7946 0958"],
-      "phones: a date is not a phone")
-check(ShareCheck.find("## People, links and files\n- **Ana**: design\n- the team\n- Bob 2\n")[0].items == ["Ana"],
-      "people: only bullets that look like names")
-check(ShareCheck.find("x\n## Notes\n- Ana Lima\n")[0].items.isEmpty, "people: only in the People section")
-check(ShareCheck.find("## People, links and files\n- GitHub\n- Blog: https://saachis-blog.hashnode.dev/\n- Post\n")[0].items.isEmpty,
-      "people: sites, links and things are not people")
-check(ShareCheck.find("## People\n- Seán O'Neil-Ruiz; designer\n- McKay <m@x.co>\n- API\n")[0].items == ["Seán O'Neil-Ruiz", "McKay"],
-      "people: accents, apostrophes, ; and < end the name, all-caps is not a name")
-check(ShareCheck.find("See https://acme.com/pricing and http://localhost:3000/x")[3].items == ["http://localhost:3000/x"],
-      "links: only private ones")
-check(ShareCheck.isPrivateLink("https://u:p@acme.com/") && !ShareCheck.isPrivateLink("https://github.com/a/b"),
-      "links: a password in it is private, a public repo is not")
-check(ShareCheck.find("Paid $450 to @devraj, see ~/Documents/a.txt").allSatisfy { $0.items.isEmpty },
-      "money, @handles and files are not flagged")
-check(ShareCheck.find("Raised $1.5m. Mail a@b.co about https://e.com/a@b.co")[1].items == ["a@b.co"], "emails not inside links")
-check(ShareCheck.remove("Ana and Ana Lima", ["Ana", "Ana Lima"]) == "[removed] and [removed]", "remove: longest first")
-check(ShareCheck.remove("same", []) == "same", "remove: nothing checked")
 
 // MARK: reminder and clean-up
 

@@ -759,7 +759,7 @@ final class WebWindow: NSObject, NSWindowDelegate, WKNavigationDelegate, WKUIDel
         pb.setString(text, forType: .string)
     }
 
-    /// capsule.share: the file itself, or (with `text`, Check before sharing already done in the page) a copy with that text
+    /// capsule.share: the file itself, or (with `text`, from the share page) a copy with that text
     /// and the same name; copied as a file or as text, saved with the save panel, shown in Finder, or the share menu.
     private func share(_ args: [String: Any], _ ok: @escaping (Any) -> Void, _ no: @escaping (String) -> Void) {
         guard let original = capsuleFile(args["file"] as? String) else { return no("not allowed: \(args["file"] as? String ?? "")") }

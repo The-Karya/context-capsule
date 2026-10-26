@@ -41,11 +41,10 @@ time) has everything in one place, with a sidebar:
   with "Use Context Capsule to search my capsules: …". **Open a capsule…** picks a capsule someone
   sent you (below). **Copy my day** and **Save from clipboard** are always here, for any AI (below).
 
-**Check before sharing.** Every share (Copy file, Copy text, Save a copy, More…) first lists what
-might be private — People, Emails, Phone numbers, Private links — with a check box each (all
-ticked), in a "Before you share" box. **Share** sends a copy, same file name in a temporary folder, with the checked items replaced
-by `[removed]`; the saved capsule never changes. Nothing found: no box, it just shares. Plain rules
-in `Core.swift` (`ShareCheck`), tested against `../spec/share-check.json`, the same cases as Windows/Linux.
+**Sharing a capsule.** Share… opens the share page (in `ui/`): the capsule as it will be shared, with
+what might be private struck through where it is, and a switch for each kind. **Share copy** sends a copy,
+same file name in a temporary folder, with the hidden items replaced by `[removed]`; the saved capsule never
+changes. The rules are `ui/js/core/sharecheck.js`, tested against `../spec/share-check.json`.
 
 **Opening a received capsule.** Context Capsule is in Finder's *Open With* for `.md` files (never
 the default app), and takes capsule files dropped on its window. If the file is a capsule (front
@@ -238,7 +237,7 @@ false and `last_error` is `"cancelled"`.
 ```sh
 ./tests/run.sh      # redaction, exclusion, dedupe, file formats, picked-content membership,
                     # front-window choice, Mission Control, frame freshness, OCR crop + masks, displays, AX text assembly + secure-field skipping, AX-vs-OCR choice,
-                    # check before sharing (every case in ../spec/share-check.json), is-it-a-capsule, search,
+                    # capsule files,
                     # any AI (reading context-capsule-mcp's answers, Your AI, finding the program), gaps.jsonl, the timeline
 "./build/Context Capsule.app/Contents/MacOS/ContextCapsule" --selftest   # OCR (whole, cropped, masked) on a generated image
 ```
