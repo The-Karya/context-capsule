@@ -730,11 +730,7 @@ fn open_window(hwnd: HWND, section: Option<context_capsule_core::window::Section
     }) else {
         return;
     };
-    let config = std::fs::read(ctx.paths.config()).ok();
-    if crate::web_window::wanted(&std::env::args().collect::<Vec<_>>(), config.as_deref()) && crate::web_window::show(section, ctx.clone(), &status) {
-        return;
-    }
-    main_window::show(section, ctx, &status);
+    crate::web_window::show(section, ctx, &status);
 }
 
 fn send(msg: Msg) {

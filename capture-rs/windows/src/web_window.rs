@@ -2,33 +2,23 @@
 // the exe (https://capsule.localhost/, no network), its bridge (core::bridge) answered off the UI thread, and the
 // app's events pushed to it (state, appearance, material, data-changed, navigate, open-capsule). Windows 11 shows
 // Mica behind the transparent page ("glass"); Windows 10 is flat. The title bar and caption buttons stay Windows'.
-//! The default window. The custom-drawn one stays as a hidden way back (`--old-window`, or config.json
-//! "new_window": false), and opens by itself without the WebView2 runtime (some Windows 10 PCs). The tray, hotkeys, picker and dialogs stay native.
+//! The only window. Without the WebView2 runtime (some Windows 10 PCs) a plain message says where to get it. The
+//! tray, hotkeys, picker and dialogs stay native.
 
 use context_capsule_core::window::Section;
 
-/// `--new-window`: the shared window even if config.json says "new_window": false.
-pub const NEW_WINDOW_ARG: &str = "--new-window";
-/// `--old-window`: the custom-drawn window instead of the shared one.
-pub const OLD_WINDOW_ARG: &str = "--old-window";
-/// config.json key for the same.
-pub const NEW_WINDOW_KEY: &str = "new_window";
 /// Mica (the system backdrop) needs Windows 11 22H2.
 pub const MICA_BUILD: u32 = 22621;
 /// The page's address (wry maps the `capsule` scheme to https://capsule.localhost/ on WebView2).
 pub const ORIGIN: &str = "https://capsule.localhost/";
 
-/// The shared window, unless `--old-window` or config.json "new_window": false asks for the old one.
-pub fn wanted(args: &[String], config: Option<&[u8]>) -> bool {
-    if args.iter().any(|a| a == OLD_WINDOW_ARG) {
-        return false;
-    }
-    args.iter().any(|a| a == NEW_WINDOW_ARG)
-        || config
-            .and_then(|d| serde_json::from_slice::<serde_json::Value>(d).ok())
-            .and_then(|v| v.get(NEW_WINDOW_KEY).and_then(serde_json::Value::as_bool))
-            .unwrap_or(true)
-}
+/// Where to get WebView2: Microsoft's small installer for the Evergreen runtime.
+pub const WEBVIEW2_LINK: &str = "https://go.microsoft.com/fwlink/p/?LinkId=2124703";
+/// Said when the window can't open because WebView2 is missing (or broken).
+pub const NEEDS_WEBVIEW2: &str = "Context Capsule's window needs Microsoft Edge WebView2, which isn't working on this PC. \
+It's free from Microsoft:\n\nhttps://go.microsoft.com/fwlink/p/?LinkId=2124703\n\nRecording and the tray menu work without it.";
+pub const DOWNLOAD: &str = "Download";
+pub const NOT_NOW: &str = "Not now";
 
 /// The glass look: Windows 11 22H2 or later with transparency effects on (Personalize "EnableTransparency"; missing
 /// = on).
@@ -322,9 +312,15 @@ mod win {
         out
     }
 
-    /// Open the shared window (on `section`), or bring it to the front. false: it couldn't be made (no runtime…);
-    /// the caller opens the custom-drawn one.
-    pub fn show(section: Option<Section>, ctx: Ctx, status: &Status) -> bool {
+    /// Without WebView2 there is no window: say so, and offer Microsoft's download.
+    fn needs_webview2() {
+        if crate::input::ask_choice(context_capsule_core::window::APP_NAME, NEEDS_WEBVIEW2, DOWNLOAD, NOT_NOW) {
+            win::open(WEBVIEW2_LINK);
+        }
+    }
+
+    /// Open the window (on `section`), or bring it to the front. Without WebView2, a message says where to get it.
+    pub fn show(section: Option<Section>, ctx: Ctx, status: &Status) {
         if let Some(hwnd) = with_web(|w| w.hwnd) {
             if let Some(s) = section {
                 emit("navigate", json!({ "page": page_of(s) }));
@@ -334,11 +330,12 @@ mod win {
                 let _ = ShowWindow(hwnd, SW_RESTORE);
                 let _ = SetForegroundWindow(hwnd);
             }
-            return true;
+            return;
         }
         if runtime().is_none() {
-            ctx.log.write("window: no WebView2 runtime; the custom window opens");
-            return false;
+            ctx.log.write("window: no WebView2 runtime");
+            needs_webview2();
+            return;
         }
         let first_run = !setup::seen();
         setup::mark_seen();
@@ -347,19 +344,20 @@ mod win {
         let mica = build() >= MICA_BUILD;
         let Some(hwnd) = create(mica) else {
             ctx.log.write("window: cannot open");
-            return false;
+            return;
         };
         let dark = dark_for(&ctx.paths);
         frame(hwnd, dark, mica);
         let webview = match make_webview(hwnd, &ctx, host, dark, mica) {
             Ok(w) => w,
             Err(e) => {
-                ctx.log.write(&format!("window: WebView2 failed ({e}); the custom window opens"));
+                ctx.log.write(&format!("window: WebView2 failed ({e})"));
                 // SAFETY: our own window, never shown.
                 unsafe {
                     let _ = DestroyWindow(hwnd);
                 }
-                return false;
+                needs_webview2();
+                return;
             }
         };
         let mut web = Web {
@@ -385,7 +383,6 @@ mod win {
             let _ = ShowWindow(hwnd, SW_SHOW);
             let _ = SetForegroundWindow(hwnd);
         }
-        true
     }
 
     fn make_webview(hwnd: HWND, ctx: &Ctx, host: Arc<WinHost>, dark: bool, mica: bool) -> wry::Result<WebView> {
@@ -980,15 +977,9 @@ mod tests {
     use super::*;
 
     #[test]
-    fn switch() {
-        let args = |a: &[&str]| a.iter().map(|s| s.to_string()).collect::<Vec<_>>();
-        assert!(wanted(&args(&["cc"]), None), "on by default");
-        assert!(wanted(&args(&["cc"]), Some(b"{}")));
-        assert!(wanted(&args(&["cc"]), Some(br#"{"new_window": "yes"}"#)));
-        assert!(wanted(&args(&["cc"]), Some(b"not json")));
-        assert!(!wanted(&args(&["cc"]), Some(br#"{"new_window": false}"#)), "the way back");
-        assert!(!wanted(&args(&["cc", "--old-window"]), None));
-        assert!(wanted(&args(&["cc", "--new-window"]), Some(br#"{"new_window": false}"#)));
+    fn webview2_message_has_the_link() {
+        assert!(NEEDS_WEBVIEW2.contains(WEBVIEW2_LINK));
+        assert!(NEEDS_WEBVIEW2.contains("Microsoft Edge WebView2"));
     }
 
     #[test]
