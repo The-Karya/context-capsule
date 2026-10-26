@@ -7,7 +7,8 @@
 # Output: ../target-appimage/Context-Capsule-<version>-<arch>.AppImage
 # The AppImage holds the program, the any-AI program context-capsule-mcp (from ../../mcp/dist-bin, built by
 # mcp/build-binary.sh linux-x64 / linux-arm64), its .desktop entry and icon. Like the source build it uses the
-# system's PipeWire, D-Bus, ALSA and Tesseract (see README.md, "Install the dependencies").
+# system's PipeWire, D-Bus, ALSA and Tesseract, and for the window WebKitGTK 6.0 (not bundled: loaded when the
+# window opens; without it the window says which package to install). See README.md, "Install the dependencies".
 set -eu
 HERE=$(cd "$(dirname "$0")" && pwd)
 WS=$(dirname "$HERE") # the capture-rs workspace
@@ -73,4 +74,5 @@ APPIMAGE_EXTRACT_AND_RUN=1 ARCH=$ARCH nice -n 19 "$TOOL" --no-appstream "$APPDIR
 
 echo "libraries it needs from the system:"
 ldd "$APPDIR/usr/bin/context-capsule" | sed 's/ (0x.*//; s/^/  /'
+echo "  libwebkitgtk-6.0.so.4 (loaded when the window opens, not linked: Debian/Ubuntu libwebkitgtk-6.0-4, Fedora webkitgtk6.0, Arch webkitgtk-6.0)"
 echo "release file: $RELEASE ($(wc -c < "$RELEASE" | tr -d ' ') bytes, sha256 $(sha256sum "$RELEASE" | cut -d ' ' -f 1))"
