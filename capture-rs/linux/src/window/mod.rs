@@ -16,9 +16,9 @@ use crate::link::{UiMsg, WindowLink};
 use crate::ui;
 use adw::prelude::*;
 use context_capsule_core::anyai::YourAi;
-use context_capsule_core::claude::{self, new_chat_url, Opened};
-use context_capsule_core::settings::{Appearance, ConfigFile};
-use context_capsule_core::window::{self as words, HomeNumbers, Keys, Section};
+use context_capsule_core::claude::new_chat_url;
+use context_capsule_core::settings::Appearance;
+use context_capsule_core::window::{self as words, Section};
 use context_capsule_core::{Msg, Paths, Projects, Status};
 use gtk::{gdk, gio, glib};
 use std::cell::{Cell, RefCell};
@@ -295,37 +295,16 @@ pub fn apply_appearance(a: Appearance) {
     adw::StyleManager::default().set_color_scheme(scheme);
 }
 
-/// Go to a section (set once the window is built).
-type Nav = Box<dyn Fn(Section)>;
-
-/// What every page shares.
+/// What the window's dialogs and Your AI share.
 pub struct Ctx {
     pub paths: Paths,
     tx: Sender<Msg>,
-    pub locale: String,
-    /// The words that name the current shortcuts.
-    keys: RefCell<Keys>,
-    pub hotkeys: crate::hotkeys::Control,
     pub status: RefCell<Status>,
-    pub numbers: RefCell<HomeNumbers>,
     pub win: adw::ApplicationWindow,
     toasts: adw::ToastOverlay,
-    nav: RefCell<Option<Nav>>,
-    /// Home's "See today's timeline": the Timeline shows today when it opens next.
-    pub timeline_today: Cell<bool>,
 }
 
 impl Ctx {
-    /// The words that name the shortcuts (the current ones).
-    pub fn keys(&self) -> Keys {
-        self.keys.borrow().clone()
-    }
-
-    /// The shortcuts changed: name the new ones (Home and Help show them the next time they show).
-    pub fn set_keys(&self, h: &context_capsule_core::Hotkeys) {
-        *self.keys.borrow_mut() = Keys::linux(h);
-    }
-
     /// Tell the engine (does nothing in `--window-only`).
     pub fn send(&self, msg: Msg) {
         let _ = self.tx.send(msg);
@@ -335,20 +314,6 @@ impl Ctx {
         let t = adw::Toast::new(text);
         t.set_timeout(3);
         self.toasts.add_toast(t);
-    }
-
-    pub fn go(&self, section: Section) {
-        if let Some(nav) = self.nav.borrow().as_ref() {
-            nav(section);
-        }
-    }
-
-    /// Save one setting at once; say so if it couldn't be saved.
-    pub fn set(&self, key: &str, value: Option<serde_json::Value>) {
-        if let Err(e) = ConfigFile::set(&self.paths.config(), key, value) {
-            eprintln!("Context Capsule: cannot save {key}: {e}");
-            self.toast(ui::CANT_SAVE);
-        }
     }
 
     /// Put `text` on the clipboard. When the window isn't in front (from the tray), Wayland may not let it take
@@ -376,21 +341,6 @@ impl Ctx {
         if !self.open_uri(&new_chat_url(prompt)) {
             self.win.present();
             widgets::message(&self.win, ui::CANT_OPEN_CLAUDE, &ui::cant_open_claude_body(prompt));
-        }
-    }
-
-    /// A capsule someone sent (Open with, or "Open a capsule…"): your AI carries on from it. Not a capsule: say so.
-    pub fn open_received(self: &Rc<Self>, path: &std::path::Path) {
-        match claude::open_file(path) {
-            Opened::Capsule { prompt } => self.open_prompt(&prompt, crate::ai::WHY_CAPSULE, crate::ai::AGAIN_CAPSULE),
-            Opened::NotACapsule => {
-                self.win.present();
-                widgets::message(&self.win, claude::NOT_A_CAPSULE, claude::NOT_A_CAPSULE_BODY);
-            }
-            Opened::Unreadable => {
-                self.win.present();
-                widgets::message(&self.win, claude::NOT_A_CAPSULE, claude::CANT_READ);
-            }
         }
     }
 }

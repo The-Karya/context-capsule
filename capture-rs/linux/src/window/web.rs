@@ -14,7 +14,7 @@ use context_capsule_core::bridge::{self, Hello, Host, Transport};
 use context_capsule_core::claude::new_chat_url;
 use context_capsule_core::settings::Appearance;
 use context_capsule_core::shortcuts::Refusal;
-use context_capsule_core::window::{self as words, HomeNumbers, Keys, Section};
+use context_capsule_core::window::{self as words, Section};
 use context_capsule_core::{Hotkeys, Msg, Paths, Status};
 use gtk::{gdk, gio, glib};
 use serde_json::{json, Map, Value};
@@ -84,15 +84,9 @@ impl WebWindow {
         let ctx = Rc::new(Ctx {
             paths: paths.clone(),
             tx: tx.clone(),
-            locale: locale.to_string(),
-            keys: RefCell::new(Keys::linux(&crate::hotkeys::current())),
-            hotkeys: hotkeys.clone(),
             status: RefCell::new(status),
-            numbers: RefCell::new(HomeNumbers::default()),
             win: win.clone(),
             toasts: toasts.clone(),
-            nav: RefCell::new(None),
-            timeline_today: Cell::new(false),
         });
 
         let host = Arc::new(LinuxHost {
@@ -498,10 +492,7 @@ impl Host for LinuxHost {
     fn set_hotkeys(&self, keys: Hotkeys) -> Result<(), String> {
         let old = crate::hotkeys::current();
         match self.hotkeys.apply(old, keys) {
-            Ok(_) => {
-                on_main_now(move |w| w.ctx.set_keys(&keys));
-                Ok(())
-            }
+            Ok(_) => Ok(()),
             Err((_, Refusal::Taken)) => Err("taken".into()),
             Err((_, r)) => Err(r.message(false)),
         }
