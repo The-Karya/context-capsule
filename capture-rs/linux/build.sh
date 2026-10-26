@@ -5,7 +5,7 @@
 set -eu
 cd "$(dirname "$0")/.." # the capture-rs workspace
 if [ "${1:-}" = "--no-voice" ]; then
-  exec nice -n 19 cargo build --release -p context-capsule-linux --no-default-features
+  exec nice -n 19 cargo build --release -p context-capsule-linux --no-default-features --features window
 fi
 for tool in cmake clang pkg-config; do
   command -v "$tool" >/dev/null 2>&1 || echo "warning: $tool not found; see linux/README.md (or ./build.sh --no-voice)" >&2
