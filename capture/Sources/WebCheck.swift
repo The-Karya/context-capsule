@@ -1,5 +1,5 @@
 // context-capsule — capture: the shared window, checked — `--render-web-page` (the real web window drawn offscreen into a
-// PNG, like --render-page) and `--test-web-window` (drives the page through the real bridge with evaluateJavaScript:
+// PNG) and `--test-web-window` (drives the page through the real bridge with evaluateJavaScript:
 // every page, search, a recording opened, a read deleted, settings changed, events sent). Both use the data in
 // CONTEXT_CAPSULE_HOME; the test refuses to run on ~/.context-capsule. Nothing is recorded; no app, link or panel opens.
 
@@ -7,7 +7,36 @@ import AppKit
 import WebKit
 
 extension WebWindow {
-    static let renderPages = MainWindow.renderPages
+    // MARK: renders — a window drawn offscreen into a PNG at 2× (no screen capture, so it works with the screen locked).
+    /// A window the system leaves where it's put (titled windows are otherwise pulled back onto a screen).
+    final class OffscreenWindow: NSWindow {
+        override func constrainFrameRect(_ frameRect: NSRect, to screen: NSScreen?) -> NSRect { frameRect }
+        // Drawn as the window in front (as when you use it), even if it can't be key.
+        override var canBecomeKey: Bool { true }
+        override var canBecomeMain: Bool { true }
+        override var isKeyWindow: Bool { true }
+        override var isMainWindow: Bool { true }
+    }
+
+    /// The window as the window server drew it (its own window: no Screen Recording permission needed).
+    /// CGWindowListCreateImage is gone from the macOS 15 SDK but still in the system, so it is looked up by name.
+    static func windowImage(_ window: NSWindow) -> CGImage? {
+        typealias Fn = @convention(c) (CGRect, UInt32, UInt32, UInt32) -> Unmanaged<CGImage>?
+        guard let sym = dlsym(UnsafeMutableRawPointer(bitPattern: -2), "CGWindowListCreateImage") else { return nil }
+        let fn = unsafeBitCast(sym, to: Fn.self)
+        let options = CGWindowListOption.optionIncludingWindow.rawValue
+        let image = CGWindowImageOption([.boundsIgnoreFraming, .bestResolution]).rawValue
+        return fn(.null, options, UInt32(window.windowNumber), image)?.takeRetainedValue()
+    }
+
+    /// The app for renders: always the app in front, so the window draws as when you use it.
+    final class RenderApplication: NSApplication {
+        override var isActive: Bool { true }
+    }
+
+    /// The pages --render-web-page draws ("timeline-open": a recording opened; "welcome": Settings on first launch).
+    static let renderPages = ["home", "timeline", "timeline-open", "capsules", "projects", "settings", "help", "welcome"]
+
     /// The page's clock in renders and tests, so they match ui/dev/render-all.sh.
     static let renderNow = "2026-10-23T19:00:00"
 
@@ -41,7 +70,7 @@ extension WebWindow {
         let candidates = [env, "/System/Library/Desktop Pictures/.thumbnails/Big Sur Graphic.heic",
                           "/System/Library/Desktop Pictures/.thumbnails/Big Sur Graphic Light.heic"].compactMap { $0 }
         guard let image = candidates.lazy.compactMap({ NSImage(contentsOfFile: $0) }).first else { return nil }
-        let w = MainWindow.OffscreenWindow(contentRect: frame.insetBy(dx: -60, dy: -60), styleMask: [.borderless],
+        let w = OffscreenWindow(contentRect: frame.insetBy(dx: -60, dy: -60), styleMask: [.borderless],
                                            backing: .buffered, defer: false)
         let view = NSImageView(frame: NSRect(origin: .zero, size: w.frame.size))
         view.image = image
@@ -95,7 +124,7 @@ extension WebWindow {
         case "welcome": hash = "settings"
         default: hash = page
         }
-        let window = w.makeWindow(MainWindow.OffscreenWindow.self)
+        let window = w.makeWindow(OffscreenWindow.self)
         window.appearance = NSAppearance(named: dark ? .darkAqua : .aqua)
         window.colorSpace = .sRGB // the page's colours as they are, like the other renders
         window.setContentSize(size)
@@ -118,7 +147,7 @@ extension WebWindow {
         let ready = spin(until: { js(web, "return document.documentElement.dataset.ready === '1'") == "1" }, timeout: 15)
         if !ready { FileHandle.standardError.write("render: the page never said it was ready\n".data(using: .utf8)!) }
         spin(0.6)
-        let shot = below.map { image(of: [$0, window]) } ?? MainWindow.windowImage(window)
+        let shot = below.map { image(of: [$0, window]) } ?? windowImage(window)
         window.orderOut(nil)
         below?.orderOut(nil)
         guard let shot, let png = NSBitmapImageRep(cgImage: shot).representation(using: .png, properties: [:]) else { return false }
@@ -170,7 +199,7 @@ enum WebCheck {
             try? ConfigFile.set("hotkeys", ["record": r.text, "voice": v.text], in: paths.config)
             return nil
         }
-        let window = w.makeWindow(MainWindow.OffscreenWindow.self)
+        let window = w.makeWindow(WebWindow.OffscreenWindow.self)
         window.setContentSize(NSSize(width: 860, height: 620))
         window.setFrameOrigin(NSPoint(x: -30_000, y: -30_000))
         w.attach(window, query: "now=\(WebWindow.renderNow)", page: "home")

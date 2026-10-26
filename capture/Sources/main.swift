@@ -45,7 +45,7 @@ if let i = CommandLine.arguments.firstIndex(of: "--render-web-page"), i + 2 < Co
     // The Mac's default blue accent, whatever this Mac is set to (only for this run).
     UserDefaults.standard.setVolatileDomain(["AppleAccentColor": 4, "AppleHighlightColor": "0.698039 0.843137 1.000000 Blue"],
                                             forName: UserDefaults.argumentDomain)
-    _ = MainWindow.RenderApplication.shared
+    _ = WebWindow.RenderApplication.shared
     NSApp.setActivationPolicy(.accessory)
     NSApp.finishLaunching()
     guard WebWindow.renderPages.contains(a[0]) else { print("pages: \(WebWindow.renderPages.joined(separator: ", "))"); exit(2) }
@@ -54,7 +54,7 @@ if let i = CommandLine.arguments.firstIndex(of: "--render-web-page"), i + 2 < Co
 
 if CommandLine.arguments.contains("--test-web-window") {
     // Drives the shared window through its real bridge on the data in CONTEXT_CAPSULE_HOME (a copy: it deletes and edits).
-    _ = MainWindow.RenderApplication.shared
+    _ = WebWindow.RenderApplication.shared
     NSApp.setActivationPolicy(.accessory)
     NSApp.finishLaunching()
     exit(WebCheck.run() ? 0 : 1)

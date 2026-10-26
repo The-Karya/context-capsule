@@ -1140,36 +1140,3 @@ enum MainMenu {
         return main
     }
 }
-
-// MARK: Renders
-
-/// Renders: a window drawn offscreen into a PNG at 2× (no screen capture, so it works with the screen locked).
-extension MainWindow {
-    /// A window the system leaves where it's put (titled windows are otherwise pulled back onto a screen).
-    final class OffscreenWindow: NSWindow {
-        override func constrainFrameRect(_ frameRect: NSRect, to screen: NSScreen?) -> NSRect { frameRect }
-        // Drawn as the window in front (blue default button, sidebar as when you use it), even if it can't be key.
-        override var canBecomeKey: Bool { true }
-        override var canBecomeMain: Bool { true }
-        override var isKeyWindow: Bool { true }
-        override var isMainWindow: Bool { true }
-    }
-
-    /// The window as the window server drew it (its own window: no Screen Recording permission needed).
-    /// CGWindowListCreateImage is gone from the macOS 15 SDK but still in the system, so it is looked up by name.
-    static func windowImage(_ window: NSWindow) -> CGImage? {
-        typealias Fn = @convention(c) (CGRect, UInt32, UInt32, UInt32) -> Unmanaged<CGImage>?
-        guard let sym = dlsym(UnsafeMutableRawPointer(bitPattern: -2), "CGWindowListCreateImage") else { return nil }
-        let fn = unsafeBitCast(sym, to: Fn.self)
-        let options = CGWindowListOption.optionIncludingWindow.rawValue
-        let image = CGWindowImageOption([.boundsIgnoreFraming, .bestResolution]).rawValue
-        return fn(.null, options, UInt32(window.windowNumber), image)?.takeRetainedValue()
-    }
-
-    /// The app for renders: always the app in front, so the window draws as when you use it.
-    final class RenderApplication: NSApplication {
-        override var isActive: Bool { true }
-    }
-
-    static let renderPages = ["home", "timeline", "timeline-open", "capsules", "projects", "settings", "help", "welcome"]
-}
