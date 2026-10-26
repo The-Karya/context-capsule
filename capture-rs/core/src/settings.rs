@@ -55,14 +55,6 @@ impl ShareScreens {
         }
     }
 
-    /// The words in Settings → When you start.
-    pub fn label(self) -> &'static str {
-        match self {
-            ShareScreens::Pick => crate::window::SHARE_PICK,
-            ShareScreens::All => crate::window::SHARE_ALL,
-        }
-    }
-
     /// Missing or unknown: pick.
     pub fn parse(s: &str) -> ShareScreens {
         let s = s.trim().to_lowercase();
@@ -335,7 +327,6 @@ mod tests {
         assert_eq!(ShareScreens::parse(" ALL "), ShareScreens::All);
         assert_eq!(ShareScreens::parse("pick"), ShareScreens::Pick);
         assert_eq!(ShareScreens::parse("every"), ShareScreens::Pick, "unknown: pick");
-        assert_eq!(ShareScreens::ALL.map(|s| s.label()), ["Pick a screen or window", "All my screens"]);
         let dir = std::env::temp_dir().join(format!("cc-share-{}", std::process::id()));
         let path = dir.join("config.json");
         assert_eq!(ShareScreens::load(&path), ShareScreens::Pick, "default");
