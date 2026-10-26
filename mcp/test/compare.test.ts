@@ -145,6 +145,31 @@ describe("versions of one capsule", () => {
   });
 });
 
+describe("import_capsule and other versions", () => {
+  test("says when the received capsule is newer, older, or not a version of anything here", async () => {
+    tempHome();
+    saveCapsule({ title: "Website", markdown: VALID_BODY, project: "website", kind: "project" });
+    const s = await serverClient();
+    try {
+      const newer = receivedFile(NEWER_BODY, { title: "Website", created: "2030-01-02T09:00:00Z", project: "website", kind: "project" });
+      const r = await s.call("import_capsule", { path: newer });
+      expect(r.isError).toBe(false);
+      expect(r.text).toMatch(/This is a newer version of "Website" \(name: website, from .+\)\./);
+      expect(r.text).toContain('compare_capsules with a "website" and b "website-2"');
+
+      const older = receivedFile(VALID_BODY, { title: "Website", created: "2020-01-02T09:00:00Z", project: "website", kind: "project" });
+      const o = await s.call("import_capsule", { path: older });
+      expect(o.text).toContain('"Website" (name: website, from');
+      expect(o.text).toContain("is a newer version than this one");
+
+      const other = receivedFile(VALID_BODY, { title: "Shop", created: "2030-01-02T09:00:00Z", project: "shop", kind: "project" });
+      expect((await s.call("import_capsule", { path: other })).text).not.toContain("compare_capsules");
+    } finally {
+      await s.close();
+    }
+  });
+});
+
 describe("compare_capsules", () => {
   test("your project capsule and the one that came back: changes, the conflict, the merge, how to keep it", async () => {
     tempHome();

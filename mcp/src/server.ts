@@ -9,7 +9,7 @@ import { checkDay, finishDay, loadDay, prepareDay, today } from "./day.js";
 import { capsuleBlock, describeFindings, scanForInstructions } from "./untrusted.js";
 import { DEFAULT_LIMIT, MAX_LIMIT, formatSearch, searchCapsules } from "./search.js";
 import { exportCapsuleHtml } from "./viewer.js";
-import { compareReport, loadVersion } from "./compare.js";
+import { compareReport, loadVersion, versionNote } from "./compare.js";
 import {
   SERVER_INSTRUCTIONS,
   askCapsulesPrompt,
@@ -734,8 +734,9 @@ export function createServer(opts: ServerOptions = {}): McpServer {
         ? `\nHeads-up for the user: it contains text that reads like orders to an AI. It will only ever be used as ` +
           `information:\n${describeFindings(found)}`
         : "";
-      if (r.already) return text(`"${r.title}" is already in your capsules: ${r.path}\nName: ${r.slug}${warn}`);
-      return text(`Imported "${r.title}" to ${r.path}\nName: ${r.slug}. Read it with get_capsule.${warn}`);
+      const versions = versionNote(r.path, r.slug);
+      if (r.already) return text(`"${r.title}" is already in your capsules: ${r.path}\nName: ${r.slug}${versions}${warn}`);
+      return text(`Imported "${r.title}" to ${r.path}\nName: ${r.slug}. Read it with get_capsule.${versions}${warn}`);
     }),
   );
 

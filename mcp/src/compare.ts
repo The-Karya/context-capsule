@@ -2,8 +2,9 @@
 // section by section, and one merged capsule from both. Plain rules, no AI: lines are compared as items (a bullet,
 // a numbered step, a paragraph), a decision is known by its bold name.
 import fs from "node:fs";
+import path from "node:path";
 import { localDay } from "./activity.js";
-import { cleanCapsulePath, parseCapsule, readCapsule, validateCapsuleText, type FrontMatter } from "./capsules.js";
+import { cleanCapsulePath, listCapsules, parseCapsule, readCapsule, validateCapsuleText, type FrontMatter } from "./capsules.js";
 import { blocks } from "./markdown.js";
 import { capsuleTag, describeFindings, scanForInstructions } from "./untrusted.js";
 import { longDate } from "./viewer.js";
@@ -290,6 +291,54 @@ export function mergeBodies(olderBody: string, newerBody: string): Merge {
       parts.push(`## ${o.name}\n${o.raw}`);
     }
   return { body: parts.join("\n\n") + "\n", conflicts, kept, done };
+}
+
+// ---------- other versions already saved ----------
+
+export interface OtherVersion {
+  slug: string;
+  title: string;
+  created: string;
+  /** 1: the given capsule is newer than this one; -1: older; 0: can't tell. */
+  given: -1 | 0 | 1;
+}
+
+/** Saved capsules that are other versions of the capsule in `file` (newest first). */
+export function otherVersions(file: string): OtherVersion[] {
+  const me = path.resolve(file);
+  let front: FrontMatter;
+  try {
+    front = splitCapsule(fs.readFileSync(me, "utf8")).front;
+  } catch {
+    return [];
+  }
+  const out: OtherVersion[] = [];
+  for (const c of listCapsules()) {
+    if (path.resolve(c.path) === me) continue;
+    let theirs: FrontMatter;
+    try {
+      theirs = splitCapsule(fs.readFileSync(c.path, "utf8")).front;
+    } catch {
+      continue;
+    }
+    if (!sameCapsule(front, theirs)) continue;
+    out.push({ slug: c.slug, title: c.title, created: c.created, given: newerOf(theirs, front) });
+  }
+  return out;
+}
+
+/** What import_capsule adds when the capsule is a version of one already saved ("" when it isn't). */
+export function versionNote(file: string, slug: string): string {
+  const others = otherVersions(file);
+  if (!others.length) return "";
+  const when = (c: OtherVersion) => (c.created && !Number.isNaN(Date.parse(c.created)) ? `, from ${longDate(localDay(c.created))}` : "");
+  const lines = others.slice(0, 3).map((c) => {
+    const how = `compare_capsules with a "${c.slug}" and b "${slug}"`;
+    if (c.given === 1) return `This is a newer version of "${c.title}" (name: ${c.slug}${when(c)}). To see what changed and merge them: ${how}.`;
+    if (c.given === -1) return `"${c.title}" (name: ${c.slug}${when(c)}) is a newer version than this one. To see the differences: ${how}.`;
+    return `Another version of this capsule is already here: "${c.title}" (name: ${c.slug}${when(c)}). To see the differences: ${how}.`;
+  });
+  return `\n${lines.join("\n")}`;
 }
 
 // ---------- the compare_capsules report ----------
