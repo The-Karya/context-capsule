@@ -109,7 +109,6 @@ extension WebWindow {
     static func renderPage(_ page: String, to out: URL, dark: Bool, size: NSSize, material: String) -> Bool {
         let paths = Paths.standard
         let model = AppModel()
-        model.version = Updater.currentVersion
         NSApp.appearance = NSAppearance(named: dark ? .darkAqua : .aqua)
         let w = WebWindow(app: model, paths: paths)
         let done = page != "welcome"
@@ -177,7 +176,6 @@ enum WebCheck {
 
         var asked: [String] = []
         let model = AppModel()
-        model.version = Updater.currentVersion
         model.toggleRecord = { asked.append("toggle") }
         model.toggleVoice = { asked.append("voice") }
         model.addScreen = { asked.append("add-screen") }

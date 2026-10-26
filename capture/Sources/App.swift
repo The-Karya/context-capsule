@@ -153,12 +153,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         appModel.toggleRecord = { [weak self] in self?.toggle() }
         appModel.toggleVoice = { [weak self] in self?.toggleVoice() }
         appModel.addScreen = { [weak self] in self?.addScreen() }
-        appModel.makeCapsules = { [weak self] in self?.makeCapsules() }
         appModel.pickProject = { [weak self] id in self?.recorder.pinProject(id); self?.refresh() }
         appModel.newProject = { [weak self] in self?.newProject() }
         appModel.askAccessibility = { [weak self] in self?.askAccessibility() }
-        appModel.setShortcut = { [weak self] record, keys in self?.setShortcut(record: record, to: keys) }
-        appModel.resetShortcuts = { [weak self] in self?.resetShortcuts() }
         appModel.pauseHotKeys = { [weak self] paused in
             guard let self else { return }
             if paused { self.hotKey = nil; self.voiceKey = nil } else { self.registerHotKeys() }
@@ -177,7 +174,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         auto.openCapsules = { [weak self] in self?.showWindow("capsules") }
         auto.start()
 
-        appModel.version = Updater.currentVersion
         appModel.checkForUpdates = { [weak self] in self?.updater.check(manual: true) }
         appModel.restartToUpdate = { [weak self] in self?.restartToUpdate() }
         updater.onChange = { [weak self] in self?.refresh() }
@@ -325,37 +321,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
             item.keyEquivalent = KeyCodes.menuKey(s)
             item.keyEquivalentModifierMask = KeyCodes.menuModifiers(s)
         }
-        appModel.recordKey = keys.record.symbols
-        appModel.voiceKey = keys.voice.symbols
     }
 
     private static func hotKey(_ s: Shortcut, id: UInt32, action: @escaping () -> Void) -> HotKey? {
         guard let code = KeyCodes.code(s.key) else { return nil }
         return HotKey(keyCode: code, modifiers: KeyCodes.carbonModifiers(s), id: id, action: action)
-    }
-
-    /// Settings: use new keys for "Start or stop" (record) or "Speak a note". nil = done; else why not (old keys stay).
-    private func setShortcut(record: Bool, to keys: Shortcut) -> String? {
-        let current = Shortcut.current
-        let other = record ? current.voice : current.record
-        switch keys.problem(other: other) {
-        case .needsModifier: return "Add ⌃, ⌥ or ⌘"
-        case .sameAsOther: return "Already used for \(record ? "Speak a note" : "Start or stop")"
-        case nil: break
-        }
-        // Free our own old keys first, then see if the new ones can be had.
-        hotKey = nil
-        voiceKey = nil
-        let free = Self.hotKey(keys, id: 9) {} != nil // let go again at once
-        guard free else {
-            registerHotKeys()
-            return "Another app uses these keys"
-        }
-        if record { Shortcut.current.record = keys } else { Shortcut.current.voice = keys }
-        saveShortcuts()
-        registerHotKeys()
-        refresh()
-        return nil
     }
 
     /// The shared window's Settings: both shortcuts at once. nil = done; "taken" when another app has the keys (the old
@@ -375,13 +345,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         registerHotKeys()
         refresh()
         return nil
-    }
-
-    private func resetShortcuts() {
-        Shortcut.current = (Shortcut.defaultRecord, Shortcut.defaultVoice)
-        saveShortcuts()
-        registerHotKeys()
-        refresh()
     }
 
     private func saveShortcuts() {
@@ -404,9 +367,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         m.moments = recorder.eventCount
         m.sessionID = recording ? recorder.sessionID : nil
         m.projectBy = recorder.projectChoice.pinned != nil ? "you" : recorder.currentProject?.by
-        m.projects = recorder.projects
         m.projectID = recorder.projectChoice.pinned ?? recorder.currentProject?.id
-        m.projectPinned = recorder.projectChoice.pinned != nil
         m.screens = recorder.sharedScreens
         m.canAddScreen = recorder.canAddScreen
         m.hasSeveralScreens = NSScreen.screens.count > 1
