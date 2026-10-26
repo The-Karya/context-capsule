@@ -1,5 +1,5 @@
-// context-capsule — ui: dates and times for people, in the page's language and 12/24-hour style (DayWords in
-// capture/Sources/Core.swift), plus the "YYYY-MM-DD" day keys the pages pass around (local days).
+// context-capsule — ui: dates and times for people, in the page's language and 12/24-hour style, plus the
+// "YYYY-MM-DD" day keys the pages pass around (local days).
 
 const pad = (n, w = 2) => String(n).padStart(w, "0");
 

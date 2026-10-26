@@ -68,7 +68,7 @@ fills, exactly as without the field: Linux, Windows 10, and whenever the system 
 `accessibilityDisplayShouldReduceTransparency`, Windows "Transparency effects" off). When that setting changes the
 host sends the `material` event.
 
-Has code: Swift `Updater.currentVersion`, `NSFullUserName`, `MainWindow.seen`, `Preferences.languages`; Rust
+Has code: Swift `Updater.currentVersion`, `NSFullUserName`, `WebWindow.seen`, `WebWindow.languages`; Rust
 `settings::language_options`, `SAME_LANGUAGE`, `update::CURRENT`.
 
 ### Reading files (raw)
@@ -238,10 +238,10 @@ received capsule").
 
 | module | from |
 |---|---|
-| `timeline.js` — stretches, gaps, notes, blocks, search, day bar, where your time went, delete words | Swift `Timeline` |
-| `stats.js` — Today / This week totals, streak, greeting, durations | Swift `WorkStats` |
-| `dates.js` — long day, clock times, month calendar (Intl + host locale, 12/24 h) | Swift `DayWords` |
-| `capsules.js` — front matter, In short, groups, row labels, prompts | Swift `CapsuleSummary` |
+| `timeline.js` — stretches, gaps, notes, blocks, search, day bar, where your time went, delete words | only here (the hosts keep only `timeline.delete`) |
+| `stats.js` — Today / This week totals, streak, greeting, durations | only here |
+| `dates.js` — long day, clock times, month calendar (Intl + host locale, 12/24 h) | only here |
+| `capsules.js` — front matter, In short, groups, row labels, prompts | only here (Swift `CapsuleSummary` keeps the front matter for the evening reminder) |
 | `projects.js` — projects.json, slug, detect, edit | Swift `Projects`, Rust `core::projects` |
 | `shortcuts.js` — parse, show (⌥C / Alt+C), key events, checks | Swift `Shortcut`, Rust `core::shortcuts` |
 | `yourai.js` — Your AI choice, clients, Copy my day / Save words | Swift `YourAI`/`AIAnswer`, Rust `core::anyai` |
@@ -256,7 +256,7 @@ URL options: `#home` … `#help`, `?capsule=capsules/<file>` (the reading view),
 `?platform=windows|linux`, `?material=glass`, `?locale=en-GB`, `?recording=1`, `?now=2026-10-23T19:00:00` (the page's clock).
 
 Renders: `ui/dev/render-all.sh` (WKWebView, `ui/dev/snap.swift`) writes every page in light and dark to
-`/tmp/shared-ui/<page>-<mode>.png` (860 × 620 @2×, like the Mac's `--render-page`), plus `full/` (860 × 1700),
+`/tmp/shared-ui/<page>-<mode>.png` (860 × 620 @2×, like the Mac's `--render-web-page`), plus `full/` (860 × 1700),
 `narrow/` (640 × 620) and `large/` (1280 × 900); `ui/dev/compare.sh` puts each next to the Mac's render in
 `/tmp/shared-ui/compare/`. `snap <url> <out> <w> <h> <light|dark> [script]` runs a script first (open a menu…).
 The page sets `document.documentElement.dataset.ready = "1"` once its first view is drawn.

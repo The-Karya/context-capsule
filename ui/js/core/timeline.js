@@ -1,6 +1,5 @@
 // context-capsule — ui: the Timeline — one day's recordings, their reads grouped into stretches, notes and gaps,
-// the day's recorded time, day bar, "Where your time went", search, and the page's words. A port of `Timeline`
-// (capture/Sources/Core.swift) and TimelineView.swift; core/src/timeline.rs has the same rules (SPEC "Timeline").
+// the day's recorded time, day bar, "Where your time went", search, and the page's words (SPEC "Timeline").
 // Times are ms; local time is the page's (the JS runtime's) time zone.
 
 import { detect } from "./projects.js";

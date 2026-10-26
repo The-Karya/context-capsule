@@ -1,6 +1,5 @@
 // context-capsule — ui: saved capsules as the window shows them — front matter, "In short", groups, row words, prompts.
-// A port of CapsuleSummary and ClaudeLink (capture/Sources/Core.swift), LibraryModel.groups and CapsuleRow
-// (capture/Sources/Library.swift) and Home's recent capsules (MainWindow.swift).
+// The front matter rules match CapsuleSummary in capture/Sources/Core.swift (the Mac's evening reminder reads them).
 
 /** Capsule files end with this. */
 export const SUFFIX = ".capsule.md";

@@ -1,5 +1,5 @@
 // context-capsule — ui: Home's numbers — time per project (Today, This week), the streak, the greeting — and
-// Claude's corrections (assign.json). A port of WorkStats and Assignments (capture/Sources/Core.swift), stats.rs.
+// Claude's corrections (assign.json).
 
 import { detect } from "./projects.js";
 import { length } from "./timeline.js";
