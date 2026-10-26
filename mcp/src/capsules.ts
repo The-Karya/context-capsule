@@ -522,24 +522,26 @@ export function defaultExportDir(): string {
   return fs.existsSync(desktop) ? desktop : homeDir();
 }
 
-export function exportCapsule(name: string, toPath?: string): string {
-  const { info, text } = readCapsule(name);
-  let dir: string;
-  let base: string;
-  let ext: string;
+/**
+ * Where an export goes: a folder (Desktop by default) gets `<base><ext>`; a file path is used as given (`ext` when
+ * it has none). Never overwrites: a taken name gets -2, -3….
+ */
+export function writeExport(toPath: string | undefined, base: string, ext: string, data: string): string {
   const target = toPath?.trim() ? path.resolve(expandHome(toPath.trim())) : defaultExportDir();
   const isDir = (fs.existsSync(target) && fs.statSync(target).isDirectory()) || /[/\\]$/.test(toPath ?? "") || !toPath?.trim();
-  if (isDir) {
-    dir = target;
-    base = info.slug;
-    ext = CAPSULE_EXT;
-  } else {
+  let dir = target;
+  if (!isDir) {
     dir = path.dirname(target);
     const b = path.basename(target);
-    ext = b.endsWith(CAPSULE_EXT) ? CAPSULE_EXT : path.extname(b);
-    base = ext ? b.slice(0, -ext.length) : b;
-    if (!ext) ext = CAPSULE_EXT;
+    const given = b.endsWith(CAPSULE_EXT) ? CAPSULE_EXT : path.extname(b);
+    base = given ? b.slice(0, -given.length) : b;
+    if (given) ext = given;
   }
   fs.mkdirSync(dir, { recursive: true });
-  return writeUnique(dir, base, ext, text);
+  return writeUnique(dir, base, ext, data);
+}
+
+export function exportCapsule(name: string, toPath?: string): string {
+  const { info, text } = readCapsule(name);
+  return writeExport(toPath, info.slug, CAPSULE_EXT, text);
 }
