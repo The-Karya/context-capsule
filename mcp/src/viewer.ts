@@ -2,7 +2,7 @@
 // network (a Content-Security-Policy forbids loading anything), inline CSS in the plain macOS look, light and dark,
 // prints cleanly. Capsule text is untrusted: every piece of it is escaped, links are http(s) only.
 import { localDay } from "./activity.js";
-import { validateCapsuleText, type FrontMatter } from "./capsules.js";
+import { readCapsule, validateCapsuleText, writeExport, type FrontMatter } from "./capsules.js";
 import { blocks, inline, type Inline } from "./markdown.js";
 
 /** Text safe inside HTML elements and quoted attributes. */
@@ -135,4 +135,10 @@ ${bodyHtml(v.body.trim())}
 </body>
 </html>
 `;
+}
+
+/** Save a capsule as a web page: to the Desktop (default), a folder or a file path. Never overwrites. */
+export function exportCapsuleHtml(name: string, toPath?: string): string {
+  const { info, text } = readCapsule(name);
+  return writeExport(toPath, info.slug, ".html", capsuleHtml(text));
 }

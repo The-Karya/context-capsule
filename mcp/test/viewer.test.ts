@@ -1,8 +1,11 @@
 // context-capsule — mcp: tests for the capsule web page (structure, escaping, no scripts or network, dates)
 import { describe, expect, test } from "bun:test";
-import { stringifyFrontMatter } from "../src/capsules.ts";
-import { capsuleHtml, escapeHtml, longDate } from "../src/viewer.ts";
-import { VALID_BODY } from "./helpers.ts";
+import fs from "node:fs";
+import os from "node:os";
+import path from "node:path";
+import { saveCapsule, stringifyFrontMatter } from "../src/capsules.ts";
+import { capsuleHtml, escapeHtml, exportCapsuleHtml, longDate } from "../src/viewer.ts";
+import { VALID_BODY, serverClient, tempHome } from "./helpers.ts";
 
 const FRONT = { capsule: 1, title: "Pricing page redesign", author: "Saachi", created: "2026-10-19T11:30:00Z", project: "website", kind: "daily", date: "2026-10-19" };
 const page = (body: string, front: Record<string, unknown> = FRONT) =>
@@ -62,4 +65,37 @@ test("helpers", () => {
   expect(escapeHtml(`<a href="x">'&'</a>`)).toBe("&lt;a href=&quot;x&quot;&gt;&#39;&amp;&#39;&lt;/a&gt;");
   expect(longDate("2026-01-05")).toBe("5 January 2026");
   expect(longDate("soon")).toBe("soon");
+});
+
+describe("export as a web page", () => {
+  test("to a folder or a file, never overwriting", () => {
+    tempHome();
+    saveCapsule({ title: "Share me", markdown: VALID_BODY });
+    const out = fs.mkdtempSync(path.join(os.tmpdir(), "context-capsule-out-"));
+    expect(exportCapsuleHtml("share-me", out)).toBe(path.join(out, "share-me.html"));
+    expect(exportCapsuleHtml("share-me", out)).toBe(path.join(out, "share-me-2.html"));
+    const file = path.join(out, "for-alex.html");
+    expect(exportCapsuleHtml("Share me", file)).toBe(file);
+    expect(fs.readFileSync(file, "utf8")).toContain("<h1>Share me</h1>");
+  });
+
+  test("export_capsule: format html, or a to_path ending in .html", async () => {
+    tempHome();
+    saveCapsule({ title: "Share me", markdown: VALID_BODY });
+    const out = fs.mkdtempSync(path.join(os.tmpdir(), "context-capsule-out-"));
+    const s = await serverClient();
+    try {
+      const a = await s.call("export_capsule", { name: "share-me", to_path: out, format: "html" });
+      expect(a.isError).toBe(false);
+      expect(a.text).toContain(path.join(out, "share-me.html"));
+      expect(a.text).toContain("no AI and no internet needed");
+      const b = await s.call("export_capsule", { name: "share-me", to_path: path.join(out, "page.html") });
+      expect(fs.existsSync(path.join(out, "page.html"))).toBe(true);
+      expect(b.text).toContain("web page");
+      const c = await s.call("export_capsule", { name: "share-me", to_path: out });
+      expect(c.text).toContain(path.join(out, "share-me.capsule.md"));
+    } finally {
+      await s.close();
+    }
+  });
 });

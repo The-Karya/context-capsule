@@ -2,7 +2,10 @@
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
+import { Client } from "@modelcontextprotocol/sdk/client/index.js";
+import { InMemoryTransport } from "@modelcontextprotocol/sdk/inMemory.js";
 import type { CaptureEvent } from "../src/sessions.ts";
+import { createServer } from "../src/server.ts";
 
 /** Fresh temp CONTEXT_CAPSULE_HOME for one test. */
 export function tempHome(): string {
@@ -80,3 +83,21 @@ Figma design done (Pricing v2), not shipped yet.
 ## People, links and files
 - PRI-12 in Linear
 `;
+
+/** The MCP server in this process, with a client: `call(tool, args)` → its text and whether it was an error. */
+export async function serverClient(): Promise<{
+  call: (name: string, args?: Record<string, unknown>) => Promise<{ text: string; isError: boolean }>;
+  close: () => Promise<void>;
+}> {
+  const server = createServer({ confirmTimeoutMs: 1500 });
+  const [a, b] = InMemoryTransport.createLinkedPair();
+  const client = new Client({ name: "test", version: "0" });
+  await Promise.all([server.connect(a), client.connect(b)]);
+  return {
+    call: async (name, args = {}) => {
+      const r = (await client.callTool({ name, arguments: args })) as { content: { text: string }[]; isError?: boolean };
+      return { text: r.content.map((c) => c.text).join("\n"), isError: r.isError === true };
+    },
+    close: () => client.close(),
+  };
+}
