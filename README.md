@@ -60,8 +60,12 @@ Linux. Light, dark, or the same as your system.
   note, Add a screen; today, this week and your streak; time per project today; your recent
   capsules; your shortcuts, the project you're on, and Make today's capsules. It fits any
   window size.
-- **Capsules**: your capsules by project, with Share (Copy file, Copy text, Save a copy,
-  Show in Finder, AirDrop/Mail/Messages) and Open.
+- **Timeline**: any day's recordings and where your time went; open a recording to see what
+  was read, or delete it.
+- **Capsules**: search your capsules, by day or by project. Open one to read it, continue in
+  your AI, or **Share…**: the share page shows the copy as it will be sent, with private things
+  (names, emails, phones, private links, money and more) struck through where they are, and a
+  switch for each kind. Then Copy text, Copy file, Save a copy, or AirDrop / Mail / Messages.
 - **Projects**: rename them, change how they're found, delete them.
 - **Settings**: your name (it goes on your capsules), set up, appearance, updates, the evening reminder and its time, when to delete old recordings,
   sounds, the voice-note language, apps never to record, and updates.
