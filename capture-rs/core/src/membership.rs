@@ -307,21 +307,4 @@ impl Membership {
         }
         OcrDecision::Read { region, masks }
     }
-
-    /// The picked display's place in global coordinates. `rect` may be the display's own (0,0)-based
-    /// size; then match it by size against the real displays. None when it cannot be told apart.
-    pub fn resolve_display(rect: &Rect, displays: &[Rect]) -> Option<Rect> {
-        if rect.is_empty() {
-            return None;
-        }
-        if let Some(exact) = displays.iter().find(|d| Self::same_frame(d, rect)) {
-            return Some(*exact);
-        }
-        let t = Self::TOLERANCE;
-        let sized: Vec<&Rect> = displays
-            .iter()
-            .filter(|d| (d.width - rect.width).abs() <= t && (d.height - rect.height).abs() <= t)
-            .collect();
-        if sized.len() == 1 { Some(*sized[0]) } else { None }
-    }
 }

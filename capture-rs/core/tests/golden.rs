@@ -376,20 +376,6 @@ fn ocr_plan() {
         "picked window: read whole, other apps are not in the image");
 }
 
-// MARK: picked display place
-
-#[test]
-fn resolve_display() {
-    let main = r(0.0, 0.0, 1440.0, 900.0);
-    let ext = r(1440.0, 48.0, 1920.0, 1080.0);
-    let displays = [main, ext];
-    assert_eq!(Membership::resolve_display(&ext, &displays), Some(ext), "global display rect kept");
-    assert_eq!(Membership::resolve_display(&r(0.0, 0.0, 1920.0, 1080.0), &displays), Some(ext), "(0,0)-based external display found by size");
-    assert_eq!(Membership::resolve_display(&r(0.0, 0.0, 1920.0, 1080.0), &[main, ext, r(3360.0, 0.0, 1920.0, 1080.0)]), None,
-        "two same-size displays, no origin: unknown");
-    assert_eq!(Membership::resolve_display(&Rect::ZERO, &displays), None, "empty rect: unknown");
-}
-
 // MARK: accessibility text
 
 fn node(depth: usize, kind: NodeKind, value: &str, title: &str, desc: &str) -> TextNode {

@@ -57,8 +57,8 @@ impl Source {
 
 /// A picked monitor's global rect: position + size, else the one known monitor of that size.
 /// Unknown → empty (the engine then skips: "cannot find the picked screen").
-/// (Not `Membership::resolve_display`: it takes an exact match at the origin first, which for a
-/// size-only rect would pick the origin monitor when two monitors have the same size.)
+/// (Not an exact match at the origin first, as the Mac's `Membership.resolveDisplay` does: for a size-only rect
+/// that would pick the origin monitor when two monitors have the same size.)
 pub fn monitor_rect(src: &Source, monitors: &[Rect]) -> Rect {
     let size = src.size_rect();
     if size.is_empty() {
