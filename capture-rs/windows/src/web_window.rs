@@ -101,26 +101,6 @@ pub fn show_arg(args: &[String]) -> Option<ShowArg> {
     Some(show)
 }
 
-/// A Windows long-date pattern without its year: "dddd, d MMMM yyyy" → "dddd, d MMMM",
-/// "dddd, MMMM d, yyyy" → "dddd, MMMM d", "yyyy年M月d日" → "M月d日".
-pub fn without_year(pattern: &str) -> String {
-    let mut out = String::new();
-    let mut chars = pattern.chars().peekable();
-    while let Some(c) = chars.next() {
-        if c == 'y' {
-            while chars.peek() == Some(&'y') {
-                chars.next();
-            }
-            if matches!(chars.peek(), Some('年') | Some('년')) {
-                chars.next();
-            }
-            continue;
-        }
-        out.push(c);
-    }
-    out.trim_matches(|c: char| c == ' ' || c == ',' || c == '.' || c == '/' || c == '-').replace(" ,", ",").replace("  ", " ")
-}
-
 #[cfg(windows)]
 pub use win::*;
 
@@ -997,14 +977,10 @@ mod tests {
     }
 
     #[test]
-    fn dark_and_dates() {
+    fn dark() {
         assert!(system_dark_from(Some(0)));
         assert!(!system_dark_from(Some(1)));
         assert!(!system_dark_from(None), "Windows 10 before dark mode");
-        assert_eq!(without_year("dddd, d MMMM yyyy"), "dddd, d MMMM");
-        assert_eq!(without_year("dddd, MMMM d, yyyy"), "dddd, MMMM d");
-        assert_eq!(without_year("yyyy年M月d日"), "M月d日");
-        assert_eq!(without_year("dddd d. MMMM yyyy"), "dddd d. MMMM");
     }
 
     #[test]

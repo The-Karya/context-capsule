@@ -215,7 +215,6 @@ pub fn run() {
         return;
     }
     win::init_com(true);
-    win::use_system_formats();
 
     let Some(hwnd) = create_window() else {
         eprintln!("Context Capsule: cannot create the tray window");
