@@ -575,7 +575,7 @@ final class WebWindow: NSObject, NSWindowDelegate, WKNavigationDelegate, WKUIDel
         case "apps.names":
             let ids = (args["ids"] as? [String] ?? []).prefix(500)
             var out: [String: String] = [:]
-            for id in ids { out[id] = Preferences.appName(id) }
+            for id in ids { out[id] = Self.appName(id) }
             ok(out)
 
         case "apps.icons":
@@ -645,7 +645,7 @@ final class WebWindow: NSObject, NSWindowDelegate, WKNavigationDelegate, WKUIDel
         switch key {
         case "appearance":
             let a = value as? String ?? "system"
-            Preferences.apply(["light", "dark"].contains(a) ? a : "system")
+            Self.applyAppearance(["light", "dark"].contains(a) ? a : "system")
         case "share_screens":
             if value as? String == "all" && !CGPreflightScreenCaptureAccess() {
                 if options.quiet { options.log("ask Screen Recording") } else { _ = CGRequestScreenCaptureAccess() }
@@ -656,10 +656,23 @@ final class WebWindow: NSObject, NSWindowDelegate, WKNavigationDelegate, WKUIDel
             auto.settingChanged() // Your AI picks which tool a run uses
         case "make_capsules", "remind_at":
             auto.settingChanged()
-        case "author":
-            app.name = Preferences.name(from: paths.config).split(separator: " ").first.map(String.init) ?? ""
         default: break
         }
+    }
+
+    /// "light" or "dark" for the whole app (title bar, traffic lights, panels); anything else follows the Mac.
+    static func applyAppearance(_ appearance: String) {
+        switch appearance {
+        case "light": NSApp.appearance = NSAppearance(named: .aqua)
+        case "dark": NSApp.appearance = NSAppearance(named: .darkAqua)
+        default: NSApp.appearance = nil
+        }
+    }
+
+    /// An app's name from its bundle id (the id itself when it isn't installed).
+    static func appName(_ id: String) -> String {
+        guard let url = NSWorkspace.shared.urlForApplication(withBundleIdentifier: id) else { return id }
+        return FileManager.default.displayName(atPath: url.path).replacingOccurrences(of: ".app", with: "")
     }
 
     private func setupStatus() -> [String: Any] {
