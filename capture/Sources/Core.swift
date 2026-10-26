@@ -1461,40 +1461,8 @@ enum PointerRule {
     }
 }
 
-/// Dates and times for people, in the system's language and style (12/24-hour as set in System Settings).
-/// The same day style on Home and the Timeline: "Friday 23 October" / "Friday, October 23", with the year
-/// only when it isn't this year. File formats (session ids, ISO times, "yyyy-MM-dd" keys) never use these.
+/// Day keys for files and data ("yyyy-MM-dd", local day), whatever the system calendar.
 enum DayWords {
-    static func long(_ date: Date, now: Date = Date(), locale: Locale = .current, calendar: Calendar = .current) -> String {
-        let f = DateFormatter()
-        f.locale = locale
-        f.calendar = calendar
-        f.timeZone = calendar.timeZone
-        let thisYear = calendar.component(.year, from: date) == calendar.component(.year, from: now)
-        f.setLocalizedDateFormatFromTemplate(thisYear ? "EEEEdMMMM" : "EEEEdMMMMy")
-        return f.string(from: date)
-    }
-
-    /// A clock time: "14:05" or "2:05 PM", as the system says.
-    static func time(_ date: Date, locale: Locale = .current, timeZone: TimeZone = .current) -> String {
-        let f = DateFormatter()
-        f.locale = locale
-        f.timeZone = timeZone
-        f.dateStyle = .none
-        f.timeStyle = .short
-        return f.string(from: date)
-    }
-
-    /// "yyyy-MM-dd" (a file/data key) read as a local day, whatever the system calendar.
-    static func parseKey(_ ymd: String, timeZone: TimeZone = .current) -> Date? {
-        let f = DateFormatter()
-        f.locale = Locale(identifier: "en_US_POSIX")
-        f.calendar = Calendar(identifier: .gregorian)
-        f.timeZone = timeZone
-        f.dateFormat = "yyyy-MM-dd"
-        return f.date(from: ymd)
-    }
-
     /// A date as a "yyyy-MM-dd" key (local day), whatever the system calendar.
     static func key(_ date: Date, timeZone: TimeZone = .current) -> String {
         let f = DateFormatter()
