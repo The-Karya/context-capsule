@@ -1,7 +1,7 @@
 // context-capsule — linux: Your AI in the window — Make today's capsules (Claude with the request typed in,
 // another app with it on the clipboard, or Copy my day), Copy my day and Save from clipboard, a request for Your
-// AI (Ask, a capsule someone sent), and connecting the AI apps (Settings → Connect your AI; Claude through its
-// .mcpb or Claude Code). The program runs on worker threads (`crate::ai`); results come back on GTK's thread.
+// AI, and connecting Claude (through its .mcpb or Claude Code) or another AI app when a request needs it. The
+// program runs on worker threads (`crate::ai`); results come back on GTK's thread.
 
 use super::widgets::{self, label, vbox};
 use super::Ctx;
@@ -14,14 +14,6 @@ use context_capsule_core::window::CANCEL;
 use context_capsule_core::Msg;
 use gtk::{gio, glib};
 use std::rc::Rc;
-
-/// Read the AI apps again, off the GTK thread (never two at once; the window hears of it through
-/// `ai::on_change`).
-pub fn refresh() {
-    std::thread::spawn(|| {
-        ai::refresh();
-    });
-}
 
 /// Run `work` off the GTK thread, then `then` on it.
 fn in_background<T: Send + 'static>(work: impl FnOnce() -> T + Send + 'static, then: impl FnOnce(T) + 'static) {
@@ -165,16 +157,6 @@ impl Ctx {
         }
         let (c, cx) = (c.clone(), self.clone());
         in_background(move || ai::connect(&c), move |told| cx.tell(told));
-    }
-
-    pub fn disconnect_ai(self: &Rc<Self>, c: &AiClient) {
-        if c.is_extension() {
-            // Claude keeps it as an extension (or in Claude Code): removed there.
-            self.alert(anyai::REMOVE_IN_CLAUDE, &format!("{}\n\n{}", anyai::REMOVE_IN_CLAUDE_BODY, connect::REMOVE_IN_CLAUDE_CODE));
-            return;
-        }
-        let (c, cx) = (c.clone(), self.clone());
-        in_background(move || ai::disconnect(&c), move |told| cx.tell(told));
     }
 
     /// A note shows under the list by itself (the state has it); a failure is a message.
