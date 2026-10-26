@@ -1,6 +1,8 @@
 // context-capsule — mcp: tests for comparing two versions of a capsule (sections, changes, same capsule, newer)
 import { describe, expect, test } from "bun:test";
-import { capsuleSections, diffSections, hasChanges, itemKey, newerOf, sameCapsule, similarity } from "../src/compare.ts";
+import { missingSections } from "../src/capsules.ts";
+import { checkCapsule } from "../src/checks.ts";
+import { capsuleSections, diffSections, hasChanges, itemKey, mergeBodies, newerOf, sameCapsule, similarity } from "../src/compare.ts";
 import { VALID_BODY } from "./helpers.ts";
 
 /** The version that came back: Alex moved things on. */
@@ -67,6 +69,49 @@ describe("what changed", () => {
     const d = diffSections("## In short\nx\n## Old notes\n- y\n", "## In short\nx\n## Risks\n- z\n");
     expect(d.find((c) => c.name === "Risks")!.only).toBe("newer");
     expect(d.find((c) => c.name === "Old notes")).toMatchObject({ only: "older", removed: [{ text: "y" }] });
+  });
+});
+
+describe("merge", () => {
+  test("newer present tense, every decision and step from both, the changed decision flagged", () => {
+    // the older one had a step and a decision the newer one dropped
+    const older = VALID_BODY.replace("1. Ship the page", "1. Ship the page\n2. Ask finance about Starter").replace(
+      "## Open questions",
+      "- **Logo stays black** — brand guide. *(seen in Figma, 10:05)*\n## Open questions",
+    );
+    const m = mergeBodies(older, NEWER_BODY);
+    expect(m.body).toContain("## Where things stand\nPage shipped on Monday; watching sign-ups.\n");
+    expect(m.body).not.toContain("not shipped yet");
+    expect(m.body).toContain("**Teams at $14/seat**");
+    expect(m.body).not.toContain("**Teams at $12/seat**");
+    expect(m.body).toContain("- **Drop the Starter tier**");
+    expect(m.body).toContain("- **Logo stays black**");
+    expect(m.body).toContain("1. Ship the page to everyone\n2. Email the beta list\n3. Ask finance about Starter");
+    expect(m.kept).toBe(2);
+    expect(m.conflicts).toEqual([
+      {
+        section: "Decisions",
+        older: "**Teams at $12/seat** — matches competitors. *(seen in Linear, 10:08)*",
+        newer: "**Teams at $14/seat** — finance asked for more margin. *(you said, 09:12)*",
+      },
+    ]);
+    // still a whole capsule, in order
+    expect(missingSections(m.body)).toEqual([]);
+    expect(checkCapsule(m.body).errors).toEqual([]);
+  });
+
+  test("a next step the newer version did isn't brought back", () => {
+    const older = "## What was done\n- Wrote the copy\n## Next steps\n1. Email the beta list\n2. Ship the page\n";
+    const newer = "## What was done\n- Wrote the copy\n- Shipped the page on Monday\n## Next steps\n1. Email the beta list\n";
+    const m = mergeBodies(older, newer);
+    expect(m.done).toEqual(["Ship the page"]);
+    expect(m.body).not.toContain("2. Ship the page");
+    expect(m.kept).toBe(0);
+  });
+
+  test("a section only the older one had is kept; a paragraph is added as a paragraph", () => {
+    const m = mergeBodies("## In short\nold\n## Risks\n- churn\n## Open questions\nWho signs off?\n", "## In short\nnew\n## Open questions\n- Which date?\n");
+    expect(m.body).toBe("## In short\nnew\n\n## Open questions\n- Which date?\n\nWho signs off?\n\n## Risks\n- churn\n");
   });
 });
 

@@ -66,7 +66,23 @@ export function itemKey(text: string): string | null {
   return m ? norm(m[2]!) : null;
 }
 
-const words = (s: string) => new Set(norm(s).split(/[^\p{L}\p{N}$%]+/u).filter((w) => w.length > 1));
+const LITTLE = new Set(["the", "an", "to", "of", "and", "or", "for", "in", "on", "at", "is", "it", "with", "by", "be", "we", "our"]);
+
+/** "shipped", "ships", "shipping" → "ship": enough to see two lines say the same thing. */
+function stem(w: string): string {
+  if (w.length <= 4) return w;
+  let s = w.replace(/(ing|ed|es|s)$/, "");
+  if (s !== w && /([b-df-hj-np-tv-z])\1$/.test(s)) s = s.slice(0, -1);
+  return s.length > 4 ? s.replace(/e$/, "") : s;
+}
+
+const words = (s: string) =>
+  new Set(
+    norm(s)
+      .split(/[^\p{L}\p{N}$%]+/u)
+      .filter((w) => w.length > 1 && !LITTLE.has(w))
+      .map(stem),
+  );
 
 /** Share of words in common (0–1). */
 export function similarity(a: string, b: string): number {
@@ -76,6 +92,16 @@ export function similarity(a: string, b: string): number {
   let both = 0;
   for (const w of x) if (y.has(w)) both++;
   return both / (x.size + y.size - both);
+}
+
+/** Share of a's words that are also in b (0–1): "Ship the page" is covered by "Shipped the page on Monday". */
+export function covers(a: string, b: string): number {
+  const x = words(a);
+  const y = words(b);
+  if (!x.size) return 0;
+  let both = 0;
+  for (const w of x) if (y.has(w)) both++;
+  return both / x.size;
 }
 
 /** Items this close are the same item, reworded. */
@@ -181,4 +207,83 @@ export function newerOf(a: FrontMatter, b: FrontMatter): -1 | 0 | 1 {
 export function splitCapsule(text: string): { front: FrontMatter; body: string } {
   const { front, body } = parseCapsule(text);
   return { front: front ?? {}, body };
+}
+
+// ---------- merge ----------
+
+/** Sections where the newer version simply replaces the older: they describe the present. */
+export const NEWER_WINS = ["in short", "for claude", "where things stand"];
+
+export interface Conflict {
+  section: string;
+  older: string;
+  newer: string;
+}
+
+export interface Merge {
+  body: string;
+  /** The same decision, decided differently in each: the merge keeps the newer one, a person should check. */
+  conflicts: Conflict[];
+  /** Lines only the older version had, kept in the merge. */
+  kept: number;
+  /** Next steps the newer version lists as done, so not brought back. */
+  done: string[];
+}
+
+const isList = (i: Item | undefined) => i?.kind === "ul" || i?.kind === "ol";
+
+/** Older-only items added under a section's own text, continuing its list (and its numbering). */
+function appendItems(raw: string, own: Item[], extra: Item[]): string {
+  let out = raw;
+  let last = own[own.length - 1];
+  let n = own.filter((i) => i.kind === "ol").length;
+  const listKind = [...own].reverse().find(isList)?.kind;
+  for (const item of extra) {
+    let line: string;
+    if (isList(item)) line = (listKind ?? item.kind) === "ol" ? `${++n}. ${item.text}` : `- ${item.text}`;
+    else if (item.kind === "code") line = "```\n" + item.text + "\n```";
+    else if (item.kind === "quote") line = `> ${item.text}`;
+    else if (item.kind === "h") line = `### ${item.text}`;
+    else line = item.text;
+    out = out ? `${out}${isList(item) && isList(last) ? "\n" : "\n\n"}${line}` : line;
+    last = item;
+  }
+  return out;
+}
+
+/** One capsule from two versions: the newer "In short", "For Claude" and "Where things stand"; every other section
+ * keeps the newer text plus whatever only the older had (decisions, next steps, open questions, what was done…). */
+export function mergeBodies(olderBody: string, newerBody: string): Merge {
+  const older = capsuleSections(olderBody);
+  const newer = capsuleSections(newerBody);
+  const find = (list: Section[], name: string) => list.find((s) => s.name.toLowerCase() === name.toLowerCase());
+  const doneNow = find(newer, "What was done")?.items ?? [];
+  const conflicts: Conflict[] = [];
+  const done: string[] = [];
+  let kept = 0;
+  const parts: string[] = [];
+  for (const n of newer) {
+    const o = find(older, n.name);
+    if (!o || NEWER_WINS.includes(n.name.toLowerCase())) {
+      parts.push(`## ${n.name}\n${n.raw}`);
+      continue;
+    }
+    const d = diffItems(o.items, n.items);
+    if (n.name.toLowerCase() === "decisions")
+      for (const c of d.changed) conflicts.push({ section: n.name, older: c.from.text, newer: c.to.text });
+    const extra = d.removed.filter((i) => {
+      if (n.name.toLowerCase() !== "next steps") return true;
+      if (!doneNow.some((w) => covers(i.text, w.text) >= 0.75)) return true;
+      done.push(i.text);
+      return false;
+    });
+    kept += extra.length;
+    parts.push(`## ${n.name}\n${appendItems(n.raw, n.items, extra)}`);
+  }
+  for (const o of older)
+    if (!find(newer, o.name)) {
+      kept += o.items.length;
+      parts.push(`## ${o.name}\n${o.raw}`);
+    }
+  return { body: parts.join("\n\n") + "\n", conflicts, kept, done };
 }
