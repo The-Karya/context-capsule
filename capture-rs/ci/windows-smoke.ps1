@@ -1,7 +1,7 @@
 # context-capsule — ci: the Windows smoke test (windows-smoke.yml) — runs the real app on a GitHub Windows runner
 # and takes screenshots. -Part shipped: the released exe (install, first run, second copy, uninstall).
-# -Part pages: every page of the window from -Exe, light and dark, with seeded data (windows-smoke-seed.py); then the
-# shared window (--new-window: ui/ in WebView2), with Mica on Windows 11 and transparency effects off and on.
+# -Part pages: every page of the window (ui/ in WebView2) from -Exe, light and dark, with seeded data
+# (windows-smoke-seed.py), at a few sizes, with Mica on Windows 11 and transparency effects off and on.
 # -Part update: install the released exe (-Exe, e.g. 0.2.0), update it to -New (built from this commit) the way the
 # app does, then uninstall: one Start menu shortcut and one Settings → Apps entry, both with the new name.
 param(
@@ -100,8 +100,13 @@ function Click($text, [int] $seconds = 20) {
 
 function Dialogs { $d = [W]::Dialogs(); if ($d) { Note "dialogs: $d" } }
 function Running { @(Get-Process -Name 'context-capsule' -ErrorAction SilentlyContinue) }
-function MainWindow { [W]::FindWindow('ContextCapsuleWindow', [NullString]::Value) }
 function WebWindow { [W]::FindWindow('ContextCapsuleWebWindow', [NullString]::Value) }
+# The window of a released exe: releases before 0.3.0 opened the custom-drawn one (class ContextCapsuleWindow).
+function ReleasedWindow {
+    $h = WebWindow
+    if ($h -ne [IntPtr]::Zero) { return $h }
+    [W]::FindWindow('ContextCapsuleWindow', [NullString]::Value)
+}
 function StopApp {
     Running | Stop-Process -Force -ErrorAction SilentlyContinue
     WaitFor { (Running).Count -eq 0 } 10 | Out-Null
@@ -131,7 +136,7 @@ if ($Part -eq 'shipped') {
     Note "installed copy running: $started; exe: $(Test-Path $Installed); files: $((Get-ChildItem $Dir -ErrorAction SilentlyContinue).Name -join ', ')"
     Note "start menu shortcut: $(Shortcuts)"
     Note "uninstall entry: $(Test-Path $UninstallKey); Settings → Apps entries: $(AppsEntries)"
-    $win = WaitFor { (MainWindow) -ne [IntPtr]::Zero } 20
+    $win = WaitFor { (ReleasedWindow) -ne [IntPtr]::Zero } 20
     Note "first-run window open: $win"
     Start-Sleep -Seconds 4
     Dialogs
@@ -179,7 +184,7 @@ if ($Part -eq 'shipped') {
     $lnk = (New-Object -ComObject WScript.Shell).CreateShortcut((Join-Path $StartMenu 'Karya Context Capsule.lnk'))
     Note "new shortcut points at: $($lnk.TargetPath)"
     Note "exe description: $((Get-Item $Installed).VersionInfo.FileDescription)"
-    if ((MainWindow) -ne [IntPtr]::Zero) { $t = New-Object System.Text.StringBuilder 256; [W]::GetWindowText((MainWindow), $t, 256) | Out-Null; Note "window title: $t" }
+    if ((WebWindow) -ne [IntPtr]::Zero) { $t = New-Object System.Text.StringBuilder 256; [W]::GetWindowText((WebWindow), $t, 256) | Out-Null; Note "window title: $t" }
     Shot 'u02-after-update'
     # 3. Uninstall: both shortcut names go, the entry goes.
     Start-Process -FilePath $Installed -ArgumentList '--uninstall'
@@ -200,52 +205,11 @@ if ($Part -eq 'shipped') {
     Note "seeded $day, first recording $session"
     $config = Join-Path $Data 'config.json'
 
-    function Page($name, [string[]] $show, [scriptblock] $then) {
-        StopApp
-        if ($show) { Start-Process -FilePath $Installed -ArgumentList $show } else { Start-Process -FilePath $Installed }
-        if (-not (WaitFor { (MainWindow) -ne [IntPtr]::Zero } 20)) { Note "${name}: no window"; Dialogs; Shot "$name-nowindow"; return }
-        Start-Sleep -Seconds 3
-        Dialogs
-        Shot $name
-        if ($then) { & $then }
-    }
-    function Scroll($notches) {
-        $h = MainWindow; $r = New-Object W+RECT; [W]::GetWindowRect($h, [ref]$r) | Out-Null
-        $cx = [int][math]::Floor(($r.Left + $r.Right) / 2); $cy = [int][math]::Floor(($r.Top + $r.Bottom) / 2)
-        $lp = [IntPtr](($cy -shl 16) -bor $cx)
-        for ($i = 0; $i -lt $notches; $i++) { [W]::PostMessage($h, 0x020A, [IntPtr]((-120 -band 0xFFFF) -shl 16), $lp) | Out-Null }
-        Start-Sleep -Milliseconds 800
-    }
-    function Size($w, $h) { [W]::MoveWindow((MainWindow), 0, 0, $w, $h, $true) | Out-Null; Start-Sleep -Milliseconds 800 }
-
-    # First run: no setup seen yet, opens on Settings.
-    Page 'p00-first-run' $null { Scroll 8; Shot 'p00-first-run-scrolled' }
-
-    foreach ($look in 'light', 'dark') {
-        Set-Content -Path $config -Value ('{"author":"Saachi","appearance":"' + $look + '"}') -Encoding utf8NoBOM
-        Page "p01-home-$look" @('--show', 'home') { Scroll 10; Shot "p01-home-$look-scrolled" }
-        Page "p02-timeline-$look" @('--show', 'timeline', $day)
-        Page "p03-timeline-open-$look" @('--show', 'timeline', $day, $session) { Scroll 6; Shot "p03-timeline-open-$look-scrolled"; Scroll 10; Shot "p03-timeline-open-$look-scrolled2" }
-        Page "p04-capsules-$look" @('--show', 'capsules')
-        Page "p05-projects-$look" @('--show', 'projects')
-        Page "p06-settings-$look" @('--show', 'settings') { Scroll 8; Shot "p06-settings-$look-scrolled"; Scroll 12; Shot "p06-settings-$look-scrolled2" }
-        Page "p07-help-$look" @('--show', 'help') { Scroll 10; Shot "p07-help-$look-scrolled" }
-    }
-
-    # Small and large windows (light).
-    Set-Content -Path $config -Value '{"author":"Saachi","appearance":"light"}' -Encoding utf8NoBOM
-    Page 'p10-timeline-small' @('--show', 'timeline', $day, $session) { Size 560 420; Shot 'p10-timeline-small'; Size 400 300; Shot 'p10-timeline-tiny'; Size 1900 1040; Shot 'p10-timeline-large' }
-    Page 'p11-home-small' @('--show', 'home') { Size 560 420; Shot 'p11-home-small' }
-    Page 'p12-settings-small' @('--show', 'settings') { Size 560 420; Shot 'p12-settings-small' }
-    Page 'p13-capsules-small' @('--show', 'capsules') { Size 560 420; Shot 'p13-capsules-small' }
-    # An empty day.
-    Page 'p14-timeline-empty' @('--show', 'timeline', '2026-01-05')
-
-    # The shared window (ui/ in WebView2): --new-window. Scrolls with the real wheel over the page.
+    # Scrolls with the real wheel over the page.
     function WebPage($name, [string[]] $show, [scriptblock] $then) {
         StopApp
-        Start-Process -FilePath $Installed -ArgumentList (@('--new-window') + $show)
-        if (-not (WaitFor { (WebWindow) -ne [IntPtr]::Zero } 20)) { Note "${name}: no shared window (custom window: $((MainWindow) -ne [IntPtr]::Zero))"; Dialogs; Shot "$name-nowindow"; return }
+        if ($show) { Start-Process -FilePath $Installed -ArgumentList $show } else { Start-Process -FilePath $Installed }
+        if (-not (WaitFor { (WebWindow) -ne [IntPtr]::Zero } 20)) { Note "${name}: no window"; Dialogs; Shot "$name-nowindow"; return }
         Start-Sleep -Seconds 4
         Dialogs
         Shot $name
