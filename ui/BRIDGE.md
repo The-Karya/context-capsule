@@ -245,7 +245,7 @@ received capsule").
 | `projects.js` — projects.json, slug, detect, edit | Swift `Projects`, Rust `core::projects` |
 | `shortcuts.js` — parse, show (⌥C / Alt+C), key events, checks | Swift `Shortcut`, Rust `core::shortcuts` |
 | `yourai.js` — Your AI choice, clients, Copy my day / Save words | Swift `YourAI`/`AIAnswer`, Rust `core::anyai` |
-| `sharecheck.js` — the share page: names, emails, phones, private links, money, companies, file paths, public links; where each is; the copy | Swift `ShareCheck`, Rust `core::share_check` (the first four kinds; spec/share-check.json; the old windows) |
+| `sharecheck.js` — the share page: names, emails, phones, private links, money, companies, file paths, public links; where each is; the copy | only here (spec/share-check.json) |
 | `markdown.js` — the reading view's Markdown (blocks, inline; no HTML) | — |
 
 ## Dev harness

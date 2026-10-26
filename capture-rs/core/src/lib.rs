@@ -32,7 +32,6 @@ pub mod projects;
 pub mod redact;
 pub mod reminder;
 pub mod settings;
-pub mod share_check;
 pub mod shortcuts;
 pub mod state;
 pub mod stats;

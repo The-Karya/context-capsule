@@ -271,10 +271,9 @@ if set, else `%USERPROFILE%\.context-capsule` (the same rule as the MCP server).
 The pure rules (which window or screen was picked, UI Automation roles, window classes for
 toasts and overviews, 16 kHz resampling, model checks, menu text, toast placement, the window's
 small rules (glass, region settings, `--show`, which pages it may open), finding Claude, the any-AI state, writing out
-the any-AI program, shortcut keys, Check before sharing and the Open with
-registry values) run on any OS. What
-"Check before sharing" finds, and the Claude links, are tested in core (`cargo test -p
-context-capsule-core`, including every case in `spec/share-check.json`):
+the any-AI program, shortcut keys and the Open with
+registry values) run on any OS. The Claude links are tested in core (`cargo test -p
+context-capsule-core`):
 
 ```sh
 cd capture-rs && cargo test -p context-capsule-windows

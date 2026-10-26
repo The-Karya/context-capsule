@@ -1,5 +1,5 @@
 {
-  "about": "Golden cases for sharing a capsule (SPEC.md \"Sharing a capsule\"). Eight kinds: people (Names), emails, phones, links (private links), money, companies, files (file paths), public (public links). The shared window (ui/js/core/sharecheck.js) must give exactly these results. The old windows (Swift ShareCheck on the Mac, Rust core::share_check) check only the first four keys of each case; 'findings' is checked by the shared window only.",
+  "about": "Golden cases for sharing a capsule (SPEC.md \"Sharing a capsule\"). Eight kinds: people (Names), emails, phones, links (private links), money, companies, files (file paths), public (public links). The shared window (ui/js/core/sharecheck.js) must give exactly these results. Only the shared window checks them (ui/tests/sharecheck.test.js).",
   "find": [
     {
       "name": "everything",

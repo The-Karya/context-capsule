@@ -1,10 +1,8 @@
 // context-capsule — ui: sharing a capsule — what in it might be private, found with plain rules (no AI), and the copy
 // you share with the items you chose replaced by "[removed]"
 
-// Eight kinds (SPEC "Sharing a capsule"). The first four are the same rules as the old windows' "Before you share"
-// (Swift ShareCheck in capture/Sources/Core.swift, Rust core::share_check): emails, phone numbers, the names in the
-// "People, links and files" section, and links that look private. The share page adds money, companies, file paths and
-// public links. spec/share-check.json holds the shared cases. Only the body is searched (front matter skipped); the
+// Eight kinds (SPEC "Sharing a capsule"): emails, phone numbers, the names in the "People, links and files" section,
+// links that look private, money, companies, file paths and public links. spec/share-check.json holds the cases. Only the body is searched (front matter skipped); the
 // copy changes the whole file, front matter too.
 
 // What replaces each hidden item in the shared copy.
