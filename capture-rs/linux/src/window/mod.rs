@@ -6,9 +6,7 @@
 //! [`WindowLink`], which queues each message on GTK's main context. The window is built the first time it
 //! opens; closing it only hides it (the app lives in the tray).
 
-mod capsules;
 mod native;
-mod share;
 mod web;
 mod wk;
 mod widgets;
