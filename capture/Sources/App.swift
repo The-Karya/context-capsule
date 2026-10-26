@@ -519,11 +519,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     /// ⌥V: start talking, press again to stop. Only while recording.
     @objc private func toggleVoice() { voice.toggle(locale: recorder.voiceLocale, target: recorder.noteTarget()) }
 
-    @objc private func openSessions() {
-        try? FileManager.default.createDirectory(at: paths.sessions, withIntermediateDirectories: true)
-        NSWorkspace.shared.open(paths.sessions)
-    }
-
     /// A session ended with no events: say why, so it is not a silent empty file.
     private func warnEmpty(_ why: Skip?) {
         let alert = NSAlert()
@@ -597,12 +592,6 @@ final class HotKey {
 final class Toast {
     private var panel: NSPanel?
     private var hide: DispatchWorkItem?
-
-    func hideNow() {
-        hide?.cancel()
-        panel?.orderOut(nil)
-        panel = nil
-    }
 
     func show(_ text: String, under button: NSStatusBarButton?, seconds: TimeInterval) {
         hide?.cancel()

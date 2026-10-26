@@ -1042,8 +1042,6 @@ check(gapLines().allSatisfy { (try? JSONSerialization.jsonObject(with: Data($0.u
 
 // MARK: timeline
 
-check(ClaudeLink.sessionPrompt("20261021-094500") == "Use Context Capsule to make a capsule from my session 20261021-094500.",
-      "make a capsule from this: the request")
 
 let fold1 = Timeline.fold("a\n\n  b \nc\nd")
 check(fold1.0 == "a\nb\nc" && fold1.1, "fold: first 3 lines, blank lines left out, more", "\(fold1)")
@@ -1477,9 +1475,9 @@ check(autoDue(now: 7 * 60 + 30, at: "07:30") && !autoDue(now: 7 * 60 + 29, at: "
 
 let autoNow = ISO8601DateFormatter().date(from: "2026-10-23T17:05:00Z")!
 let autoRunning = AutoRun.parse(Data(#"{"auto_day":"2026-10-23","last":{"day":"2026-10-23","by":"auto","status":"running","ai":"claude-code","started_at":"2026-10-23T17:00:04Z","pid":4242}}"#.utf8))
-check(autoRunning.autoDay == "2026-10-23" && autoRunning.lastDay == "2026-10-23" && autoRunning.lastBy == "auto"
-      && autoRunning.pid == 4242 && autoRunning.last?["pid"] == nil, "auto.json: read, pid kept apart")
 check(autoRunning.running(now: autoNow, alive: { $0 == 4242 }), "auto.json: running while its pid lives")
+check(autoRunning.autoDay == "2026-10-23" && autoRunning.lastDay == "2026-10-23"
+      && autoRunning.pid == 4242 && autoRunning.last?["pid"] == nil, "auto.json: read, pid kept apart")
 check(!autoRunning.running(now: autoNow, alive: { _ in false }), "auto.json: pid gone = over")
 check(!autoRunning.running(now: autoNow.addingTimeInterval(15 * 60), alive: { _ in true }), "auto.json: over after 15 minutes")
 check(autoRunning.lastStartMinutes(timeZone: TimeZone(identifier: "UTC")!) == 17 * 60, "auto.json: start time in local minutes")

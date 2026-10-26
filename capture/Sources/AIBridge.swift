@@ -172,16 +172,6 @@ final class AIState: ObservableObject {
 
     func client(_ id: String) -> AIClient? { clients.first { $0.id == id } }
 
-    /// The name for Your AI ("Claude", "Cursor", "ChatGPT", "your AI").
-    var choiceName: String {
-        switch kind {
-        case .claude: return "Claude"
-        case .app(let id): return client(id)?.name ?? id
-        case .website(let id, _): return YourAI.websites.first { $0.id == id }?.name.replacingOccurrences(of: " (website)", with: "") ?? "your AI"
-        case .other: return "your AI"
-        }
-    }
-
     /// Ask the program which AI apps there are (a moment, off the main thread).
     func refresh(then: (() -> Void)? = nil) {
         if refreshing { return }
@@ -277,17 +267,6 @@ final class AIState: ObservableObject {
         case .claude: Claude.makeTodaysCapsules()
         case .app: open(ClaudeLink.dayPrompt, why: "to read your day", again: "click Make today's capsules again")
         case .website, .other: copyMyDay()
-        }
-    }
-
-    /// Timeline → Make a capsule from this: one recording. Claude or another connected app gets the request; a website or
-    /// any other AI gets Copy my day for that day (it can't read one recording by itself).
-    func makeCapsule(session id: String, day: String) {
-        let prompt = ClaudeLink.sessionPrompt(id)
-        switch kind {
-        case .claude: Claude.open(prompt, why: "to read your recording", again: "click Make a capsule from this again")
-        case .app: open(prompt, why: "to read your recording", again: "click Make a capsule from this again")
-        case .website, .other: copyDay(date: day)
         }
     }
 

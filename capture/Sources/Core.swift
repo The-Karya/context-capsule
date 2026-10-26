@@ -1223,7 +1223,6 @@ enum AutoRun {
         var last: [String: Any]?
         var lastDay: String? { last?["day"] as? String }
         var lastStatus: String? { last?["status"] as? String }
-        var lastBy: String? { last?["by"] as? String }
         var startedAt: Date? { (last?["started_at"] as? String).flatMap { ISO8601DateFormatter().date(from: $0) } }
         var pid: Int32?
 
@@ -1940,11 +1939,6 @@ final class GapLog {
 }
 
 // MARK: - Timeline (SPEC "Timeline"): one day, everything recorded, grouped into stretches
-
-extension ClaudeLink {
-    /// Timeline → Make a capsule from this.
-    static func sessionPrompt(_ id: String) -> String { "Use Context Capsule to make a capsule from my session \(id)." }
-}
 
 enum Timeline {
     /// One events.jsonl line. Screen text keeps only its first lines here (`preview`); the whole text is read from the
