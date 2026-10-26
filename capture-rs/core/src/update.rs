@@ -33,12 +33,10 @@ const MAX_ASSET_BYTES: u64 = 2 * 1024 * 1024 * 1024;
 // MARK: words people see (short and plain)
 
 pub const CHECK_LABEL: &str = "Check for updates";
-pub const AUTO_LABEL: &str = "Update automatically";
 pub const RESTART_NOW: &str = "Restart now";
 pub const LATER: &str = "Later";
 pub const UP_TO_DATE: &str = "You have the latest version.";
 pub const CHECK_FAILED: &str = "Couldn't check for updates. Try again later.";
-pub const CHECKING: &str = "Checking for updates…";
 
 /// "Context Capsule 0.2.0 is ready. Restart to update."
 pub fn ready_message(version: &str) -> String {
@@ -445,22 +443,6 @@ impl Settings {
     }
 }
 
-/// Turn "Update automatically" on or off in config.json, keeping every other key. A broken config.json is left
-/// alone (Err), so a typo never wipes someone's settings.
-pub fn set_auto_update(config: &Path, on: bool) -> std::io::Result<()> {
-    let mut obj = match std::fs::read(config) {
-        Ok(d) => match serde_json::from_slice::<serde_json::Value>(&d) {
-            Ok(serde_json::Value::Object(o)) => o,
-            _ => return Err(std::io::Error::new(std::io::ErrorKind::InvalidData, "config.json is not a JSON object")),
-        },
-        Err(e) if e.kind() == std::io::ErrorKind::NotFound => serde_json::Map::new(),
-        Err(e) => return Err(e),
-    };
-    obj.insert("auto_update".into(), serde_json::Value::Bool(on));
-    let text = serde_json::to_string_pretty(&serde_json::Value::Object(obj)).map_err(std::io::Error::other)? + "\n";
-    crate::json::write_atomically(config, &text)
-}
-
 // MARK: when to check
 
 /// Launch + 1 minute, then daily (an hour after a failure); never while busy (contextualizing or a voice note).
@@ -570,16 +552,8 @@ impl Updater {
         &self.current
     }
 
-    pub fn can_install(&self) -> bool {
-        self.staging.is_some()
-    }
-
     pub fn auto_update(&self) -> bool {
         Settings::load(&self.config).auto
-    }
-
-    pub fn set_auto_update(&self, on: bool) -> std::io::Result<()> {
-        set_auto_update(&self.config, on)
     }
 
     /// The version waiting to be installed, if any.
@@ -855,16 +829,8 @@ mod tests {
 
         let dir = tmp("settings");
         let config = dir.join("config.json");
-        set_auto_update(&config, false).unwrap();
-        assert!(!Settings::load(&config).auto, "made the file");
         std::fs::write(&config, r#"{"sounds": false, "auto_update": false}"#).unwrap();
-        set_auto_update(&config, true).unwrap();
-        let v: serde_json::Value = serde_json::from_slice(&std::fs::read(&config).unwrap()).unwrap();
-        assert_eq!(v["sounds"], false, "other keys stay");
-        assert_eq!(v["auto_update"], true);
-        std::fs::write(&config, "{oops").unwrap();
-        assert!(set_auto_update(&config, false).is_err(), "a broken file is left alone");
-        assert_eq!(std::fs::read_to_string(&config).unwrap(), "{oops");
+        assert!(!Settings::load(&config).auto);
         std::fs::remove_dir_all(&dir).unwrap();
     }
 
@@ -987,14 +953,13 @@ mod tests {
         assert_eq!(u.check().message(), UP_TO_DATE);
         // Can't install here: only say it's out.
         let u = updater(served(&k, "0.3.0", "https://dl/new", b"x", None), &dir, false, &k);
-        assert!(!u.can_install());
         let o = u.check();
         assert_eq!(o.message(), "A new version is out: Context Capsule 0.3.0.");
         // No network / no release yet (404).
         let u = updater(Fake::default(), &dir, true, &k);
         assert!(matches!(u.check(), Outcome::Failed(UpdateError::Network(_))));
         // The setting turns automatic checks off.
-        set_auto_update(&dir.join("config.json"), false).unwrap();
+        std::fs::write(dir.join("config.json"), r#"{"auto_update": false}"#).unwrap();
         assert!(!u.due(Instant::now() + CHECK_EVERY, false));
         std::fs::remove_dir_all(&dir).unwrap();
     }

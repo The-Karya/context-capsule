@@ -1,8 +1,8 @@
 // context-capsule — windows: updates — the core's signed feed and checked download over WinINet, a check a
 // minute after launch and daily (never while contextualizing or during a voice note), and "Context Capsule
 // 0.2.0 is ready. Restart to update." Restart now: the new exe moves in, starts, and this one quits.
-//! For the UI: `check_now()` (the "Check for updates" button / menu item), `auto_update()` and
-//! `set_auto_update(on)` (the "Update automatically" checkbox), `set_busy(…)` from status changes.
+//! For the UI: `check_now()` (the "Check for updates" menu item and Settings' button) and `set_busy(…)` from status
+//! changes. "Update automatically" is config.json "auto_update", which the page writes itself.
 
 /// Where the new version waits: next to the running exe, as `<exe>.new`.
 pub fn staging_for(exe: &std::path::Path) -> std::path::PathBuf {
