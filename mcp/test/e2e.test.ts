@@ -43,6 +43,7 @@ describe("built server over stdio (node)", () => {
       [
         "add_note",
         "assign_project",
+        "compare_capsules",
         "create_project",
         "finish_day",
         "prepare_day",

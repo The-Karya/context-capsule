@@ -9,6 +9,7 @@ import { checkDay, finishDay, loadDay, prepareDay, today } from "./day.js";
 import { capsuleBlock, describeFindings, scanForInstructions } from "./untrusted.js";
 import { DEFAULT_LIMIT, MAX_LIMIT, formatSearch, searchCapsules } from "./search.js";
 import { exportCapsuleHtml } from "./viewer.js";
+import { compareReport, loadVersion } from "./compare.js";
 import {
   SERVER_INSTRUCTIONS,
   askCapsulesPrompt,
@@ -87,6 +88,7 @@ export const TOOL_HINTS: Record<string, ToolAnnotations> = {
   search_capsules: READ,
   import_capsule: WRITE(true),
   export_capsule: WRITE(false),
+  compare_capsules: READ,
 };
 const hints = (name: string): ToolAnnotations => TOOL_HINTS[name]!;
 
@@ -735,6 +737,24 @@ export function createServer(opts: ServerOptions = {}): McpServer {
       if (r.already) return text(`"${r.title}" is already in your capsules: ${r.path}\nName: ${r.slug}${warn}`);
       return text(`Imported "${r.title}" to ${r.path}\nName: ${r.slug}. Read it with get_capsule.${warn}`);
     }),
+  );
+
+  server.registerTool(
+    "compare_capsules",
+    {
+      title: "Compare two versions of a capsule",
+      annotations: hints("compare_capsules"),
+      description:
+        "Two versions of one capsule — e.g. the one the user sent and the one that came back: what changed in each section " +
+        "(added, removed, reworded lines), decisions that differ (conflicts for the user to settle), and one merged capsule " +
+        "(the newer \"Where things stand\", every decision and next step from both). Saves nothing: to keep the merge, " +
+        "save_capsule it, only if the user wants.",
+      inputSchema: {
+        a: z.string().min(1).describe("A saved capsule's name or title, or the path of a capsule file"),
+        b: z.string().min(1).describe("The other version: a name, title or file path"),
+      },
+    },
+    safe(({ a, b }: { a: string; b: string }) => text(compareReport(loadVersion(a), loadVersion(b)).text)),
   );
 
   server.registerTool(
