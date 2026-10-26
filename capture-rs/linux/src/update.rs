@@ -2,8 +2,8 @@
 // after launch and daily (never while contextualizing or during a voice note). As an AppImage: the new
 // AppImage is downloaded next to it, and "Restart now" puts it in place of $APPIMAGE and starts it. Built from
 // source: only "A new version is out".
-//! For a UI: `check_now()` ("Check for updates"), `auto_update()` / `set_auto_update(on)` ("Update
-//! automatically"), `set_busy(…)` from status changes.
+//! For a UI: `check_now()` ("Check for updates"; "Update automatically" is config.json "auto_update", which the
+//! page writes itself), `set_busy(…)` from status changes.
 
 use crate::notify::Notifier;
 use context_capsule_core::update::{self, Outcome, Ready, Target, Updater, LATER, RESTART_NOW};
@@ -65,18 +65,6 @@ pub fn start(paths: &Paths, notifier: Notifier, quit: Sender<Msg>) {
 /// From status changes: contextualizing or listening to a voice note.
 pub fn set_busy(busy: bool) {
     BUSY.store(busy, Ordering::Relaxed);
-}
-
-/// "Update automatically" (config.json "auto_update", on by default).
-#[cfg_attr(not(feature = "window"), allow(dead_code))]
-pub fn auto_update() -> bool {
-    update::Settings::load(&Paths::standard().config()).auto
-}
-
-/// Turn "Update automatically" on or off. false: config.json could not be written (it is left as it was).
-#[cfg_attr(not(feature = "window"), allow(dead_code))]
-pub fn set_auto_update(on: bool) -> bool {
-    update::set_auto_update(&Paths::standard().config(), on).is_ok()
 }
 
 /// "Check for updates": check now on a thread of its own and always say what came of it.
