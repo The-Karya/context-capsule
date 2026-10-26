@@ -16,7 +16,7 @@
 The MCP server and the capsule format are cross-platform. The Rust recorders emit the
 same `session.json` / `events.jsonl` / `state.json` / `control` contract.
 
-Status (19 Oct 2026):
+Status (29 Oct 2026, 0.3.0):
 
 | | Built | Unit-tested | Tried on a real machine |
 |---|---|---|---|
@@ -56,12 +56,15 @@ produce byte-identical events for identical input.
 4. **Voice on Windows/Linux**: whisper.cpp integration with model download on first use, VAD-gated, no audio persisted.
 5. **MCP path resolution**: `CONTEXT_CAPSULE_HOME` defaults per OS (above); integration tests on all three runners.
 
+Done since: one window everywhere (the shared `ui/` page in WKWebView, WebView2 and
+WebKitGTK 6.0; the native windows are gone), a capsule as a web page (`export_capsule`
+format html, `context-capsule-mcp view`), and comparing / merging two versions of a capsule
+(`compare_capsules`).
+
 Next: real-machine passes on Windows, GNOME/KDE Wayland and X11; signed Windows build
 (MSIX / NSIS); AppImage + .deb.
 
 ## Later
 
 - Remote MCP endpoint (streamable HTTP) for ChatGPT connectors and Claude.ai web.
-- Capsule viewer (static HTML render of `.capsule.md`).
-- Capsule diffing / merge for teams exchanging updated capsules.
 - Developer ID signing and notarization for the macOS recorder.
