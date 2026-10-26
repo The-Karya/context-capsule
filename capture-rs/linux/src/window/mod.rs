@@ -57,8 +57,6 @@ pub struct Setup {
     pub locale: String,
     /// Changes the hotkeys (Settings → Shortcuts).
     pub hotkeys: crate::hotkeys::Control,
-    /// The shared window (ui/, in WebKitGTK) instead of this GTK one: the default (not with `--old-window` or config "new_window": false).
-    pub web: bool,
 }
 
 thread_local! {
@@ -143,7 +141,7 @@ fn handle(msg: UiMsg) {
 
 /// `--window-only`: the window by itself, with an idle status and this computer's data (no tray, engine or
 /// portal). Buttons that would talk to the engine do nothing. Returns the exit code.
-pub fn run_alone(paths: Paths, section: Section, locale: String, web: bool) -> i32 {
+pub fn run_alone(paths: Paths, section: Section, locale: String) -> i32 {
     if let Err(e) = gtk::init() {
         eprintln!("Context Capsule: cannot open a window: {e}");
         return 1;
@@ -157,7 +155,7 @@ pub fn run_alone(paths: Paths, section: Section, locale: String, web: bool) -> i
     let (tx, rx) = std::sync::mpsc::channel::<Msg>();
     let status = Status { projects: Projects::load(&paths.projects()), ..Default::default() };
     let hotkeys = crate::hotkeys::Control::none();
-    let setup = Rc::new(RefCell::new(Some((Setup { paths, tx, open: Some(section), locale, hotkeys, web }, status))));
+    let setup = Rc::new(RefCell::new(Some((Setup { paths, tx, open: Some(section), locale, hotkeys }, status))));
     app.connect_activate(move |app| {
         if let Some((setup, status)) = setup.borrow_mut().take() {
             let ui = Ui::new(app, setup);
@@ -188,7 +186,7 @@ struct Ui {
     hotkeys: crate::hotkeys::Control,
     status: RefCell<Status>,
     window: RefCell<Option<Rc<Window>>>,
-    /// Show the shared window (ui/) instead.
+    /// The shared window (ui/) can open (WebKitGTK 6.0 is installed).
     #[cfg_attr(not(feature = "webview"), allow(dead_code))]
     web: bool,
 }
@@ -207,7 +205,7 @@ impl Ui {
             hotkeys: setup.hotkeys,
             status: RefCell::new(Status::default()),
             window: RefCell::new(None),
-            web: setup.web && web_available(),
+            web: web_available(),
         })
     }
 
