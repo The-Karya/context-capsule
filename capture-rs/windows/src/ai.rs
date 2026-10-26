@@ -1,15 +1,11 @@
 // context-capsule — windows: any AI (SPEC "Any AI") — the AI apps on this PC, which one is Your AI, and what
-// Make today's capsules, Copy my day, Save from clipboard, Connect and Disconnect do. A port of the Mac's AIState
+// Make today's capsules, Copy my day, Save from clipboard and Connect do. A port of the Mac's AIState
 // (capture/Sources/AIBridge.swift).
 //! One state, owned by the UI thread: the window and the tray menu read it. Worker threads run the
 //! context-capsule-mcp program (core `anyai`) and send `AiEvent`s back through `UiCmd::Ai`. The pure part
 //! (the state, what a request does) is tested on any OS.
 
 use context_capsule_core::anyai::{self, AiClient, YourAi};
-
-/// While an app is being connected or disconnected (in place of its button).
-pub const CONNECTING: &str = "Connecting…";
-pub const DISCONNECTING: &str = "Disconnecting…";
 
 /// The AI apps, Your AI, and what's running now.
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -88,27 +84,8 @@ impl AiState {
         YourAi::of(&self.choice)
     }
 
-    /// "Claude", "Cursor", "ChatGPT", "your AI".
-    pub fn name(&self) -> String {
-        self.kind().name(&self.clients)
-    }
-
     pub fn client(&self, id: &str) -> Option<&AiClient> {
         self.clients.iter().find(|c| c.id == id)
-    }
-
-    pub fn any_connected(&self) -> bool {
-        self.clients.iter().any(|c| c.connected)
-    }
-
-    /// Settings → Connect your AI: one row each.
-    pub fn installed(&self) -> Vec<&AiClient> {
-        self.clients.iter().filter(|c| c.installed).collect()
-    }
-
-    /// Under "More", dimmed.
-    pub fn missing(&self) -> Vec<&AiClient> {
-        self.clients.iter().filter(|c| !c.installed).collect()
     }
 
     pub fn changed(&mut self) {
@@ -122,23 +99,6 @@ impl AiState {
         self.loaded = true;
         self.choice = anyai::resolve(saved, &self.clients);
         self.changed();
-    }
-
-    /// Claude's extension seen by the app's own detection (checked every second on Settings): ✓ at once.
-    /// true: something changed.
-    pub fn claude_seen(&mut self, connected: bool) -> bool {
-        let Some(c) = self.clients.iter_mut().find(|c| c.id == anyai::CLAUDE_ID) else { return false };
-        if !connected || c.connected {
-            return false;
-        }
-        c.connected = true;
-        self.changed();
-        true
-    }
-
-    /// The label of the current choice in Settings → Your AI.
-    pub fn choice_label(&self) -> String {
-        anyai::choices(&self.clients, &self.choice).into_iter().find(|c| c.id == self.choice).map_or_else(|| self.name(), |c| c.label)
     }
 
     /// What a request for Your AI does (the Mac's `AIState.open`).
@@ -167,23 +127,8 @@ pub fn with_claude_detection(mut list: Vec<AiClient>, claude_connected: bool) ->
     list
 }
 
-/// Settings → Your AI: the menu items ("-" = a line before the websites) and, for each, the choice's id.
-pub fn choice_menu(state: &AiState) -> Vec<(String, Option<String>)> {
-    let mut out = vec![];
-    for c in anyai::choices(&state.clients, &state.choice) {
-        if anyai::WEBSITES.first().is_some_and(|w| w.id == c.id) && !out.is_empty() {
-            out.push(("-".to_string(), None));
-        }
-        out.push((c.label, Some(c.id)));
-    }
-    out
-}
-
 #[cfg(windows)]
-pub use win::{
-    ask, connect, copy_my_day, disconnect, handle, init, make, make_from_session, open_received, refresh, save_from_clipboard, set_choice,
-    snapshot, with,
-};
+pub use win::{handle, init, make, open_received, refresh, save_from_clipboard, with};
 
 #[cfg(windows)]
 mod win {
@@ -191,7 +136,7 @@ mod win {
     use crate::app::{Ui, UiCmd};
     use crate::{connect as claude_app, input, program, reminder, win};
     use context_capsule_core::anyai::{Failure, Launch};
-    use context_capsule_core::claude::{self, search_prompt, Opened};
+    use context_capsule_core::claude::{self, Opened};
     use context_capsule_core::reminder::DAY_PROMPT;
     use context_capsule_core::settings::ConfigFile;
     use context_capsule_core::window::CANCEL;
@@ -319,17 +264,6 @@ mod win {
             YourAi::App(_) => open(ui, log, DAY_PROMPT, "to read your day", "click Make today's capsules again", "make capsules"),
             YourAi::Website(_) | YourAi::Other => copy_my_day(ui, log),
         }
-    }
-
-    /// Capsules → Ask (search inside every capsule).
-    pub fn ask(ui: &Ui, log: &AppLog, question: &str) {
-        open(ui, log, &search_prompt(question), "to search your capsules", "click Ask again", "ask your AI");
-    }
-
-    /// Timeline → "Make a capsule": your AI reads that recording (get_session_activity).
-    pub fn make_from_session(ui: &Ui, log: &AppLog, session: &str) {
-        let prompt = context_capsule_core::timeline::session_prompt(session);
-        open(ui, log, &prompt, "to read the recording", "click Make a capsule again", "make a capsule from a recording");
     }
 
     /// A capsule someone sent (Open with, or "Open a capsule…"): your AI carries on from it. Not a capsule: say so.
@@ -493,39 +427,6 @@ mod win {
         });
     }
 
-    /// Disconnect (the ⋯ menu). Claude's extension is removed in Claude.
-    pub fn disconnect(ui: &Ui, log: &AppLog, id: &str) {
-        let state = snapshot();
-        let Some(c) = state.client(id).cloned() else { return };
-        if state.busy.is_some() {
-            return;
-        }
-        log.write(&format!("disconnect: {}", c.id));
-        if c.is_extension() {
-            alert(ui, anyai::REMOVE_IN_CLAUDE, anyai::REMOVE_IN_CLAUDE_BODY);
-            return;
-        }
-        with(|s| {
-            s.busy = Some(c.id.clone());
-            s.note = None;
-            s.changed();
-        });
-        let (ui, log) = (ui.clone(), log.clone());
-        spawn(move || {
-            let answer = launch(&log).and_then(|l| anyai::disconnect(&l, &c.id));
-            post(&ui, AiEvent::Busy(None));
-            match answer {
-                Ok(a) if a.ok => {
-                    let note = if a.message.trim().is_empty() { anyai::disconnected_note(&c.name) } else { a.message };
-                    post(&ui, AiEvent::Note(Some(note)));
-                }
-                Ok(a) if a.how.as_deref() == Some("extension") => alert(&ui, anyai::REMOVE_IN_CLAUDE, anyai::REMOVE_IN_CLAUDE_BODY),
-                Ok(a) => alert(&ui, &anyai::disconnect_failed(&c.name), if a.message.trim().is_empty() { "Please try again." } else { &a.message }),
-                Err(f) => alert(&ui, &anyai::disconnect_failed(&c.name), &f.message()),
-            }
-            post(&ui, AiEvent::Refresh);
-        });
-    }
 }
 
 #[cfg(test)]
@@ -554,31 +455,11 @@ mod tests {
         let s = state("cursor");
         assert!(s.loaded && s.version > 0);
         assert_eq!(s.clients.iter().map(|c| c.id.as_str()).collect::<Vec<_>>(), ["claude", "cursor", "vscode", "zed"], "Claude first, installed first");
-        assert_eq!(s.installed().len(), 3);
-        assert_eq!(s.missing().iter().map(|c| c.name.as_str()).collect::<Vec<_>>(), ["Zed"]);
-        assert_eq!(s.name(), "Cursor");
-        assert!(s.any_connected());
-        assert_eq!(s.choice_label(), "Cursor");
-        assert_eq!(state("vscode").choice_label(), "VS Code (not connected)");
-        assert_eq!(state("gemini-web").choice_label(), "Gemini (website)");
-        assert_eq!(state("any").choice_label(), "Any other AI");
         assert_eq!(state("gone").choice, "cursor", "an app no longer listed: the first connected");
-
-        let menu = choice_menu(&s);
-        let labels: Vec<&str> = menu.iter().map(|(l, _)| l.as_str()).collect();
-        assert_eq!(labels, ["Claude (not connected)", "Cursor", "VS Code (not connected)", "-", "ChatGPT (website)", "Gemini (website)", "Any other AI"]);
-        assert_eq!(menu[3].1, None, "the line chooses nothing");
-        assert_eq!(menu[6].1.as_deref(), Some("any"));
     }
 
     #[test]
     fn claude_is_seen_by_the_app_too() {
-        let mut s = state("any");
-        let v = s.version;
-        assert!(!s.claude_seen(false));
-        assert!(s.claude_seen(true));
-        assert!(s.client("claude").unwrap().connected && s.version > v);
-        assert!(!s.claude_seen(true), "only once");
         assert_eq!(with_claude_detection(fallback(true), true), vec![AiClient::claude(true, true)]);
         assert!(!with_claude_detection(vec![client("cursor", "Cursor", true, false)], true)[0].connected);
         assert_eq!(fallback(false), vec![AiClient::claude(false, false)]);
