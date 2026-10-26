@@ -189,7 +189,7 @@ pub use win::{
 mod win {
     use super::*;
     use crate::app::{Ui, UiCmd};
-    use crate::{connect as claude_app, input, main_window, program, reminder, win};
+    use crate::{connect as claude_app, input, program, reminder, win};
     use context_capsule_core::anyai::{Failure, Launch};
     use context_capsule_core::claude::{self, search_prompt, Opened};
     use context_capsule_core::reminder::DAY_PROMPT;
@@ -267,12 +267,11 @@ mod win {
                 s.day_line = l;
                 s.changed();
             }),
-            AiEvent::Saved => main_window::reload(),
+            AiEvent::Saved => crate::web_window::emit("data-changed", serde_json::json!({ "what": ["capsules"] })),
             AiEvent::Choose(id) => set_choice(&id, log),
             AiEvent::ConnectNow(id) => connect(ui, log, &id),
             AiEvent::Refresh => refresh(ui, log),
         }
-        main_window::ai_changed();
     }
 
     /// Ask the program which AI apps there are (off the UI thread; never two at once).
@@ -307,7 +306,6 @@ mod win {
             s.day_line = None;
             s.changed();
         });
-        main_window::ai_changed();
     }
 
     /// Make today's capsules, the way Your AI works: Claude with the request typed in, another app with it on the
@@ -392,7 +390,6 @@ mod win {
         }) else {
             return;
         };
-        main_window::ai_changed();
         log.write("copy my day");
         let (ui, log) = (ui.clone(), log.clone());
         spawn(move || match launch(&log).and_then(|l| anyai::day(&l, None)) {
@@ -435,7 +432,6 @@ mod win {
             s.working = true;
             s.changed();
         });
-        main_window::ai_changed();
         let (ui, log) = (ui.clone(), log.clone());
         spawn(move || match launch(&log).and_then(|l| anyai::save(&l, &text)) {
             Err(f) => {
@@ -470,7 +466,6 @@ mod win {
                 s.note = Some(anyai::CLAUDE_INSTALL_NOTE.into());
                 s.changed();
             });
-            main_window::ai_changed();
             return;
         }
         with(|s| {
@@ -478,7 +473,6 @@ mod win {
             s.note = None;
             s.changed();
         });
-        main_window::ai_changed();
         let saved = anyai::saved_choice(&config());
         let (ui, log) = (ui.clone(), log.clone());
         spawn(move || {
@@ -516,7 +510,6 @@ mod win {
             s.note = None;
             s.changed();
         });
-        main_window::ai_changed();
         let (ui, log) = (ui.clone(), log.clone());
         spawn(move || {
             let answer = launch(&log).and_then(|l| anyai::disconnect(&l, &c.id));
