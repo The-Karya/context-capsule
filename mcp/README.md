@@ -39,6 +39,7 @@ with `./build-binary.sh` (bun): `dist-bin/context-capsule-mcp-macos` (universal)
 | `save [--date YYYY-MM-DD]` | reads that AI's answer on stdin, checks each capsule like `save_capsule` (every section, citations that match real notes, secrets removed) and saves the good ones. JSON `{"saved":[{"title","path"}],"refused":[{"title","why"}]}` |
 | `agents` | JSON `{"agents":[{"id","name"}],"use"}`: the AI command-line tools found on this computer (Claude Code, Codex, Gemini CLI) and the one `make` would use |
 | `make [--date YYYY-MM-DD] [--by auto\|click]` | makes the day's capsules with that tool, headless, in the background: it gets only this server (`serve --make-only`: the tools that write a day's capsules, nothing that records, exports or imports) and no shell, files or web; stopped after 10 minutes; the outcome goes to `auto.json` and `app.log`. JSON `{"ok","status","capsules","reason"}`. The exact flags per tool are in SPEC.md, "Automatic capsules" |
+| `view <file or name> [--to path]` | a capsule as a web page anyone can open in a browser, no AI needed: a received file's page goes next to it, a saved capsule's to the Desktop. Never overwrites. JSON `{"ok","path"}` (or `{"ok":false,"message"}` when it isn't a capsule) |
 
 ### The apps `connect` knows
 
@@ -154,7 +155,9 @@ claude mcp add context-capsule -- node /Users/you/context-capsule/mcp/dist/index
 | `get_capsule` `{name}` | the full text (by name, file name or title) |
 | `search_capsules` `{query, limit?=8}` | searches every saved capsule (received ones too) section by section, by the question's words; matches in Decisions, Where things stand and Next steps and newer capsules rank higher. Returns the best sections, each to cite like *(Pricing page, 19 Oct, Decisions)*, or says plainly that nothing matches. Read-only, no network |
 | `import_capsule` `{path}` | copies a received capsule in, after checking it. Any file name works (`.capsule.md`, `.md`…) as long as it is a capsule; otherwise a clear "isn't a Context Capsule" and nothing is imported |
-| `export_capsule` `{name, to_path?}` | copies a capsule to the Desktop (or a path) to send |
+| `import_capsule` … | also says when the capsule is a newer (or older) version of one you have — the same project, kind and day, or the same title — and how to compare them |
+| `export_capsule` `{name, to_path?, format?}` | copies a capsule to the Desktop (or a path) to send. `format: "html"` (or a path ending in `.html`): a web page of it instead, for someone without an AI — one file, no scripts, nothing loaded from the internet, light and dark, prints well |
+| `compare_capsules` `{a, b}` | two versions of one capsule (saved names or files, e.g. the one you sent and the one that came back): which is newer, what changed in each section, decisions that differ (to check with the other person), and one merged capsule — the newer In short, For Claude and Where things stand, every decision, next step and open question from both. Saves nothing; `save_capsule` keeps the merge |
 
 Also:
 

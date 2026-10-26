@@ -105,7 +105,11 @@
     },
     {
       "name": "export_capsule",
-      "description": "Copy a capsule to share it"
+      "description": "Copy a capsule to share it, or save it as a web page"
+    },
+    {
+      "name": "compare_capsules",
+      "description": "See what changed between two versions of a capsule, and merge them"
     }
   ],
   "prompts": [
