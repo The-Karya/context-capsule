@@ -2,8 +2,6 @@
 // what's done and what each step's button does. Shown as the "Set up" rows in the window's Settings, which opens
 // there on first launch. No "Read your apps" row: UI Automation needs no permission on Windows.
 
-use context_capsule_core::window::{SetupRow, ROW_AI, ROW_LOGIN, ROW_VOICE};
-
 /// The registry key and value that say the window was shown once (first launch opens it on Settings).
 pub const APP_KEY: &str = r"Software\Context Capsule";
 pub const SEEN_VALUE: &str = "SetupShown";
@@ -19,19 +17,6 @@ pub enum Step {
     Login,
 }
 
-impl Step {
-    pub const ALL: [Step; 3] = [Step::Voice, Step::Claude, Step::Login];
-
-    /// Its words (the same as the Mac's).
-    pub fn row(self) -> SetupRow {
-        match self {
-            Step::Voice => ROW_VOICE,
-            Step::Claude => ROW_AI,
-            Step::Login => ROW_LOGIN,
-        }
-    }
-}
-
 /// What's done, checked every second while Settings is open.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub struct Done {
@@ -39,16 +24,6 @@ pub struct Done {
     /// Claude's extension is installed (the app's own detection; any other connected AI also shows the ✓).
     pub claude: bool,
     pub login: bool,
-}
-
-impl Done {
-    pub fn get(&self, step: Step) -> bool {
-        match step {
-            Step::Voice => self.voice,
-            Step::Claude => self.claude,
-            Step::Login => self.login,
-        }
-    }
 }
 
 // MARK: open at login (HKCU\...\Run)
@@ -137,14 +112,6 @@ mod win {
 #[cfg(test)]
 mod tests {
     use super::*;
-
-    #[test]
-    fn steps_and_words() {
-        let labels: Vec<_> = Step::ALL.iter().map(|s| (s.row().title, s.row().button)).collect();
-        assert_eq!(labels, [("Voice notes", "Allow"), ("Connect your AI", "Connect"), ("Open at login", "Turn On")]);
-        let d = Done { voice: true, claude: false, login: true };
-        assert!(d.get(Step::Voice) && !d.get(Step::Claude) && d.get(Step::Login));
-    }
 
     #[test]
     fn run_at_login_values() {
