@@ -1,7 +1,7 @@
 // context-capsule — core: any AI (SPEC "Any AI"). Runs the context-capsule-mcp program (clients, connect,
 // disconnect, day, save) with a time limit and reads its JSON; which AI is "Your AI" (config.json "ai"); and the
-// plain words the Windows and Linux windows show for it. A port of AIBridge.swift and Core.swift's AIClient,
-// AIAnswer, YourAI and AIProgram.
+// plain words the Windows and Linux recorders' own dialogs and messages say about it. A port of AIBridge.swift and
+// Core.swift's AIClient, AIAnswer, YourAI and AIProgram.
 //! Nothing here draws or touches a clipboard: the platforms do that. Every call blocks, so call it off the UI thread.
 
 use serde_json::Value;
@@ -389,11 +389,6 @@ impl YourAi {
             YourAi::Other => "your AI".into(),
         }
     }
-
-    /// Home: "Your AI: Cursor" / "Your AI: any AI".
-    pub fn home_line(&self, clients: &[AiClient]) -> String {
-        format!("Your AI: {}", if *self == YourAi::Other { "any AI".into() } else { self.name(clients) })
-    }
 }
 
 /// config.json "ai" (None when not set).
@@ -421,51 +416,12 @@ pub fn first_connected_becomes_choice(saved: Option<&str>, clients_before: &[AiC
     saved.is_none() && !clients_before.iter().any(|c| c.connected)
 }
 
-/// One entry in Settings → Your AI.
-#[derive(Clone, Debug, PartialEq, Eq)]
-pub struct Choice {
-    pub id: String,
-    pub label: String,
-}
-
-/// Settings → Your AI: the installed apps ("Cursor (not connected)" when not), the chosen one even if not
-/// installed, then the websites and "Any other AI".
-pub fn choices(clients: &[AiClient], current: &str) -> Vec<Choice> {
-    let mut out: Vec<Choice> = clients
-        .iter()
-        .filter(|c| c.installed || c.id == current)
-        .map(|c| Choice { id: c.id.clone(), label: if c.connected { c.name.clone() } else { format!("{} (not connected)", c.name) } })
-        .collect();
-    if !clients.iter().any(|c| c.id == current) && matches!(YourAi::of(current), YourAi::App(_)) {
-        out.push(Choice { id: current.to_string(), label: current.to_string() });
-    }
-    out.extend(WEBSITES.iter().map(|w| Choice { id: w.id.into(), label: w.name.into() }));
-    out.push(Choice { id: ANY_ID.into(), label: ANY_OTHER_AI.into() });
-    out
-}
-
 // MARK: words (the Mac's, word for word)
 
-pub const CONNECT_YOUR_AI: &str = "Connect your AI";
-pub const CONNECT_HELP: &str = "Lets your AI start contextualizing and write your capsules.";
 pub const CONNECT: &str = "Connect";
-pub const DISCONNECT: &str = "Disconnect";
-pub const MORE: &str = "More";
-pub const NOT_INSTALLED: &str = "Not installed";
-pub const ANY_OTHER_LINE: &str = "Any other AI (ChatGPT website, Gemini, Copilot…): use Copy my day.";
 /// After Connect for Claude (the extension): Claude asks to install it.
 pub const CLAUDE_INSTALL_NOTE: &str = "Click Install in Claude. The ✓ shows when it's done.";
-pub const YOUR_AI: &str = "Your AI";
-pub const MAKE_WITH: &str = "Make today's capsules with";
-pub const ANY_OTHER_AI: &str = "Any other AI";
-pub const CHANGE: &str = "Change";
-pub const COPY_MY_DAY: &str = "Copy my day";
 pub const SAVE_FROM_CLIPBOARD: &str = "Save from clipboard";
-pub const MAKE_CAPSULES: &str = "Make capsules";
-pub const COPY_MY_DAY_HELP: &str = "Copies today's work as one message to paste into any AI.";
-pub const SAVE_HELP: &str = "Saves the capsules in your AI's reply. Copy its whole reply first.";
-/// Capsules page, before Copy my day.
-pub const ON_THE_WEB: &str = "Using an AI on the web, or any other AI?";
 /// Shown after Copy my day, until the reply is saved.
 pub const PASTE_LINE: &str = "Paste it into your AI. When it answers, copy its whole reply, then click Save from clipboard.";
 pub const NOTHING_TODAY: &str = "Nothing recorded today yet.";
@@ -473,59 +429,13 @@ pub const COPY_FAILED: &str = "Couldn't copy your day";
 pub const CLIPBOARD_EMPTY: &str = "The clipboard is empty";
 pub const CLIPBOARD_EMPTY_BODY: &str = "Copy your AI's whole reply first, then click Save from clipboard.";
 pub const SAVE_FAILED: &str = "Couldn't save";
-pub const REMOVE_IN_CLAUDE: &str = "Remove it in Claude";
-pub const REMOVE_IN_CLAUDE_BODY: &str = "In Claude, open Settings → Extensions and remove Context Capsule.";
-pub const ASK_YOUR_AI: &str = "Ask your AI";
-pub const ASK_CLAUDE: &str = "Ask Claude";
-
-/// "Ask Claude" when Your AI is Claude, else "Ask your AI".
-pub fn ask_button(ai: &YourAi) -> &'static str {
-    if *ai == YourAi::Claude {
-        ASK_CLAUDE
-    } else {
-        ASK_YOUR_AI
-    }
-}
-
-/// Settings → Your AI, under the choice.
-pub fn settings_line(ai: &YourAi, name: &str) -> String {
-    if ai.uses_copy() {
-        format!("Make today's capsules copies your day to paste into {name}, then you save its reply.")
-    } else {
-        format!("Make today's capsules opens {name} with the request.")
-    }
-}
-
-/// Home → Make today's capsules, the line above the button(s). `enter`: "Return" on a Mac, "Enter" elsewhere.
-pub fn make_line(ai: &YourAi, name: &str, day_line: Option<&str>, enter: &str) -> String {
-    match ai {
-        _ if ai.uses_copy() => day_line.map_or_else(|| format!("Copy your day, paste it into {name}, then save its reply here."), str::to_string),
-        YourAi::Claude => format!("Claude opens with the request typed in. Press {enter}."),
-        _ => format!("{name} opens. Paste the request in a new chat."),
-    }
-}
-
-/// Help → Shortcuts, "Make my capsules for today".
-pub fn help_make_keys(ai: &YourAi) -> &'static str {
-    if ai.uses_copy() {
-        COPY_MY_DAY
-    } else {
-        "in your AI"
-    }
-}
 
 /// After connecting an app, when it didn't say.
 pub fn connected_note(name: &str) -> String {
     format!("Connected to {name}. Restart {name} to use it.")
 }
-pub fn disconnected_note(name: &str) -> String {
-    format!("Disconnected from {name}.")
-}
 pub fn connect_failed(name: &str) -> String {
     format!("Couldn't connect {name}")
-}
-pub fn disconnect_failed(name: &str) -> String {
-    format!("Couldn't disconnect {name}")
 }
 
 /// A request for an app that isn't connected yet: (title, text). `why`: "to read your day"; `again`: "click
@@ -614,18 +524,10 @@ mod tests {
         assert!(!YourAi::of("cursor").uses_copy() && !YourAi::Claude.uses_copy());
         assert_eq!(YourAi::of("chatgpt-web").name(&[]), "ChatGPT");
         assert_eq!(YourAi::of("codex").name(&list), "CODEX");
-        assert_eq!(YourAi::Other.home_line(&[]), "Your AI: any AI");
-        assert_eq!(ask_button(&YourAi::Claude), "Ask Claude");
-        assert_eq!(ask_button(&YourAi::Other), "Ask your AI");
 
         assert!(first_connected_becomes_choice(None, &[client("a", true, false)]));
         assert!(!first_connected_becomes_choice(Some("any"), &[]));
         assert!(!first_connected_becomes_choice(None, &[client("a", true, true)]));
-
-        let c = choices(&list, "cursor");
-        let labels: Vec<_> = c.iter().map(|c| c.label.as_str()).collect();
-        assert_eq!(labels, ["Claude (not connected)", "CODEX", "ZED (not connected)", "CURSOR (not connected)", "ChatGPT (website)", "Gemini (website)", "Any other AI"]);
-        assert_eq!(choices(&[], "vscode")[0], Choice { id: "vscode".into(), label: "vscode".into() }, "an unknown saved app stays choosable");
     }
 
     #[test]
@@ -640,14 +542,6 @@ mod tests {
         assert_eq!(saved_choice(&config).as_deref(), Some("cursor"));
         let _ = std::fs::remove_dir_all(&dir);
 
-        assert_eq!(make_line(&YourAi::Claude, "Claude", None, "Enter"), "Claude opens with the request typed in. Press Enter.");
-        assert_eq!(make_line(&YourAi::of("cursor"), "Cursor", None, "Enter"), "Cursor opens. Paste the request in a new chat.");
-        assert_eq!(make_line(&YourAi::Other, "your AI", None, "Enter"), "Copy your day, paste it into your AI, then save its reply here.");
-        assert_eq!(make_line(&YourAi::Other, "your AI", Some(PASTE_LINE), "Enter"), PASTE_LINE);
-        assert_eq!(settings_line(&YourAi::of("gemini-web"), "Gemini"), "Make today's capsules copies your day to paste into Gemini, then you save its reply.");
-        assert_eq!(settings_line(&YourAi::Claude, "Claude"), "Make today's capsules opens Claude with the request.");
-        assert_eq!(help_make_keys(&YourAi::Other), "Copy my day");
-        assert_eq!(help_make_keys(&YourAi::Claude), "in your AI");
         assert_eq!(connect_first("Cursor", "to read your day", "click Make today's capsules again").1, "Cursor needs Context Capsule to read your day. Click Connect. After that, click Make today's capsules again.");
         assert_eq!(copied_for("Cursor", false), "Copied. Open Cursor and paste it in a new chat.");
 
