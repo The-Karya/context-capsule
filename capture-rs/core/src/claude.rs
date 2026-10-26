@@ -1,6 +1,6 @@
 // context-capsule — core: opening Claude on a new chat with a request typed in — "continue from this capsule"
-// (a capsule someone sent: Open With, or "Open a capsule…") and "search my capsules" (Ask Claude). Also which
-// file a launch asks to open (`--open <path>`, or a .md path as the only argument).
+// (a capsule someone sent: Open With, or "Open a capsule…"). Also which file a launch asks to open (`--open <path>`,
+// or a .md path as the only argument).
 
 use crate::reminder::front_matter;
 use std::path::{Path, PathBuf};
@@ -26,11 +26,6 @@ pub fn encode_query(s: &str) -> String {
 /// What Claude is asked when a received capsule is opened.
 pub fn continue_prompt(path: &Path) -> String {
     format!("Use Context Capsule to continue from the capsule at {}.", path.display())
-}
-
-/// What "Ask Claude" on the Capsules page asks.
-pub fn search_prompt(question: &str) -> String {
-    format!("Use Context Capsule to search my capsules: {}", question.trim())
 }
 
 /// Does this look like a capsule: front matter with `capsule:` and `title:`?
@@ -99,7 +94,6 @@ mod tests {
             new_chat_url(&continue_prompt(Path::new(r"C:\Users\ana\Pricing.capsule.md"))),
             "claude://claude.ai/new?q=Use%20Context%20Capsule%20to%20continue%20from%20the%20capsule%20at%20C%3A%5CUsers%5Cana%5CPricing.capsule.md."
         );
-        assert_eq!(search_prompt("  what did we decide on pricing? "), "Use Context Capsule to search my capsules: what did we decide on pricing?");
     }
 
     #[test]
