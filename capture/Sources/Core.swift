@@ -1162,17 +1162,6 @@ enum ClaudeLink {
     }
 }
 
-// MARK: - Opening a received capsule, asking your capsules
-
-extension ClaudeLink {
-    /// Opening a received capsule (SPEC "Opening a received capsule").
-    static func continuePrompt(path: String) -> String { "Use Context Capsule to continue from the capsule at \(path)." }
-    /// Ask Claude on the Capsules page (SPEC "Ask your capsules").
-    static func searchPrompt(_ question: String) -> String {
-        "Use Context Capsule to search my capsules: \(question.trimmingCharacters(in: .whitespacesAndNewlines))"
-    }
-}
-
 // MARK: - Evening reminder and clean-up
 
 enum Reminder {

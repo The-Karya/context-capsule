@@ -633,13 +633,6 @@ check(ClaudeLink.newChat(prefill: "Make my capsules for today.")?.absoluteString
       == "claude://claude.ai/new?q=Make%20my%20capsules%20for%20today.", "Claude link with the message typed in")
 check(ClaudeLink.dayPrompt.contains("Context Capsule"), "the request names the app")
 
-// MARK: opening a received capsule, asking your capsules
-
-check(ClaudeLink.continuePrompt(path: "/Users/a/Downloads/x.capsule.md")
-      == "Use Context Capsule to continue from the capsule at /Users/a/Downloads/x.capsule.md.", "continue prompt")
-check(ClaudeLink.searchPrompt("  what did we decide on pricing? ")
-      == "Use Context Capsule to search my capsules: what did we decide on pricing?", "search prompt")
-
 // MARK: reminder and clean-up
 
 check(Reminder.parse("18:00") == 1080 && Reminder.parse("7:5") == 425 && Reminder.parse("25:00") == nil, "reminder time")
@@ -1377,9 +1370,6 @@ check(AppName.full == "Karya Context Capsule", "name: the full name")
 check(AppName.bundleFile == "Context Capsule.app", "name: the bundle file keeps its name (connected AI apps, updates)")
 check(Update.isInApplications("/Applications/" + AppName.bundleFile, home: "/Users/me"), "name: Move to Applications lands in Applications")
 check(ClaudeLink.dayPrompt == "Use Context Capsule to make my capsules for today.", "name: the day request is unchanged")
-check(ClaudeLink.continuePrompt(path: "/x/a.md") == "Use Context Capsule to continue from the capsule at /x/a.md.",
-      "name: the continue request is unchanged")
-check(ClaudeLink.searchPrompt("why?").hasPrefix("Use Context Capsule to search my capsules: "), "name: the search request is unchanged")
 
 try? FileManager.default.removeItem(at: tmp)
 
