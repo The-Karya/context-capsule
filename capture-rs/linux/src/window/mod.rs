@@ -9,6 +9,7 @@
 mod capsules;
 mod help;
 mod home;
+mod native;
 mod projects;
 mod settings;
 mod share;

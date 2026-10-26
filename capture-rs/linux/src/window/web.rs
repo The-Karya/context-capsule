@@ -5,7 +5,7 @@
 //! clipboard, opening things) is handed to GTK's thread and waited for. Events go back with `evaluate_javascript`.
 //! The window's buttons sit over the page's top band, which also moves the window.
 
-use super::{apply_appearance, Ctx};
+use super::{apply_appearance, native, Ctx};
 use crate::{autostart, connect, icon_match, ui};
 use adw::prelude::*;
 use context_capsule_core::anyai::Launch;
@@ -488,7 +488,7 @@ impl Host for LinuxHost {
             "add-screen" => self.send(Msg::AddScreen),
             "project" => self.send(Msg::PickProject(id.map(String::from))),
             "new-project" => {
-                on_main_now(|w| super::home::ask_new_project(&w.ctx));
+                on_main_now(|w| native::ask_new_project(&w.ctx));
                 Ok(())
             }
             other => Err(format!("unknown action {other}")),
@@ -530,12 +530,7 @@ impl Host for LinuxHost {
         match id {
             #[cfg(feature = "voice")]
             "voice" => {
-                on_main_now(|w| {
-                    thread_local! {
-                        static DOWNLOAD: super::settings::voice::Download = super::settings::voice::Download::default();
-                    }
-                    DOWNLOAD.with(|d| super::settings::voice::ask(&w.ctx, d));
-                });
+                on_main_now(|w| native::voice::ask(&w.ctx));
                 Ok(())
             }
             "ai" => {
@@ -614,7 +609,7 @@ impl Host for LinuxHost {
 
     fn reveal(&self, path: &Path) -> Result<(), String> {
         let path = path.to_path_buf();
-        on_main_now(move |w| super::capsules::show_in_folder(&w.ctx, &path)).ok_or_else(|| ui::CANT_OPEN.to_string())
+        on_main_now(move |w| native::show_in_folder(&w.ctx, &path)).ok_or_else(|| ui::CANT_OPEN.to_string())
     }
 
     fn save_panel(&self, name: &str) -> Option<PathBuf> {
@@ -661,7 +656,7 @@ impl Host for LinuxHost {
         let ids = ids.to_vec();
         on_main_now(move |_| {
             let installed: Vec<(String, String)> =
-                super::settings::installed_apps_with_icons().into_iter().map(|(id, name, _)| (id, name)).collect();
+                native::installed_apps_with_icons().into_iter().map(|(id, name, _)| (id, name)).collect();
             ids.iter()
                 .filter(|id| installed.iter().any(|(i, _)| i.eq_ignore_ascii_case(id)))
                 .map(|id| (id.clone(), Value::String(ui::excluded_name(id, &installed))))
@@ -774,7 +769,7 @@ fn answer_once(chooser: gtk::FileChooserNative, reply: Reply<Option<PathBuf>>) {
 
 /// "Never record" → Choose…: a searchable list of installed apps; (id, name) of the one picked.
 fn choose_app(ctx: &Rc<Ctx>, reply: Reply<Option<(String, String)>>) {
-    let apps = Rc::new(super::settings::installed_apps_with_icons());
+    let apps = Rc::new(native::installed_apps_with_icons());
     type Once = Rc<RefCell<Option<Reply<Option<(String, String)>>>>>;
     let reply: Once = Rc::new(RefCell::new(Some(reply)));
     let dialog = adw::Window::builder()
