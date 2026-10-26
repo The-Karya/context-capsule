@@ -57,60 +57,30 @@ the window only hides it; the app keeps running in the tray. It follows the syst
 style unless Settings → Appearance says otherwise (`"appearance"` in config.json), and uses the
 system accent color.
 
-- **Home** — hello and the date; Today / This week / Streak; the status card (Start
-  contextualizing / Stop / Cancel, and while recording Speak a note and Add a screen, with the running
-  time; when idle, *Pick the screen or window you work on. Only that is read.* or, with All my screens,
-  *Shares all your screens. Private apps are never read.*); today's time per project (and **See today's timeline**); the three newest capsules. On the side (under it when the window is
-  narrow): the shortcuts (the current ones), **Working on** (Find by itself, each project, New project), and
-  **Make today's capsules**, which follows Your AI: Claude (**Make capsules** opens Claude with the request
-  typed in), another app (**Make capsules** puts the request on the clipboard: *Copied. Open Cursor and paste
-  it in a new chat.*; not connected yet: *Connect Cursor first*, with Connect), or a website / any other AI
-  (**Copy my day**, then **Save from clipboard**). Under it *Your AI: …* and **Change** (Settings).
-- **Capsules** — by project; Open, and Copy file / Copy text / Save a copy… / Show in folder. A search
-  box filters by title and *In short* as you type; **Ask your AI** (**Ask Claude** when Your AI is Claude; or
-  Enter; off while the box is empty) sends *Use Context Capsule to search my capsules: …* the same way as
-  Make today's capsules (Claude, websites and any other AI: Claude). A row for any other AI: *Using an AI
-  on the web, or any other AI?* (after Copy my day: what to do next), **Copy my day** and **Save from
-  clipboard**. **Open a capsule…** picks a `.md` file someone sent (see below).
-- **Check before sharing** — Copy file, Copy text and Save a copy… first show a dialog, *Before you
-  share*, with what in the capsule might be private, by group (People, Emails, Phone numbers, Private
-  links), each with a check box, all ticked. **Share** uses a copy with the ticked ones replaced by `[removed]` (Copy
-  file: a temporary file in `$TMPDIR/context-capsule-shared/`); the saved capsule never changes.
-  Nothing found: it shares at once. Plain rules, no AI, the same as the Mac's (core `share_check`,
-  cases in `spec/share-check.json`).
-- **Projects** — each project and what finds it; Edit (name, clues) and Delete (asked first).
-  Saved to projects.json; the recorder reads it again by itself.
-- **Settings** — your name; Set up (Voice notes: the speech model, downloaded only after you say
-  yes; **Connect your AI**; Open at login), each with a check mark when done; **Your AI** (*Make today's
-  capsules with*: the installed AI apps, *ChatGPT (website)*, *Gemini (website)*, *Any other AI*; saved at
-  once as `"ai"` in config.json, with a line saying what Make today's capsules will do); Every day (When you start:
-  *Pick a screen or window* or *All my screens*, `share_screens`; reminder and its time, deleting old
-  recordings, sounds); **Shortcuts** (*Start or stop* and *Speak a note*, each a button with its keys,
-  and Reset; see [Hotkeys](#hotkeys)); the voice notes' language; Never record (apps, picked from the
-  installed ones; stored as their desktop id, e.g. `org.gnome.Calculator`); Appearance (System, Light,
-  Dark); Updates (Update automatically, the version, Check for updates). Every change is saved at once.
-- **Help** — shortcuts (the current ones), how it works, privacy.
+The window is the one the Mac and Windows apps share: the page in `ui/` at the repo root (Home, Timeline,
+Capsules, Projects, Settings, Help), in WebKitGTK 6.0 (`src/window/web.rs`). The page is built into the program
+and served as `capsule://app/…`; nothing loads from the network, links open in the browser. Its calls go
+through the shared bridge (`core/src/bridge.rs`, `ui/BRIDGE.md`): files are read only from an allow-list inside
+the data folder; dialogs (New project, Get voice notes?, Choose an app, Save a copy…, Open a capsule…), the
+clipboard and opening apps stay native (`LinuxHost` in `web.rs`, `window/native.rs`). Linux never shows glass
+(`material: "none"`).
 
-Raw recordings show only on the **Timeline** (a day as it was recorded, on this computer, with the
-Mac's words): the day control *‹  Thursday 23 October  ›* (› off on today; the date opens a month calendar
-with a mark on days with a recording; **Today** when another day is shown), *1 h 50 min recorded · 3
-recordings* and *Search this day*; a day bar (each stretch coloured by
-its project; a click opens its recording there); **Where your time went** (per project, or per app when
-nothing has one); then **Recordings**, each folded to one line (*10:00 – 11:40 · 1 h 40 min · Website,
-Client report*, **Make a capsule**, ⋯ → *Delete this recording…*; open by itself while it records). Opened:
-its reads grouped into stretches (one window in a row: app · title, time and length, where · project, a peek line, *24
-reads*; **Show what was read** lists the reads with **Show all**; ⋯ → *Delete this stretch…* /
-*Delete this read…*), voice and typed notes as speech bubbles, and the stretches not read (*Not read 10:40 –
-10:55: a private app was in front*, from `gaps.jsonl`). Deleting asks first, is permanent, and refuses the
-recording still going (*Stop first*). Today is read again every 5 s while recording, keeping what's open and
-the scroll position. Home's *Today* has **See today's timeline**. Everywhere else: time per project, counts
-and capsules.
+WebKitGTK is not in the AppImage: it is the system's, loaded only when the window opens (`dlopen`,
+`src/window/wk.rs`). Without it the app still starts (tray, hotkeys, recording), and opening the window shows
+a message, *Install WebKitGTK to open the window*, with the package to install (it also says why on stderr).
+Bundling it would make the AppImage about 80 MB bigger (about 220 MB of libraries and helpers unpacked,
+measured on Debian 12; today's AppImage is 6.7 MB), and WebKit's helper processes expect to be at their system
+paths. The package:
 
-**Connect your AI** (SPEC "Any AI"): the AI apps come from `context-capsule-mcp clients` (read on a thread at
-start, when Settings shows and every 10 s while it does). The row has a ✓ when at least one is connected; under
-it one row per installed app (Connect, or a ✓ and a ⋯ menu with Disconnect; a spinner while it works), then
-**More** (the apps that aren't installed, dimmed), a note after connecting (*Connected to Cursor. Restart
-Cursor to use it.*), and *Any other AI (ChatGPT website, Gemini, Copilot…): use Copy my day.* Apps other than
+| system | package |
+|---|---|
+| Debian 12+, Ubuntu 22.04+ | `libwebkitgtk-6.0-4` |
+| Fedora | `webkitgtk6.0` |
+| Arch | `webkitgtk-6.0` |
+| openSUSE | `libwebkitgtk-6_0-4` |
+
+**Connect your AI** (SPEC "Any AI"): the AI apps come from `context-capsule-mcp clients` (the page runs it
+through the bridge; the tray's list is read on a thread at start). Apps other than
 Claude connect through `context-capsule-mcp connect <id>` (it writes the app's MCP settings); the first one
 connected becomes Your AI when none was chosen. Without the program the list is just Claude.
 
@@ -163,7 +133,7 @@ The release is one file, `Context-Capsule-<version>-x86_64.AppImage`. Make it ru
 Capsule to your apps?* — **Add** writes `~/.local/share/applications/com.thekarya.contextcapsule.desktop`
 (pointing at the AppImage, offered for `.md` files under Open With) and its icon; an entry written by an
 older version is brought up to date at the next start. Open at login points at the AppImage too. It uses the
-system's PipeWire, D-Bus, ALSA and Tesseract (the "run" packages below). Built on Debian 12, so it
+system's PipeWire, D-Bus, ALSA, Tesseract and, for the window, WebKitGTK 6.0 (the "run" packages below). Built on Debian 12, so it
 needs glibc 2.36 or newer (Ubuntu 23.04+, Fedora 37+, Debian 12+).
 
 It carries the any-AI program too, `usr/bin/context-capsule-mcp` (for its arch; no Node needed). An
@@ -181,29 +151,6 @@ AI / Copy my day can't work). The x86_64
 release file comes from the `appimage` job of the manual CI workflow (an artifact). The file lands in
 `../target-appimage/`, and the script prints its size and SHA-256 (for `latest.json`).
 
-## The new window (shared with the Mac and Windows)
-
-The window is the one the Mac and Windows apps share: the page in `ui/` at the repo root, in WebKitGTK 6.0
-(`src/window/web.rs`). The old GTK window is kept as a hidden way back: `--old-window`, or `"new_window": false`
-in config.json. It also opens by itself when WebKitGTK 6.0 isn't installed.
-The page is built into the program and served as `capsule://app/…`; nothing loads from the network,
-links open in the browser. Its calls go through the shared bridge (`core/src/bridge.rs`, `ui/BRIDGE.md`):
-files are read only from an allow-list inside the data folder; dialogs, the clipboard and opening apps stay native
-(`LinuxHost` in `web.rs`). `--window-only` shows it alone (for pictures).
-Linux never shows glass (`material: "none"`).
-
-WebKitGTK is not in the AppImage: it is the system's, loaded only when the new window opens (`dlopen`,
-`src/window/wk.rs`), so the app still starts without it and shows the GTK window instead (it says why on
-stderr). Bundling it would make the AppImage about 80 MB bigger (about 220 MB of libraries and helpers
-unpacked, measured on Debian 12; today's AppImage is 6.7 MB), and WebKit's helper processes expect to be at
-their system paths. The package:
-
-| system | package |
-|---|---|
-| Debian 12+, Ubuntu 22.04+ | `libwebkitgtk-6.0-4` |
-| Fedora | `webkitgtk6.0` |
-| Arch | `webkitgtk-6.0` |
-| openSUSE | `libwebkitgtk-6_0-4` |
 
 ## Updates
 
@@ -231,7 +178,7 @@ sudo apt install build-essential pkg-config clang libclang-dev cmake \
   libgtk-4-dev libadwaita-1-dev      # the window: GTK 4.8+, libadwaita 1.2+ (Debian 12, Ubuntu 22.10+)
 # run
 sudo apt install xdg-desktop-portal pipewire at-spi2-core tesseract-ocr zenity libgtk-4-1 libadwaita-1-0
-sudo apt install libwebkitgtk-6.0-4    # the new window (--new-window); building needs nothing more
+sudo apt install libwebkitgtk-6.0-4    # the window (WebKitGTK 6.0); building needs nothing more
 sudo apt install xdg-desktop-portal-gnome gnome-shell-extension-appindicator   # GNOME
 sudo apt install xdg-desktop-portal-kde                                        # KDE
 ```
@@ -242,7 +189,7 @@ Fedora:
 sudo dnf install gcc-c++ pkgconf clang clang-devel cmake dbus-devel pipewire-devel alsa-lib-devel \
   gtk4-devel libadwaita-devel
 sudo dnf install xdg-desktop-portal pipewire at-spi2-core tesseract zenity gtk4 libadwaita
-sudo dnf install webkitgtk6.0          # the new window (--new-window)
+sudo dnf install webkitgtk6.0          # the window (WebKitGTK 6.0)
 sudo dnf install xdg-desktop-portal-gnome gnome-shell-extension-appindicator   # GNOME
 sudo dnf install xdg-desktop-portal-kde                                        # KDE
 ```
@@ -293,7 +240,7 @@ repo's `mcp/dist-bin` when you run from `../target/release`).
 | `tray.rs`, `link.rs` | the tray menu; the line from the tray and engine to the window |
 | `reminder.rs` | the evening reminder; the clipboard tools; Claude with a request; sounds |
 | `notify.rs` | notifications, dialogs (zenity / kdialog) |
-| `window/` | the window: `home.rs`, `timeline.rs` (the Timeline), `capsules.rs`, `projects.rs`, `settings.rs`, `shortcuts.rs`, `help.rs`, `share.rs`, `yourai.rs` (Your AI in the window), `widgets.rs`; the new window: `web.rs` (WebKitGTK, the bridge host), `wk.rs` (WebKitGTK loaded at run time) |
+| `window/` | the window: `mod.rs` (GTK, the app side, the message when WebKitGTK is missing), `web.rs` (the shared page in WebKitGTK, the bridge host), `wk.rs` (WebKitGTK loaded at run time), `native.rs` (the native dialogs the page asks for), `yourai.rs` (Your AI from the tray and the page), `widgets.rs` (the dialogs' colours) |
 | `platform.rs`, `portal.rs`, `pipewire.rs`, `atspi_*.rs`, `ocr.rs`, `x11.rs`, `desktop.rs` | recording: screen sharing, frames, window text |
 | `hotkeys.rs`, `voice.rs`, `model.rs`, `update.rs`, `appimage.rs`, `autostart.rs` | shortcuts, voice notes, updates, the AppImage's app entry, open at login |
 
