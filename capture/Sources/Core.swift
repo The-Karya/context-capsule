@@ -195,6 +195,8 @@ struct Config {
     var shareAllScreens = false
     /// "make_capsules": "auto" = Automatic capsules at remindAt (18:00 when off); anything else = "click".
     var makeCapsules = "click"
+    /// "appearance": "light" or "dark"; anything else = "system" (follows the Mac).
+    var appearance = "system"
 
     /// Reads `{"exclude_apps": [...], "voice_locale": "en-GB"}`; a missing or broken file means defaults.
     static func load(from url: URL) -> Config {
@@ -211,7 +213,8 @@ struct Config {
                       remindAt: remind, keepDays: max(0, keep), sounds: obj["sounds"] as? Bool ?? true,
                       autoUpdate: obj["auto_update"] as? Bool ?? true, updateFeed: obj["update_feed"] as? String,
                       shareAllScreens: (obj["share_screens"] as? String) == "all",
-                      makeCapsules: (obj["make_capsules"] as? String) == "auto" ? "auto" : "click")
+                      makeCapsules: (obj["make_capsules"] as? String) == "auto" ? "auto" : "click",
+                      appearance: ["light", "dark"].contains(obj["appearance"] as? String ?? "") ? obj["appearance"] as! String : "system")
     }
 }
 

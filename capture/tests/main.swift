@@ -84,6 +84,11 @@ try! #"{"share_screens": "all"}"#.write(to: shareURL, atomically: true, encoding
 check(Config.load(from: shareURL).shareAllScreens, "share_screens all")
 try! #"{"share_screens": "pick"}"#.write(to: shareURL, atomically: true, encoding: .utf8)
 check(!Config.load(from: shareURL).shareAllScreens && !Config().shareAllScreens, "the picker by default")
+let lookURL = tmp.appendingPathComponent("look.json")
+try! #"{"appearance": "dark"}"#.write(to: lookURL, atomically: true, encoding: .utf8)
+check(Config.load(from: lookURL).appearance == "dark", "appearance dark")
+try! #"{"appearance": "purple"}"#.write(to: lookURL, atomically: true, encoding: .utf8)
+check(Config.load(from: lookURL).appearance == "system" && Config().appearance == "system", "appearance follows the Mac by default")
 
 // MARK: times
 

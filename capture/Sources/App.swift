@@ -126,6 +126,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
             self.toast.show(outcome.message, under: self.statusItem.button, seconds: 6)
         }
 
+        WebWindow.applyAppearance(Config.load(from: paths.config).appearance) // the saved Light / Dark, before any window opens
         Shortcut.current = Shortcut.load(from: paths.config)
         registerHotKeys()
 
