@@ -248,12 +248,13 @@ false and `last_error` is `"cancelled"`.
 | file | does |
 |---|---|
 | `Sources/Core.swift` | pure logic: paths, JSON, times, redaction, exclusion, event log, picked-content membership, AX text assembly, AX-vs-OCR choice, voice notes (silence, events, the press-to-talk state machine), check before sharing, is-it-a-capsule, search, gaps (gaps.jsonl), the timeline (a day read into recordings and stretches, time per project, fold, search, delete) |
-| `Sources/Library.swift` | Share (with the "Check before sharing" box), opening Claude with a request, opening a received capsule |
-| `Sources/AIBridge.swift` | any AI: runs context-capsule-mcp, Connect your AI, Your AI, Copy my day, Save from clipboard |
+| `Sources/AIBridge.swift` | any AI: runs context-capsule-mcp, Connect your AI, Your AI, Copy my day, Save from clipboard, opening Claude with a request |
+| `Sources/WebWindow.swift` | the window: the shared page (`../ui/`) in a web view, and the bridge it talks to (`../ui/BRIDGE.md`) |
+| `Sources/WebCheck.swift` | `--render-web-page` (a page drawn offscreen) and `--test-web-window` (the page driven through the real bridge) |
+| `Sources/Setup.swift` | the Set up steps' checks and actions (reading text, voice notes, Dictation, your AI, open at login) |
 | `Sources/Picker.swift` | the system picker (`SCContentSharingPicker`) and the one `SCStream` of the picked content |
 | `Sources/Screen.swift` | front app + window, Accessibility text, Vision OCR |
 | `Sources/Recorder.swift` | sessions, 3 s sampling, notes into the session, gaps.jsonl, state.json, control file |
-| `Sources/TimelineView.swift` | the Timeline page (a lazy list; files read off the main thread) |
 | `Sources/Voice.swift` | mic + on-device Apple Speech for voice notes |
 | `Sources/App.swift` | menu-bar icon and menu, ⌥C / ⌥V hotkeys, messages, Accessibility menu item, files opened with the app |
 | `Sources/UpdateCore.swift` | pure update logic: the feed, its Ed25519 signature, versions, when to check |

@@ -199,7 +199,7 @@ final class WebWindow: NSObject, NSWindowDelegate, WKNavigationDelegate, WKUIDel
         window.titleVisibility = .hidden
         window.titlebarAppearsTransparent = true
         window.titlebarSeparatorStyle = .none
-        // An empty unified toolbar: the traffic lights sit in the page's 52 pt toolbar band, as in the SwiftUI window.
+        // An empty unified toolbar: the traffic lights sit in the page's 52 pt toolbar band.
         // Not in full screen, where macOS draws a toolbar as an opaque band over the page (windowWillEnterFullScreen).
         window.toolbar = Self.emptyToolbar()
         window.toolbarStyle = .unified

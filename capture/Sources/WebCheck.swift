@@ -104,7 +104,7 @@ extension WebWindow {
     }
 
     /// --render-web-page: one page of the shared window, drawn offscreen at 2× with the data in CONTEXT_CAPSULE_HOME.
-    /// Same pages and set-up as --render-page ("welcome" = first launch, nothing set up; no AI apps installed).
+    /// Pages: renderPages ("welcome" = first launch, nothing set up; no AI apps installed).
     /// material "glass" puts a desktop picture behind the window.
     static func renderPage(_ page: String, to out: URL, dark: Bool, size: NSSize, material: String) -> Bool {
         let paths = Paths.standard
