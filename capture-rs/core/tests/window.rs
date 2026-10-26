@@ -1,5 +1,5 @@
-// context-capsule — core: golden vectors ported from capture/tests/main.swift ("capsule files", "settings written
-// by the app"): same inputs, same answers as the Mac.
+// context-capsule — core: settings written by the app, ported from capture/tests/main.swift: same inputs, same
+// answers as the Mac.
 
 use context_capsule_core::*;
 use std::path::PathBuf;
@@ -9,32 +9,6 @@ fn tmp(name: &str) -> PathBuf {
     let _ = std::fs::remove_dir_all(&dir);
     std::fs::create_dir_all(&dir).unwrap();
     dir
-}
-
-#[test]
-fn capsule_files() {
-    let cap_text = "---\ncapsule: 1\ntitle: \"Website — 2026-10-19\"\nauthor: Saachi            # from config\ncreated: 2026-10-19T18:00:00Z\nproject: website\nkind: daily\ndate: 2026-10-19\ndraft: true\n---\n\n## In short\nWe redesigned the pricing page.\nTeams is now $12.\n## For Claude\nYou're picking up…\n";
-    let dir = tmp("capsules");
-    let cap_path = dir.join("capsules/website-2026-10-19.capsule.md");
-    let cs = CapsuleSummary::parse(cap_text, &cap_path);
-    assert_eq!(
-        (cs.title.as_str(), cs.project.as_str(), cs.kind.as_str(), cs.date.as_str()),
-        ("Website — 2026-10-19", "website", "daily", "2026-10-19"),
-        "capsule front matter"
-    );
-    assert!(cs.author == "Saachi" && cs.draft, "comments stripped, draft read");
-    assert_eq!(cs.in_short, "We redesigned the pricing page. Teams is now $12.", "In short line");
-    assert_eq!(CapsuleSummary::parse("no front matter", &cap_path).title, "website-2026-10-19", "title falls back to the file name");
-    let folder = cap_path.parent().unwrap();
-    std::fs::create_dir_all(folder.join(".history")).unwrap();
-    std::fs::write(&cap_path, cap_text).unwrap();
-    std::fs::write(folder.join("newer.capsule.md"), cap_text.replace("2026-10-19T18", "2026-10-20T09")).unwrap();
-    std::fs::write(folder.join("notes.md"), "x").unwrap();
-    let listed: Vec<String> =
-        CapsuleSummary::all(folder).iter().map(|c| c.path.file_name().unwrap().to_string_lossy().into_owned()).collect();
-    assert_eq!(listed, ["newer.capsule.md", "website-2026-10-19.capsule.md"], "capsules listed newest first");
-    assert!(reminder::DAY_PROMPT.contains("Context Capsule"), "the request names the app");
-    let _ = std::fs::remove_dir_all(&dir);
 }
 
 #[test]

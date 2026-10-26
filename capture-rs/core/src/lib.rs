@@ -10,7 +10,6 @@ pub mod app_icons;
 pub mod applog;
 pub mod auto;
 pub mod bridge;
-pub mod capsules;
 pub mod claude;
 pub mod clock;
 pub mod engine;
@@ -42,7 +41,6 @@ pub mod voice;
 pub mod window;
 
 pub use applog::AppLog;
-pub use capsules::{CapsuleSummary, Group};
 pub use settings::{ConfigFile, ShareScreens};
 pub use shortcuts::{Hotkeys, Shortcut};
 pub use stats::{Assignments, Fix};

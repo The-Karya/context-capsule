@@ -241,7 +241,7 @@ received capsule").
 | `timeline.js` — stretches, gaps, notes, blocks, search, day bar, where your time went, delete words | Swift `Timeline` |
 | `stats.js` — Today / This week totals, streak, greeting, durations | Swift `WorkStats`, Rust `core::stats` |
 | `dates.js` — long day, clock times, month calendar (Intl + host locale, 12/24 h) | Swift `DayWords` |
-| `capsules.js` — front matter, In short, groups, row labels, prompts | Swift `CapsuleSummary`, Rust `core::capsules` |
+| `capsules.js` — front matter, In short, groups, row labels, prompts | Swift `CapsuleSummary` |
 | `projects.js` — projects.json, slug, detect, edit | Swift `Projects`, Rust `core::projects` |
 | `shortcuts.js` — parse, show (⌥C / Alt+C), key events, checks | Swift `Shortcut`, Rust `core::shortcuts` |
 | `yourai.js` — Your AI choice, clients, Copy my day / Save words | Swift `YourAI`/`AIAnswer`, Rust `core::anyai` |
