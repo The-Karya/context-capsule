@@ -22,15 +22,9 @@ use std::time::{Duration, Instant};
 /// Make today's capsules, for an app that isn't connected yet.
 pub const WHY_DAY: &str = "to read your day";
 pub const AGAIN_DAY: &str = "click Make today's capsules again";
-/// Ask your AI (Capsules search).
-pub const WHY_SEARCH: &str = "to search your capsules";
-pub const AGAIN_SEARCH: &str = "click Ask again";
 /// A capsule someone sent.
 pub const WHY_CAPSULE: &str = "to read the capsule";
 pub const AGAIN_CAPSULE: &str = "open the capsule again";
-/// Timeline → Make a capsule.
-pub const WHY_SESSION: &str = "to read the recording";
-pub const AGAIN_SESSION: &str = "click Make a capsule again";
 pub const TRY_AGAIN: &str = "Please try again.";
 /// Tray only, and no clipboard tool is installed.
 pub const NO_CLIPBOARD_TOOL: &str = "To use the clipboard here, install wl-clipboard (or xclip), or open Context Capsule's window.";
@@ -74,11 +68,6 @@ impl AiState {
 
     pub fn kind(&self) -> YourAi {
         YourAi::of(&self.choice)
-    }
-
-    /// "Claude", "Cursor", "ChatGPT", "your AI".
-    pub fn name(&self) -> String {
-        self.kind().name(&self.clients)
     }
 
     pub fn client(&self, id: &str) -> Option<&AiClient> {
@@ -243,17 +232,6 @@ pub fn connect_told(name: &str, r: Result<ConnectAnswer, Failure>) -> Told {
     }
 }
 
-pub fn disconnect_told(name: &str, r: Result<ConnectAnswer, Failure>) -> Told {
-    match r {
-        Ok(a) if a.ok => Told::Note(if a.message.trim().is_empty() { anyai::disconnected_note(name) } else { a.message }),
-        Ok(a) if a.how.as_deref() == Some("extension") => {
-            Told::Alert(anyai::REMOVE_IN_CLAUDE.into(), anyai::REMOVE_IN_CLAUDE_BODY.into())
-        }
-        Ok(a) => Told::Alert(anyai::disconnect_failed(name), or_try_again(&a.message)),
-        Err(f) => Told::Alert(anyai::disconnect_failed(name), f.message()),
-    }
-}
-
 /// Connect an app through its MCP settings (not Claude: that's the .mcpb flow). Blocks. The first app connected
 /// becomes Your AI if none was chosen. Then the list is read again.
 pub fn connect(c: &AiClient) -> Told {
@@ -268,17 +246,6 @@ pub fn connect(c: &AiClient) -> Told {
     if matches!(told, Told::Note(_)) && anyai::first_connected_becomes_choice(saved.as_deref(), &before) {
         set_choice(&c.id);
     }
-    finish_connect(&told);
-    told
-}
-
-pub fn disconnect(c: &AiClient) -> Told {
-    log(&format!("disconnect: {}", c.id));
-    update(|s| {
-        s.busy = Some(c.id.clone());
-        s.note = None;
-    });
-    let told = disconnect_told(&c.name, run(|l| anyai::disconnect(l, &c.id)));
     finish_connect(&told);
     told
 }
@@ -510,12 +477,6 @@ mod tests {
             connect_told("Cursor", Err(Failure::Missing)),
             Told::Alert("Couldn't connect Cursor".into(), Failure::Missing.message())
         );
-        assert_eq!(disconnect_told("Cursor", ok("")), Told::Note("Disconnected from Cursor.".into()));
-        assert_eq!(
-            disconnect_told("Claude", no("", Some("extension"))),
-            Told::Alert(anyai::REMOVE_IN_CLAUDE.into(), anyai::REMOVE_IN_CLAUDE_BODY.into())
-        );
-        assert_eq!(disconnect_told("Zed", no("busy", None)), Told::Alert("Couldn't disconnect Zed".into(), "busy".into()));
     }
 
     #[test]
@@ -563,10 +524,9 @@ mod tests {
     fn the_state() {
         let mut s = AiState::new();
         assert_eq!(s.kind(), YourAi::Other, "nothing chosen: any AI");
-        assert_eq!(s.name(), "your AI");
         s.clients = vec![client("cursor", true, false)];
         s.choice = "cursor".into();
-        assert_eq!(s.name(), "CURSOR");
+        assert_eq!(s.kind(), YourAi::App("cursor".into()));
         assert!(!s.any_connected());
         s.clients[0].connected = true;
         assert!(s.any_connected());
