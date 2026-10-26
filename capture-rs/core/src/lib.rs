@@ -45,7 +45,7 @@ pub use applog::AppLog;
 pub use capsules::{CapsuleSummary, Group};
 pub use settings::{ConfigFile, ShareScreens};
 pub use shortcuts::{Hotkeys, Shortcut};
-pub use stats::{Assignments, Fix, Totals, WorkStats};
+pub use stats::{Assignments, Fix};
 pub use engine::{Engine, Options};
 pub use events::{Event, EventLog, Recorded};
 pub use exclusion::{Config, Exclusion};

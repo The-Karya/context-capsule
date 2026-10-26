@@ -24,7 +24,7 @@ impl Section {
     pub fn title(self) -> &'static str {
         match self {
             Section::Home => "Home",
-            Section::Timeline => crate::timeline::TIMELINE,
+            Section::Timeline => "Timeline",
             Section::Capsules => "Capsules",
             Section::Projects => "Projects",
             Section::Settings => "Settings",
