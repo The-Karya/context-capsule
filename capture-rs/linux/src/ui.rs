@@ -1,18 +1,10 @@
 // context-capsule — linux: the window's small decisions that need no GTK — the `--window-only` flag, the
-// first-launch marker, the account's full name, app ids for the never-record list, keycaps, the date line and
-// the values Settings writes. The words and Home's numbers are shared (core/src/window.rs).
+// first-launch marker, the account's full name, app ids for the never-record list, and the words of its native
+// dialogs. The page's words are shared (ui/, core/src/window.rs).
 #![cfg_attr(not(all(feature = "window", feature = "voice")), allow(dead_code))]
 
-use context_capsule_core::capsules::{project_name, CapsuleSummary};
-use context_capsule_core::window::{content_width, Section, MAX_CONTENT, MAX_CONTENT_WIDE};
-use context_capsule_core::shortcuts::{self, Key, Pressed};
-use context_capsule_core::Project;
+use context_capsule_core::window::Section;
 use std::path::Path;
-
-/// Space around a page's content (left and right; top and bottom are a bit less).
-pub const PAGE_MARGIN: f64 = 32.0;
-/// The sidebar's width.
-pub const SIDEBAR_WIDTH: i32 = 190;
 
 /// `--window-only` (Home) or `--window-only=settings`: just the window, no tray, engine or portal (to try the
 /// window and take pictures of it). None: not asked.
@@ -90,64 +82,6 @@ pub fn excluded_name(entry: &str, installed: &[(String, String)]) -> String {
     installed.iter().find(|(id, _)| id.eq_ignore_ascii_case(entry)).map_or_else(|| entry.to_string(), |(_, name)| name.clone())
 }
 
-/// "Alt+C" → "<Alt>c", "Ctrl+F5" → "<Ctrl>F5", for a GTK keycap (GDK key names: lower-case letters, "F5").
-pub fn accelerator(keys: &str) -> String {
-    let parts: Vec<&str> = keys.split('+').map(str::trim).collect();
-    let Some((key, mods)) = parts.split_last() else { return String::new() };
-    let mods: String = mods.iter().map(|m| format!("<{m}>")).collect();
-    let key = if key.chars().count() == 1 { key.to_lowercase() } else { key.to_string() };
-    format!("{mods}{key}")
-}
-
-/// A GDK key name ("c", "C", "7", "F5", "KP_7") as a shortcut's key. None: not one a shortcut can use (modifiers,
-/// Esc, punctuation…).
-pub fn key_from_name(name: &str) -> Option<Key> {
-    let name = name.strip_prefix("KP_").filter(|n| n.len() == 1 && n.chars().all(|c| c.is_ascii_digit())).unwrap_or(name);
-    Key::parse(name)
-}
-
-/// One key press while Settings → Shortcuts listens: `name` is the key's GDK name (the unshifted one when
-/// Shift is held, e.g. "1" rather than "exclam"); `ctrl` / `alt` / `shift` / `logo`: the modifiers held.
-pub fn shortcut_press(name: &str, ctrl: bool, alt: bool, shift: bool, logo: bool) -> Pressed {
-    shortcuts::pressed(ctrl, alt, shift, logo, key_from_name(name), name == "Escape")
-}
-
-/// "Tuesday 20 October" / "Tuesday, October 20": as the Timeline writes days (`formats`, set from the locale).
-pub fn date_line(day: chrono::NaiveDate) -> String {
-    context_capsule_core::formats::date(day, false)
-}
-
-/// For a content area `width` pixels wide (next to the sidebar, like the Mac's detail area): the widest the page
-/// may be, and whether Home has a side column.
-pub fn layout(width: f64) -> (i32, bool) {
-    let (_, wide) = content_width(width.max(0.0));
-    (if wide { MAX_CONTENT_WIDE } else { MAX_CONTENT } as i32, wide)
-}
-
-/// A capsule on Home: its project's name (else how it's named), and the day or "Whole project" on the right.
-pub fn recent_capsule(c: &CapsuleSummary, projects: &[Project], today: chrono::NaiveDate) -> (String, String) {
-    let label = c.label(today);
-    if c.project.is_empty() {
-        return (label, c.when(today));
-    }
-    let side = if c.kind == "daily" || c.kind == "project" { label } else { c.when(today) };
-    (project_name(projects, &c.project), side)
-}
-
-/// config.json "remind_at": the time when on, `false` when off.
-pub fn remind_value(on: bool, time: &str) -> serde_json::Value {
-    if on {
-        serde_json::Value::String(time.to_string())
-    } else {
-        serde_json::Value::Bool(false)
-    }
-}
-
-/// config.json "voice_locale": "" (the computer's language) is `null`.
-pub fn language_value(id: &str) -> Option<serde_json::Value> {
-    (!id.is_empty()).then(|| serde_json::Value::String(id.to_string()))
-}
-
 /// The words above the name field of "New project".
 pub fn new_project_body(clue: Option<&str>) -> String {
     match clue {
@@ -156,30 +90,17 @@ pub fn new_project_body(clue: Option<&str>) -> String {
     }
 }
 
-/// The voice model download, as the Settings row says it.
-pub fn download_line(done: u64, total: u64) -> String {
-    let pct = (done.min(total) * 100).checked_div(total).unwrap_or(0);
-    format!("Downloading… {pct}%")
-}
-
 pub const GET_VOICE_TITLE: &str = "Get voice notes?";
 pub const GET_VOICE_BODY: &str =
     "Context Capsule downloads a speech model once (about 150 MB, from Hugging Face). Speech then becomes text on this computer. Audio is never saved.";
 pub const DOWNLOAD: &str = "Download";
 pub const NOT_NOW: &str = "Not now";
-pub const DOWNLOAD_FAILED: &str = "The download didn't work. Check the internet and try again.";
 pub const CHOOSE_APP: &str = "Choose an app";
 pub const SEARCH_APPS: &str = "Search apps";
 pub const NEW_PROJECT_TITLE: &str = "New project";
 pub const ADD: &str = "Add";
-pub const EDIT_PROJECT: &str = "Edit project";
-pub const SHOW_IN_FOLDER: &str = "Show in folder";
-pub const SAVED_COPY: &str = "Saved.";
 pub const CANT_OPEN: &str = "Couldn't open it.";
 pub const CANT_SAVE: &str = "Couldn't save that. Try again.";
-/// Settings' group names that the Mac has and core doesn't (Screens: when you start; Look: light or dark).
-pub const SCREENS: &str = "Screens";
-pub const LOOK: &str = "Look";
 pub const CANT_OPEN_CLAUDE: &str = "Couldn't open Claude";
 
 /// Said when the window can't open because WebKitGTK 6.0 isn't installed (the tray and recording still work).
@@ -254,66 +175,11 @@ mod tests {
 
     #[test]
     fn small_words() {
-        assert_eq!(accelerator("Alt+C"), "<Alt>c");
-        assert_eq!(accelerator("Ctrl+Shift+V"), "<Ctrl><Shift>v");
-        assert_eq!(accelerator("Ctrl+F5"), "<Ctrl>F5");
-        assert_eq!(accelerator("F12"), "F12");
-        assert_eq!(accelerator("Alt+7"), "<Alt>7");
-        assert_eq!(date_line(chrono::NaiveDate::from_ymd_opt(2026, 10, 20).unwrap()), "Tuesday 20 October");
-        assert_eq!(layout(500.0), (760, false));
-        assert_eq!(layout(860.0), (760, false));
-        assert_eq!(layout(899.0), (980, true), "a 1100 window: two columns");
-        assert_eq!(remind_value(false, "18:00"), serde_json::Value::Bool(false));
-        assert_eq!(remind_value(true, "19:30"), serde_json::Value::String("19:30".into()));
-        assert_eq!(language_value(""), None);
-        assert_eq!(language_value("de-DE"), Some("de-DE".into()));
         assert!(new_project_body(Some("acme.com")).contains("“acme.com”"));
         assert!(new_project_body(None).contains("Working on"));
-        assert_eq!(download_line(50, 200), "Downloading… 25%");
-        assert_eq!(download_line(5, 0), "Downloading… 0%");
         assert!(cant_open_claude_body("Hi").ends_with("\n\nHi"));
         for package in ["libwebkitgtk-6.0-4", "webkitgtk6.0", "webkitgtk-6.0"] {
             assert!(NEEDS_WEBKIT_BODY.contains(package), "{package}");
         }
-    }
-
-    #[test]
-    fn shortcut_keys() {
-        use context_capsule_core::Shortcut;
-        assert_eq!(key_from_name("c"), Some(Key::Letter('C')));
-        assert_eq!(key_from_name("C"), Some(Key::Letter('C')), "with Shift held GDK names the capital");
-        assert_eq!(key_from_name("7"), Some(Key::Digit(7)));
-        assert_eq!(key_from_name("KP_7"), Some(Key::Digit(7)), "the number pad too");
-        assert_eq!(key_from_name("F1"), Some(Key::F(1)));
-        assert_eq!(key_from_name("F12"), Some(Key::F(12)));
-        for no in ["F13", "Alt_L", "Control_R", "Shift_L", "Super_L", "ISO_Level3_Shift", "Escape", "exclam", "space", "Tab", "KP_Enter", "KP_10"] {
-            assert_eq!(key_from_name(no), None, "{no}");
-        }
-        let s = |t: &str| Shortcut::parse(t).unwrap();
-        assert_eq!(shortcut_press("Escape", false, false, false, false), Pressed::Cancel);
-        assert_eq!(shortcut_press("Alt_L", false, false, false, false), Pressed::Wait, "a modifier alone: keep listening");
-        assert_eq!(shortcut_press("Control_L", false, true, false, false), Pressed::Wait);
-        assert_eq!(shortcut_press("r", true, false, true, false), Pressed::Done(s("Ctrl+Shift+R")));
-        assert_eq!(shortcut_press("c", false, true, false, false), Pressed::Done(Shortcut::RECORD));
-        assert_eq!(shortcut_press("F9", false, false, false, false), Pressed::Done(s("F9")));
-        assert_eq!(shortcut_press("k", false, false, false, true), Pressed::Done(s("Cmd+K")), "Super: refused later (Add Ctrl or Alt)");
-    }
-
-    #[test]
-    fn recent_rows() {
-        let today = chrono::NaiveDate::from_ymd_opt(2026, 10, 20).unwrap();
-        let projects = vec![Project { id: "web".into(), name: "Website".into(), clues: vec![] }];
-        let cap = |project: &str, kind: &str, date: &str| CapsuleSummary {
-            title: "Notes".into(),
-            project: project.into(),
-            kind: kind.into(),
-            date: date.into(),
-            created: "2026-10-19T18:00:00Z".into(),
-            ..Default::default()
-        };
-        assert_eq!(recent_capsule(&cap("web", "daily", "2026-10-19"), &projects, today), ("Website".into(), "Yesterday".into()));
-        assert_eq!(recent_capsule(&cap("web", "project", ""), &projects, today), ("Website".into(), "Whole project".into()));
-        assert_eq!(recent_capsule(&cap("web", "", ""), &projects, today), ("Website".into(), "Yesterday".into()));
-        assert_eq!(recent_capsule(&cap("", "", ""), &projects, today), ("Notes".into(), "Yesterday".into()));
     }
 }
