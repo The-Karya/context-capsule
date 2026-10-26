@@ -621,7 +621,6 @@ check(CapsuleSummary.parse("no front matter", url: capURL).title == "website-202
 let csCRLF = CapsuleSummary.parse(capText.replacingOccurrences(of: "\n", with: "\r\n"), url: capURL)
 check(csCRLF.title == cs.title && csCRLF.project == "website" && csCRLF.kind == "daily" && csCRLF.date == "2026-10-19"
       && csCRLF.author == "Saachi" && csCRLF.draft && csCRLF.inShort == cs.inShort, "capsule with \\r\\n line ends", "\(csCRLF)")
-check(CapsuleSummary.isCapsule(capText.replacingOccurrences(of: "\n", with: "\r\n")), "\\r\\n capsule is a capsule")
 try! FileManager.default.createDirectory(at: capURL.deletingLastPathComponent().appendingPathComponent(".history"), withIntermediateDirectories: true)
 try! capText.write(to: capURL, atomically: true, encoding: .utf8)
 try! capText.replacingOccurrences(of: "2026-10-19T18", with: "2026-10-20T09").write(
@@ -636,19 +635,10 @@ check(ClaudeLink.dayPrompt.contains("Context Capsule"), "the request names the a
 
 // MARK: opening a received capsule, asking your capsules
 
-check(CapsuleSummary.isCapsule(capText), "a capsule is a capsule")
-check(CapsuleSummary.isCapsule("---\r\ncapsule: 1\r\ntitle: X\r\n---\r\nbody"), "a capsule with Windows line ends")
-check(!CapsuleSummary.isCapsule("---\ntitle: Notes\n---\nbody"), "front matter without capsule: is not a capsule")
-check(!CapsuleSummary.isCapsule("---\ncapsule: 1\n---\nbody"), "front matter without title: is not a capsule")
-check(!CapsuleSummary.isCapsule("# Notes\ncapsule: 1\ntitle: X\n"), "no front matter is not a capsule")
-check(!CapsuleSummary.isCapsule("---\ncapsule: 1\ntitle: X\n"), "front matter never closed is not a capsule")
 check(ClaudeLink.continuePrompt(path: "/Users/a/Downloads/x.capsule.md")
       == "Use Context Capsule to continue from the capsule at /Users/a/Downloads/x.capsule.md.", "continue prompt")
 check(ClaudeLink.searchPrompt("  what did we decide on pricing? ")
       == "Use Context Capsule to search my capsules: what did we decide on pricing?", "search prompt")
-check(cs.matches("") && cs.matches("pricing") && cs.matches("WEBSITE redesigned") && !cs.matches("pricing kittens"),
-      "search filters by title and In short, every word")
-check(CapsuleSummary(url: capURL, title: "Café plans").matches("cafe"), "search ignores accents")
 
 // MARK: reminder and clean-up
 

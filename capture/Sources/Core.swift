@@ -1173,29 +1173,6 @@ extension ClaudeLink {
     }
 }
 
-extension CapsuleSummary {
-    /// A capsule file: front matter that has `capsule:` and `title:`.
-    static func isCapsule(_ text: String) -> Bool {
-        let t = text.hasPrefix("\u{FEFF}") ? String(text.dropFirst()) : text
-        let lines = t.replacingOccurrences(of: "\r\n", with: "\n").split(separator: "\n", omittingEmptySubsequences: false)
-        guard lines.first?.trimmingCharacters(in: .whitespaces) == "---" else { return false }
-        var keys = Set<String>()
-        for line in lines.dropFirst() {
-            if line.trimmingCharacters(in: .whitespaces) == "---" { return keys.contains("capsule") && keys.contains("title") }
-            if let colon = line.firstIndex(of: ":") { keys.insert(line[..<colon].trimmingCharacters(in: .whitespaces)) }
-        }
-        return false
-    }
-
-    /// The search field on the Capsules page: every word of the query is in the title or "In short".
-    func matches(_ query: String) -> Bool {
-        let words = query.split(whereSeparator: { $0.isWhitespace })
-        guard !words.isEmpty else { return true }
-        let hay = title + " " + inShort
-        return words.allSatisfy { hay.range(of: $0, options: [.caseInsensitive, .diacriticInsensitive]) != nil }
-    }
-}
-
 // MARK: - Evening reminder and clean-up
 
 enum Reminder {
