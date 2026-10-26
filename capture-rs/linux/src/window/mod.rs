@@ -13,7 +13,6 @@ mod projects;
 mod settings;
 mod share;
 mod shortcuts;
-mod timeline;
 mod web;
 mod wk;
 mod widgets;
