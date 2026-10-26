@@ -248,7 +248,7 @@ pub fn run() {
     let engine = spawn_engine(paths.clone(), ui, capture.clone(), tx.clone(), rx, log.clone(), auto);
     setup::open_at_login_once(&log);
     crate::update::start(hwnd, log.clone());
-    main_window::apply_menu_mode(&paths);
+    crate::web_window::apply_menu_mode(&paths);
 
     ai::refresh(&Ui::of(hwnd), &log);
     APP.with(|a| {
@@ -269,7 +269,7 @@ pub fn run() {
     });
     if let Some(path) = open {
         Ui::of(hwnd).post(UiCmd::OpenCapsule(path));
-    } else if let Some(show) = crate::layout::show_arg(&args) {
+    } else if let Some(show) = crate::web_window::show_arg(&args) {
         // For testing: open the window on a page.
         crate::web_window::set_query(crate::web_window::show_query(show.date, show.open.as_deref()));
         open_window(hwnd, Some(show.section));
@@ -726,7 +726,7 @@ pub fn shortcuts_changed(h: context_capsule_core::Hotkeys) {
 /// Open the Context Capsule window (on `section`, when given), or bring it to the front.
 fn open_window(hwnd: HWND, section: Option<context_capsule_core::window::Section>) {
     let Some((ctx, status)) = with_app(|a| {
-        (main_window::Ctx { ui: Ui::of(hwnd), tx: a.tx.clone(), log: a.log.clone(), paths: a.paths.clone() }, a.status.clone())
+        (crate::web_window::Ctx { ui: Ui::of(hwnd), tx: a.tx.clone(), log: a.log.clone(), paths: a.paths.clone() }, a.status.clone())
     }) else {
         return;
     };

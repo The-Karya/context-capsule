@@ -8,7 +8,7 @@
 //! Text boxes are real edit controls; choices are standard popup menus; questions are standard dialogs.
 //! Keyboard: Tab / Shift+Tab between controls, Enter or Space to press, arrows and Page Up / Down to scroll.
 
-use crate::app::{Ui, UiCmd};
+use crate::app::UiCmd;
 use crate::layout::{self, Action, Data, Field, Node, ShareHow, ShareView, TimelineData, TimelineView, View, HEADER, SIDEBAR};
 use crate::paint::{self, Faces, Feel, Fonts, GdiMeasure, Theme};
 use crate::setup::{self, Done};
@@ -17,11 +17,10 @@ use context_capsule_core::settings::{self, Appearance, ConfigFile, ShareScreens}
 use context_capsule_core::shortcuts::{self as shortcuts, Hotkeys, Pressed, Which};
 use context_capsule_core::timeline as tl;
 use context_capsule_core::window::{self as w, HomeNumbers, Keys, Section};
-use context_capsule_core::{AppLog, CapsuleSummary, Config, Msg, Paths, Projects, Status, WorkStats};
+use context_capsule_core::{CapsuleSummary, Config, Msg, Paths, Projects, Status, WorkStats};
 use std::cell::RefCell;
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
-use std::sync::mpsc::Sender;
 use std::time::{Duration, Instant, SystemTime};
 use windows::core::{w, BOOL, HSTRING, PCSTR};
 use windows::Win32::Foundation::{COLORREF, HWND, LPARAM, LRESULT, POINT, RECT, WPARAM};
@@ -79,14 +78,7 @@ const FIELD_ID: usize = 300;
 const STEP: f64 = 48.0;
 const NOTICE_FOR: Duration = Duration::from_millis(2600);
 
-/// What the window needs from the app.
-#[derive(Clone)]
-pub struct Ctx {
-    pub ui: Ui,
-    pub tx: Sender<Msg>,
-    pub log: AppLog,
-    pub paths: Paths,
-}
+pub use crate::web_window::Ctx;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 enum Region {

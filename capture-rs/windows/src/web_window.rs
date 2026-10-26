@@ -80,6 +80,57 @@ pub fn page_of(section: Section) -> &'static str {
     section.id()
 }
 
+/// Windows is dark for apps when "AppsUseLightTheme" is 0 (missing: light, as on Windows 10 before dark mode).
+pub fn system_dark_from(apps_use_light_theme: Option<u32>) -> bool {
+    apps_use_light_theme == Some(0)
+}
+
+/// For testing: `--show <page> [YYYY-MM-DD] [<recording id>]` opens the window at launch on that page (the
+/// Timeline on that day, with that recording open), like the Mac's `--show-…` flags.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct ShowArg {
+    pub section: Section,
+    pub date: Option<chrono::NaiveDate>,
+    pub open: Option<String>,
+}
+
+pub fn show_arg(args: &[String]) -> Option<ShowArg> {
+    let i = args.iter().position(|a| a == "--show")?;
+    let page = args.get(i + 1)?;
+    let section = Section::ALL.into_iter().find(|s| page.eq_ignore_ascii_case(s.title()))?;
+    let mut show = ShowArg { section, date: None, open: None };
+    for a in &args[i + 2..] {
+        if let Ok(d) = chrono::NaiveDate::parse_from_str(a, "%Y-%m-%d") {
+            show.date = Some(d);
+        } else if a.len() == 15 && chrono::NaiveDateTime::parse_from_str(a, "%Y%m%d-%H%M%S").is_ok() {
+            show.open = Some(a.clone());
+        } else {
+            break;
+        }
+    }
+    Some(show)
+}
+
+/// A Windows long-date pattern without its year: "dddd, d MMMM yyyy" → "dddd, d MMMM",
+/// "dddd, MMMM d, yyyy" → "dddd, MMMM d", "yyyy年M月d日" → "M月d日".
+pub fn without_year(pattern: &str) -> String {
+    let mut out = String::new();
+    let mut chars = pattern.chars().peekable();
+    while let Some(c) = chars.next() {
+        if c == 'y' {
+            while chars.peek() == Some(&'y') {
+                chars.next();
+            }
+            if matches!(chars.peek(), Some('年') | Some('년')) {
+                chars.next();
+            }
+            continue;
+        }
+        out.push(c);
+    }
+    out.trim_matches(|c: char| c == ' ' || c == ',' || c == '.' || c == '/' || c == '-').replace(" ,", ",").replace("  ", " ")
+}
+
 #[cfg(windows)]
 pub use win::*;
 
@@ -87,7 +138,6 @@ pub use win::*;
 mod win {
     use super::*;
     use crate::app::{Ui, UiCmd};
-    use crate::main_window::Ctx;
     use crate::{ai, hotkeys, setup, win, windows_list};
     use context_capsule_core::anyai::Launch;
     use context_capsule_core::bridge::{self, Hello, Host, Transport};
@@ -101,12 +151,15 @@ mod win {
     use std::sync::mpsc::Sender;
     use std::sync::{Arc, Mutex, OnceLock};
     use std::time::{Instant, SystemTime};
-    use windows::core::{BOOL, HSTRING, PCWSTR, PWSTR};
+    use windows::core::{w, BOOL, HSTRING, PCSTR, PCWSTR, PWSTR};
+    use windows::Win32::System::LibraryLoader::{GetProcAddress, LoadLibraryW};
     use windows::Win32::Foundation::{HWND, LPARAM, LRESULT, POINT, RECT, WPARAM};
     use windows::Win32::Graphics::Dwm::{DwmExtendFrameIntoClientArea, DwmSetWindowAttribute, DWMWINDOWATTRIBUTE};
     use windows::Win32::UI::Controls::MARGINS;
     use windows::Win32::UI::HiDpi::{GetDpiForSystem, GetDpiForWindow};
     use windows::Win32::UI::WindowsAndMessaging::{
+        AppendMenuW, CreatePopupMenu, DestroyMenu, TrackPopupMenu, MF_CHECKED, MF_SEPARATOR, MF_STRING, TPM_LEFTALIGN, TPM_RETURNCMD,
+        TPM_TOPALIGN,
         CreateWindowExW, DefWindowProcW, DestroyWindow, GetClientRect, GetCursorPos, KillTimer, LoadCursorW, RegisterClassW,
         SendMessageW, SetForegroundWindow, SetTimer, SetWindowPos, ShowWindow, SystemParametersInfoW, HICON, ICON_BIG, ICON_SMALL,
         IDC_ARROW, MINMAXINFO, SPI_GETWORKAREA, SWP_NOACTIVATE, SWP_NOZORDER, SW_RESTORE, SW_SHOW, SYSTEM_PARAMETERS_INFO_UPDATE_FLAGS,
@@ -126,6 +179,15 @@ mod win {
     const DWMWA_USE_IMMERSIVE_DARK_MODE: i32 = 20;
     const DWMWA_SYSTEMBACKDROP_TYPE: i32 = 38;
     const DWMSBT_MAINWINDOW: i32 = 2;
+
+    /// What the window needs from the app.
+    #[derive(Clone)]
+    pub struct Ctx {
+        pub ui: Ui,
+        pub tx: Sender<Msg>,
+        pub log: AppLog,
+        pub paths: Paths,
+    }
 
     struct Web {
         hwnd: HWND,
@@ -188,12 +250,76 @@ mod win {
     }
 
     fn system_dark() -> bool {
-        crate::palette::system_dark_from(win::reg_dword(PERSONALIZE, "AppsUseLightTheme"))
+        system_dark_from(win::reg_dword(PERSONALIZE, "AppsUseLightTheme"))
     }
 
     /// The window's look: the Appearance setting, else Windows'.
     fn dark_for(paths: &Paths) -> bool {
         Appearance::load(&paths.config()).is_dark(system_dark())
+    }
+
+    /// Popup menus (the tray's and the window's) in the window's light or dark look. Windows has no public switch
+    /// for menus: this uses uxtheme's SetPreferredAppMode (ordinal 135, Windows 10 1903 and later), like other apps.
+    pub fn apply_menu_mode(paths: &Paths) {
+        let dark = dark_for(paths);
+        if build() < 18362 {
+            return;
+        }
+        // SAFETY: uxtheme is a system DLL; ordinals 135 (SetPreferredAppMode(int) -> int) and 136 (FlushMenuThemes())
+        // have these signatures on every build from 1903 on.
+        unsafe {
+            let Ok(lib) = LoadLibraryW(w!("uxtheme.dll")) else { return };
+            if let Some(set) = GetProcAddress(lib, PCSTR(135 as *const u8)) {
+                let set: unsafe extern "system" fn(i32) -> i32 = std::mem::transmute(set);
+                set(if dark { 2 } else { 3 }); // ForceDark / ForceLight
+            }
+            if let Some(flush) = GetProcAddress(lib, PCSTR(136 as *const u8)) {
+                let flush: unsafe extern "system" fn() = std::mem::transmute(flush);
+                flush();
+            }
+        }
+    }
+
+    /// "Choose…" → an app that isn't open right now.
+    const BROWSE: &str = "Find an app…";
+
+    /// A popup menu of `items` ("-" = a line; `checked` marks one) at `at`. The chosen index, if any.
+    fn menu(hwnd: HWND, items: &[String], checked: Option<usize>, at: POINT) -> Option<usize> {
+        // SAFETY: a popup menu we build, show and destroy here (TrackPopupMenu runs a nested loop; nothing is borrowed).
+        unsafe {
+            let m = CreatePopupMenu().ok()?;
+            for (i, item) in items.iter().enumerate() {
+                if item == "-" {
+                    let _ = AppendMenuW(m, MF_SEPARATOR, 0, None);
+                } else {
+                    let flags = if checked == Some(i) { MF_STRING | MF_CHECKED } else { MF_STRING };
+                    let _ = AppendMenuW(m, flags, i + 1, &HSTRING::from(crate::tray::menu_text(item)));
+                }
+            }
+            let chosen = TrackPopupMenu(m, TPM_RETURNCMD | TPM_LEFTALIGN | TPM_TOPALIGN, at.x, at.y, None, hwnd, None).0 as usize;
+            let _ = DestroyMenu(m);
+            chosen.checked_sub(1)
+        }
+    }
+
+    /// Apps with a window open now (exe file name, display name), for "Never record".
+    fn open_apps(listed: &[String]) -> Vec<(String, String)> {
+        let own = std::env::current_exe().ok().and_then(|e| e.file_name().map(|f| f.to_string_lossy().into_owned())).unwrap_or_default();
+        let mut apps = windows_list::Apps::default();
+        let mut out: Vec<(String, String)> = vec![];
+        for raw in windows_list::on_screen() {
+            if raw.title.trim().is_empty() {
+                continue;
+            }
+            let (Some(exe), name) = apps.info(raw.pid) else { continue };
+            let same = |a: &str| a.eq_ignore_ascii_case(&exe);
+            if same(&own) || windows_list::is_shell_ui(&raw.class, &exe) || listed.iter().any(|l| same(l)) || out.iter().any(|(e, _)| same(e)) {
+                continue;
+            }
+            out.push((exe, name));
+        }
+        out.sort_by_key(|(_, n)| n.to_lowercase());
+        out
     }
 
     /// Open the shared window (on `section`), or bring it to the front. false: it couldn't be made (no runtime…);
@@ -365,7 +491,7 @@ mod win {
                 let _ = DwmExtendFrameIntoClientArea(hwnd, &all);
             }
         }
-        crate::main_window::apply_menu_mode(&Paths::standard());
+        apply_menu_mode(&Paths::standard());
     }
 
     fn set_icons(w: &mut Web) {
@@ -805,18 +931,18 @@ mod win {
             self.on_ui(move || {
                 let hwnd = HWND(owner as *mut _);
                 let listed = context_capsule_core::Config::load(&Paths::standard().config()).exclude_apps;
-                let apps = crate::main_window::open_apps(&listed);
+                let apps = open_apps(&listed);
                 let mut labels: Vec<String> = apps.iter().map(|(_, n)| n.clone()).collect();
                 if !labels.is_empty() {
                     labels.push("-".into());
                 }
-                labels.push(crate::main_window::BROWSE.into());
+                labels.push(BROWSE.into());
                 let mut at = POINT::default();
                 // SAFETY: reads the pointer position.
                 unsafe {
                     let _ = GetCursorPos(&mut at);
                 }
-                let i = crate::main_window::menu(hwnd, &labels, None, at)?;
+                let i = menu(hwnd, &labels, None, at)?;
                 if let Some((exe, name)) = apps.get(i) {
                     return Some((exe.clone(), name.clone()));
                 }
@@ -863,6 +989,31 @@ mod tests {
         assert!(!wanted(&args(&["cc"]), Some(br#"{"new_window": false}"#)), "the way back");
         assert!(!wanted(&args(&["cc", "--old-window"]), None));
         assert!(wanted(&args(&["cc", "--new-window"]), Some(br#"{"new_window": false}"#)));
+    }
+
+    #[test]
+    fn show_flag() {
+        let a = |v: &[&str]| v.iter().map(|s| s.to_string()).collect::<Vec<_>>();
+        assert_eq!(show_arg(&a(&["cc.exe"])), None);
+        assert_eq!(show_arg(&a(&["cc.exe", "--show", "nowhere"])), None);
+        assert_eq!(show_arg(&a(&["cc.exe", "--show", "help"])), Some(ShowArg { section: Section::Help, date: None, open: None }));
+        let day = chrono::NaiveDate::from_ymd_opt(2026, 10, 19);
+        assert_eq!(
+            show_arg(&a(&["cc.exe", "--show", "Timeline", "2026-10-19", "20261019-100103"])),
+            Some(ShowArg { section: Section::Timeline, date: day, open: Some("20261019-100103".into()) })
+        );
+        assert_eq!(show_arg(&a(&["cc.exe", "--show", "timeline", "--login", "2026-10-19"])).unwrap().date, None);
+    }
+
+    #[test]
+    fn dark_and_dates() {
+        assert!(system_dark_from(Some(0)));
+        assert!(!system_dark_from(Some(1)));
+        assert!(!system_dark_from(None), "Windows 10 before dark mode");
+        assert_eq!(without_year("dddd, d MMMM yyyy"), "dddd, d MMMM");
+        assert_eq!(without_year("dddd, MMMM d, yyyy"), "dddd, MMMM d");
+        assert_eq!(without_year("yyyy年M月d日"), "M月d日");
+        assert_eq!(without_year("dddd d. MMMM yyyy"), "dddd d. MMMM");
     }
 
     #[test]

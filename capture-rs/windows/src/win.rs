@@ -389,7 +389,7 @@ pub fn long_date(day: chrono::NaiveDate, year: bool) -> String {
     let full = locale_info(LOCALE_SLONGDATE);
     let pattern = match (full, year) {
         (Some(p), true) => p,
-        (Some(p), false) => crate::layout::without_year(&p),
+        (Some(p), false) => crate::web_window::without_year(&p),
         (None, _) => return context_capsule_core::formats::day_month(day, year),
     };
     let picture: Vec<u16> = pattern.encode_utf16().chain(Some(0)).collect();
