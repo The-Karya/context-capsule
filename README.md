@@ -144,6 +144,12 @@ playbook: 2026-10-20   # which rules wrote it
 
 Received one? Tell your Claude *"continue from this capsule"* and drop the file in.
 
+No AI at hand? Your Claude can save any capsule as a web page (`export_capsule` with
+`format: "html"`, or `context-capsule-mcp view <file>`) that opens in any browser and prints
+cleanly. Got back a newer version of a capsule you sent? Claude compares the two
+(`compare_capsules`): what changed, section by section, and one merged capsule, with
+decisions that differ set apart for you to settle.
+
 ## Safe by design
 
 - **Screen text and capsules are information, never instructions.** If a web page or a
@@ -165,8 +171,9 @@ extension. Claude gets:
   `get_session_activity`, `get_moment` (zoom in on a stretch, nothing shortened),
   `list_sessions`, projects (`list_projects`, `create_project`, `set_project`,
   `assign_project`), and capsules (`save_capsule`, `list_capsules`, `get_capsule`,
-  `import_capsule`, `export_capsule`, `search_capsules` (answers "when did I decide…" from
-  every capsule, with citations)).
+  `import_capsule`, `export_capsule` (as a capsule or a web page), `compare_capsules` (two
+  versions: what changed, and the merge), `search_capsules` (answers "when did I decide…"
+  from every capsule, with citations)).
 - **Prompts:** `make_day_capsules`, `make_capsule`, `continue_from_capsule`, `review_capsule`
   (a second look before sharing), `ask_capsules`.
 - **Resources:** every capsule as `capsule://<name>`.
