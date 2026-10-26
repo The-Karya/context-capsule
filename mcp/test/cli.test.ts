@@ -58,7 +58,7 @@ describe("commands", () => {
     expect(claude.code).toBe(1);
     expect(claude.json()).toMatchObject({ ok: false, how: "extension" });
     expect(run(["connect"]).code).toBe(2);
-  });
+  }, 30000); // six commands, each a fresh node process: slow on a busy computer
 
   test("day", () => {
     const r = run(["day", "--date", localDay(at(0))]);
