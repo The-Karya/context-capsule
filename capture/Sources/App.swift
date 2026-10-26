@@ -94,10 +94,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
             guard let self else { return }
             self.refresh()
         }
-        Share.toast = { [weak self] text in
-            guard let self else { return }
-            self.toast.show(text, under: self.statusItem.button, seconds: 4)
-        }
         let ai = AIState.shared
         ai.configURL = paths.config
         ai.toast = { [weak self] text in
