@@ -412,3 +412,37 @@ final class AIState: ObservableObject {
         }
     }
 }
+
+/// Claude (the app), when it is Your AI.
+enum Claude {
+    /// Open the Claude app on a new chat with the request typed in (also on the clipboard, just in case).
+    /// Not connected yet: connect first (`again` says what to click afterwards). No Claude app: say where to get it.
+    static func open(_ prompt: String, why: String, again: String) {
+        let pasteboard = NSPasteboard.general
+        pasteboard.clearContents()
+        pasteboard.setString(prompt, forType: .string)
+        guard NSWorkspace.shared.urlForApplication(withBundleIdentifier: ClaudeConnect.desktopBundleID) != nil else {
+            ClaudeConnect.connect() // explains how to get the Claude app
+            return
+        }
+        // Without the connection, Claude can't see the capsules: connect first instead of opening an empty chat.
+        guard ClaudeConnect.isConnected else {
+            AppLog.shared.write("open Claude: not connected yet, connecting first")
+            let alert = NSAlert()
+            alert.messageText = "Connect Claude first"
+            alert.informativeText = "Claude needs Context Capsule installed \(why). Click Connect, then Install in Claude. "
+                + "After that, \(again)."
+            alert.addButton(withTitle: "Connect")
+            alert.addButton(withTitle: "Cancel")
+            NSApp.activate(ignoringOtherApps: true)
+            if alert.runModal() == .alertFirstButtonReturn { ClaudeConnect.connect() }
+            return
+        }
+        AppLog.shared.write("open Claude with a request")
+        NSWorkspace.shared.open(ClaudeLink.newChat(prefill: prompt) ?? ClaudeLink.newChat)
+    }
+
+    static func makeTodaysCapsules() {
+        open(ClaudeLink.dayPrompt, why: "to read your day", again: "click Make today's capsules again")
+    }
+}
