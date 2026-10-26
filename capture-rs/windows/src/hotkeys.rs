@@ -46,16 +46,6 @@ pub fn vk_of(key: Key) -> u32 {
     }
 }
 
-/// The key a virtual-key code stands for, if a shortcut can use it.
-pub fn key_of_vk(vk: u32) -> Option<Key> {
-    match vk {
-        0x41..=0x5A => Some(Key::Letter(char::from_u32(vk)?)),
-        0x30..=0x39 => Some(Key::Digit((vk - 0x30) as u8)),
-        0x70..=0x7B => Some(Key::F((vk - 0x6F) as u8)),
-        _ => None,
-    }
-}
-
 /// RegisterHotKey's modifier flags (MOD_ALT 1, MOD_CONTROL 2, MOD_SHIFT 4), with MOD_NOREPEAT (0x4000).
 pub fn mods_of(s: &Shortcut) -> u32 {
     let mut m = 0x4000;
@@ -151,12 +141,6 @@ mod tests {
         assert_eq!(vk_of(Key::Digit(0)), 0x30);
         assert_eq!(vk_of(Key::F(1)), 0x70);
         assert_eq!(vk_of(Key::F(12)), 0x7B);
-        for vk in (0x30..=0x39).chain(0x41..=0x5A).chain(0x70..=0x7B) {
-            assert_eq!(key_of_vk(vk).map(vk_of), Some(vk), "round trip {vk:#x}");
-        }
-        for vk in [0x1B, 0x09, 0x10, 0x11, 0x12, 0x5B, 0x7C, 0x60, 0x20] {
-            assert_eq!(key_of_vk(vk), None, "{vk:#x}: Esc, Tab, modifiers, Win, F13, numpad, space");
-        }
         let s = |t: &str| Shortcut::parse(t).unwrap();
         assert_eq!(mods_of(&s("Alt+C")), 0x4001);
         assert_eq!(mods_of(&s("Ctrl+Shift+R")), 0x4006);
