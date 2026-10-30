@@ -86,6 +86,23 @@ export function claudeDir(c: Ctx): string {
   return path.join(xdgConfig(c), "Claude");
 }
 
+/** Every folder Claude keeps its data in: claudeDir, and on Windows the Microsoft Store app's private copy
+ *  (%LOCALAPPDATA%\Packages\<Claude…>\LocalCache\Roaming\Claude), where its extensions go. */
+export function claudeDirs(c: Ctx): string[] {
+  const dirs = [claudeDir(c)];
+  if (c.os === "windows") {
+    try {
+      for (const n of fs.readdirSync(path.join(localAppData(c), "Packages"))) {
+        if (n.split("_")[0]!.toLowerCase().includes("claude"))
+          dirs.push(path.join(localAppData(c), "Packages", n, "LocalCache", "Roaming", "Claude"));
+      }
+    } catch {
+      // no Packages folder
+    }
+  }
+  return dirs;
+}
+
 /** VS Code's user folder (where its user-level mcp.json lives). */
 export function vscodeUserDir(c: Ctx): string {
   if (c.os === "mac") return path.join(c.home, "Library", "Application Support", "Code", "User");
@@ -119,7 +136,7 @@ export const CLIENTS: ClientDef[] = [
     name: "Claude",
     how: "extension",
     installed: (c) =>
-      macApp(c, "Claude") || exists(claudeDir(c)) || (c.os === "windows" && exists(path.join(localAppData(c), "AnthropicClaude"))),
+      macApp(c, "Claude") || claudeDirs(c).some(exists) || (c.os === "windows" && exists(path.join(localAppData(c), "AnthropicClaude"))),
   },
   {
     id: "chatgpt",
@@ -240,7 +257,10 @@ function readEntry(def: ClientDef, c: Ctx): unknown {
 }
 
 function claudeConnected(c: Ctx): boolean {
-  const dir = claudeDir(c);
+  return claudeDirs(c).some((dir) => claudeConnectedIn(dir));
+}
+
+function claudeConnectedIn(dir: string): boolean {
   try {
     if (fs.readdirSync(path.join(dir, "Claude Extensions")).some((n) => n.includes("context-capsule"))) return true;
   } catch {

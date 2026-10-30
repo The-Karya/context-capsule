@@ -64,6 +64,17 @@ describe("clients", () => {
     expect(clientOf("chatgpt", win).installed).toBe(true);
   });
 
+  test("Claude from the Microsoft Store: installed and connected through its private folder", () => {
+    const win: Ctx = { os: "windows", home, env: { APPDATA: path.join(home, "Roaming"), LOCALAPPDATA: path.join(home, "Local") }, appDirs: [] };
+    const store = path.join(home, "Local", "Packages", "Claude_pzs8sxrjxfjjc", "LocalCache", "Roaming", "Claude");
+    fs.mkdirSync(path.join(home, "Local", "Packages", "Microsoft.Paint_8wekyb3d8bbwe"), { recursive: true });
+    fs.mkdirSync(store, { recursive: true });
+    expect(clientOf("claude", win)).toMatchObject({ installed: true, connected: false });
+    fs.mkdirSync(path.join(store, "Claude Extensions", "local.mcpb.karya.context-capsule"), { recursive: true });
+    expect(clientOf("claude", win)).toMatchObject({ installed: true, connected: true });
+    expect(fs.existsSync(path.join(home, "Roaming", "Claude"))).toBe(false);
+  });
+
   test("Claude: the extension, never a settings file", () => {
     const r = connect("claude", { ctx, self: self() });
     expect(r).toMatchObject({ ok: false, how: "extension" });
