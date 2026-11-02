@@ -1,0 +1,40 @@
+# context-capsule — CI: the checks a Mac can't do itself (docs/AUDIT.md): on real Windows and Linux runners, the compiled
+# program people really run (mcp/ci/check-program.mjs) and the app builds. Runs only when asked: `gh workflow run audit`.
+name: audit
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  program:
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 15
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: windows-latest
+            target: windows-x64
+            file: context-capsule-mcp-windows-x64.exe
+          - os: ubuntu-latest
+            target: linux-x64
+            file: context-capsule-mcp-linux-x64
+    defaults:
+      run:
+        working-directory: mcp
+        shell: bash
+    steps:
+      - uses: actions/checkout@v4
+      - uses: oven-sh/setup-bun@v2
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+      - run: bun install --frozen-lockfile
+      - run: sh build-binary.sh ${{ matrix.target }}
+      - run: bun run build
+      - name: Pack the npm package
+        run: echo "CC_PACKAGE_TGZ=$(cd "$PWD" && pwd -W 2>/dev/null || pwd)/$(npm pack --silent --ignore-scripts)" >> "$GITHUB_ENV"
+      - name: Check the compiled program
+        run: node ci/check-program.mjs dist-bin/${{ matrix.file }}
