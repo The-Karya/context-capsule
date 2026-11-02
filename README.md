@@ -1,23 +1,48 @@
-# Karya Context Capsule
+<p align="center"><img src="site/icon.png" alt="" width="80" height="80"></p>
 
-<img src="site/icon.png" alt="" width="64" height="64">
+<h1 align="center">Karya Context Capsule</h1>
 
-**Context for your Claude, and for anyone's.**
+<p align="center"><strong>Your AI knows what you did today. So does the next person's.</strong></p>
 
-You already use Claude for your work. Context Capsule quietly notes what you work on (the
-text on your screen and what you say about it) and lets Claude turn your day into
-**capsules**: one per project, with what you did, what you decided and why, and what's next.
+<p align="center">
+  <a href="LICENSE"><img src="https://img.shields.io/badge/license-MIT-blue?style=flat-square" alt="MIT license"></a>
+  <img src="https://img.shields.io/badge/runs-on%20your%20computer-555?style=flat-square" alt="Runs on your computer">
+  <img src="https://img.shields.io/badge/macOS%20%C2%B7%20Windows%20%C2%B7%20Linux-555?style=flat-square" alt="macOS, Windows, Linux">
+</p>
 
-Send a capsule to anyone. Their Claude loads it and carries on, with nothing to explain. A
-capsule is written **for Claude**: people can read it, but they don't have to.
+<p align="center">
+  <a href="https://cursor.com/en/install-mcp?name=context-capsule&config=eyJjb21tYW5kIjoibnB4IiwiYXJncyI6WyIteSIsImNvbnRleHQtY2Fwc3VsZS1tY3AiLCJzZXJ2ZSJdfQ%3D%3D"><img src="https://cursor.com/deeplink/mcp-install-dark.svg" alt="Install in Cursor" height="32"></a>
+  <a href="https://insiders.vscode.dev/redirect?url=vscode%3Amcp%2Finstall%3F%257B%2522name%2522%253A%2522context-capsule%2522%252C%2522command%2522%253A%2522npx%2522%252C%2522args%2522%253A%255B%2522-y%2522%252C%2522context-capsule-mcp%2522%252C%2522serve%2522%255D%257D"><img src="https://img.shields.io/badge/VS_Code-Install_Server-0098FF?style=for-the-badge" alt="Install in VS Code" height="32"></a>
+  <a href="https://lmstudio.ai/install-mcp?name=context-capsule&config=eyJjb21tYW5kIjoibnB4IiwiYXJncyI6WyIteSIsImNvbnRleHQtY2Fwc3VsZS1tY3AiLCJzZXJ2ZSJdfQ%3D%3D"><img src="https://files.lmstudio.ai/deeplink/mcp-install-light.svg" alt="Add to LM Studio" height="32"></a>
+</p>
+
+> **Not on npm yet.** The buttons above and every `npx` command below start working once the package is published.
+> Until then, use the app's **Connect** button.
+
+<p align="center"><img src="docs/home.png" alt="The Context Capsule window: today's time per project and recent capsules" width="760"></p>
+
+**Without Context Capsule,** every new AI chat starts from nothing. You explain the project again, and
+when you hand work to someone, their AI knows even less.
+
+**With Context Capsule,** it notes what you work on (the text on your screen and what you say about it). At the
+end of the day your AI turns that into **capsules**: one per project, with what you did, what you decided and
+why, and what's next. Send one to anyone. Their AI loads it and carries on, with nothing to explain.
+
+Just ask your AI:
+
+- *"Make my capsules for today."*
+- *"Continue from this capsule."*
+- *"When did I decide on annual billing, and why?"*
+
+**What you can count on:**
 
 - **You choose what it sees.** Each time, you pick the screen or window in your computer's own
   picker. Only that is read.
 - **Only text.** No screenshots, no audio. Private apps (password managers, WhatsApp, Signal)
   and password fields are never recorded.
-- **On your computer.** No account, no cloud, no tracking. Text goes to Claude only when you
-  ask Claude to make or read a capsule. Every detail is in [PRIVACY.md](PRIVACY.md).
-- **Your Claude does the writing.** Context Capsule has no AI of its own.
+- **On your computer.** No account, no cloud, no tracking. Text goes to your AI only when you
+  ask it to make or read a capsule. Every detail is in [PRIVACY.md](PRIVACY.md).
+- **Your AI does the writing.** Context Capsule has no AI of its own.
 - **Plain files.** A capsule is Markdown. Any person or AI can read it.
 
 | | macOS 14+ | Windows 10 / 11 | Linux (Wayland, X11) |
@@ -28,7 +53,7 @@ capsule is written **for Claude**: people can read it, but they don't have to.
 
 ## Get started
 
-**Download it** from the download page (`site/index.html`): Mac, Windows or Linux. On a Mac,
+**Download it** from [the latest release](https://github.com/The-Karya/context-capsule/releases/latest): Mac, Windows or Linux. On a Mac,
 open the file and drag Karya Context Capsule to Applications. It updates itself: new versions are
 signed and checked, and install when you click **Restart now**.
 
@@ -50,6 +75,114 @@ signed and checked, and install when you click **Restart now**.
    Claude Code, Codex or Gemini CLI on your computer; it runs in the background with only Context Capsule's tools
    (no files, no commands, no web), and a notification says when your capsules are ready.
 6. **Share** a capsule from **Capsules**: copy it into WhatsApp, Slack or email, or AirDrop it.
+
+## Connect your AI from a terminal
+
+Most people should use **Connect** in the app. If you live in a terminal, this connects every AI app it finds
+on your computer, keeping a `.bak` of each settings file it changes:
+
+```sh
+npx context-capsule-mcp setup          # or name them: setup cursor codex
+npx context-capsule-mcp remove         # takes it out again; your other settings stay
+```
+
+You still need [the app](https://github.com/The-Karya/context-capsule/releases/latest) to record your work: this only connects your AI to it.
+
+Or add it by hand. These need Node.js 18 or newer:
+
+<details>
+<summary><b>Claude app</b></summary>
+
+In Context Capsule: Settings → Connect your AI → **Connect** next to Claude. Claude uses an extension, and the app has the file.
+If Claude doesn't offer to install it, the app shows you the file: in Claude, go to Settings → Extensions → Advanced settings →
+Install Extension… and pick it.
+</details>
+
+<details>
+<summary><b>Claude Code</b></summary>
+
+```sh
+claude mcp add --scope user context-capsule -- npx -y context-capsule-mcp serve
+```
+
+Windows:
+
+```sh
+claude mcp add --scope user context-capsule -- cmd /c npx -y context-capsule-mcp serve
+```
+</details>
+
+<details>
+<summary><b>Codex and the ChatGPT desktop app</b></summary>
+
+They share one file, `~/.codex/config.toml`:
+
+```toml
+[mcp_servers.context-capsule]
+command = "npx"
+args = ["-y", "context-capsule-mcp", "serve"]
+```
+
+Windows (`%USERPROFILE%\.codex\config.toml`):
+
+```toml
+[mcp_servers.context-capsule]
+command = "cmd"
+args = ["/c", "npx", "-y", "context-capsule-mcp", "serve"]
+```
+</details>
+
+<details>
+<summary><b>Cursor, Windsurf, LM Studio, Gemini CLI</b></summary>
+
+| App | File |
+|---|---|
+| Cursor | `~/.cursor/mcp.json` |
+| Windsurf | `~/.codeium/windsurf/mcp_config.json` |
+| LM Studio | `~/.lmstudio/mcp.json` |
+| Gemini CLI | `~/.gemini/settings.json` |
+
+```json
+{
+  "mcpServers": {
+    "context-capsule": {
+      "command": "npx",
+      "args": ["-y", "context-capsule-mcp", "serve"]
+    }
+  }
+}
+```
+
+Windows: the same files under `%USERPROFILE%`, with `"command": "cmd"` and `"args": ["/c", "npx", "-y", "context-capsule-mcp", "serve"]`.
+</details>
+
+<details>
+<summary><b>VS Code</b></summary>
+
+Command Palette → **MCP: Open User Configuration**:
+
+```json
+{
+  "servers": {
+    "context-capsule": {
+      "type": "stdio",
+      "command": "npx",
+      "args": ["-y", "context-capsule-mcp", "serve"]
+    }
+  }
+}
+```
+
+Windows: `"command": "cmd"` and `"args": ["/c", "npx", "-y", "context-capsule-mcp", "serve"]`.
+</details>
+
+<details>
+<summary><b>ChatGPT or Gemini on the web, or any other AI</b></summary>
+
+No setup. In the app, choose **Copy my day**, paste it into the chat, copy the whole reply, then click **Save from clipboard**.
+</details>
+
+<p align="center"><img src="docs/capsules.png" alt="The Capsules page: capsules by day, with search" width="760"></p>
 
 ## The Context Capsule window
 
@@ -123,7 +256,7 @@ didn't share is never read, and picking a screen that's already shared is refuse
 ---
 capsule: 1
 title: Pricing page redesign
-author: Saachi
+author: Alex
 created: 2026-10-19T11:30:00Z
 project: website
 kind: daily            # daily | project (the growing one)
@@ -161,29 +294,44 @@ decisions that differ set apart for you to settle.
 - **Honest privacy.** [PRIVACY.md](PRIVACY.md) lists every place data goes, with the code
   that does it.
 
-## For Claude (MCP)
+## What your AI gets
 
-The Claude connection is an MCP server (`mcp/`), shipped as a one-click Claude Desktop
-extension. Claude gets:
+Context Capsule connects through MCP, so your AI gets these tools:
 
-- **Tools:** `start_recording`, `stop_recording`, `recording_status`, `add_note`,
-  `prepare_day` / `finish_day` (a guided day: checklist in, check out), `get_day_activity`,
-  `get_session_activity`, `get_moment` (zoom in on a stretch, nothing shortened),
-  `list_sessions`, projects (`list_projects`, `create_project`, `set_project`,
-  `assign_project`), and capsules (`save_capsule`, `list_capsules`, `get_capsule`,
-  `import_capsule`, `export_capsule` (as a capsule or a web page), `compare_capsules` (two
-  versions: what changed, and the merge), `search_capsules` (answers "when did I decide…"
-  from every capsule, with citations)).
-- **Prompts:** `make_day_capsules`, `make_capsule`, `continue_from_capsule`, `review_capsule`
-  (a second look before sharing), `ask_capsules`.
-- **Resources:** every capsule as `capsule://<name>`.
+| | Tools | What they're for |
+|---|---|---|
+| **Recording** | `start_recording` `stop_recording` `recording_status` `add_note` | Start and stop, and add a note |
+| **Your day** | `prepare_day` `finish_day` `get_day_activity` `get_session_activity` `get_moment` `list_sessions` | Read what you worked on, down to one stretch, and write the day up |
+| **Projects** | `list_projects` `create_project` `set_project` `assign_project` | Keep several projects apart |
+| **Capsules** | `save_capsule` `list_capsules` `get_capsule` `search_capsules` | Save them, read them, and answer "when did I decide…" with citations |
+| **Sharing** | `import_capsule` `export_capsule` `compare_capsules` | Take in a capsule, save one as a file or web page, and merge two versions |
 
-All of Claude's instructions live in one playbook (`mcp/src/playbook.ts`). Details:
-[mcp/README.md](mcp/README.md) and [SPEC.md](SPEC.md).
+It also gets prompts (`make_day_capsules`, `make_capsule`, `continue_from_capsule`, `review_capsule`, `ask_capsules`),
+and every capsule as `capsule://<name>`. All of its instructions live in one playbook (`mcp/src/playbook.ts`).
+Details: [mcp/README.md](mcp/README.md) and [SPEC.md](SPEC.md).
+
+## Troubleshooting
+
+- **Make capsules gave me a long block of text to paste.** That's **Copy my day**, used when no AI is connected. Go to
+  Settings → Connect your AI, connect yours, and choose it under Your AI.
+- **It says Connected, then Not connected.** Update to the latest version and click **Connect** again. 0.3.0 on Windows
+  wrote a setting that couldn't start.
+- **Connected, but my AI can't see Context Capsule.** Quit the AI app completely and open it again.
+- **Claude didn't offer to install the extension.** Install it by hand: Settings → Extensions → Advanced settings →
+  Install Extension…, then pick `context-capsule.mcpb` (the app shows you where it is).
+- **"Claude Code isn't signed in."** Open Claude Code once and sign in.
+- **Your AI finds nothing to write up.** Nothing has been recorded that day. Press ⌥C (Alt+C on Windows and Linux) and pick a screen first.
+
+## Limitations
+
+- **The app does the recording.** The MCP server only reads what the app has recorded, so `npx` alone won't capture anything.
+- **Windows and Linux are new.** See the status table above. Linux hasn't been tried on a real desktop yet.
+- **Website AIs use copy and paste.** ChatGPT or Gemini on the web can't connect directly, because nothing here runs in the cloud.
+- **Installers aren't signed by Apple or Microsoft yet,** so your computer may warn you when you first open one.
 
 ## Build from source
 
-Most people should use the download page instead. To build it yourself:
+Most people should use [the latest release](https://github.com/The-Karya/context-capsule/releases/latest) instead. To build it yourself:
 
 ```sh
 git clone <this repo> context-capsule && cd context-capsule
