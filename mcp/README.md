@@ -11,7 +11,20 @@ it wrote, starts and stops it, and saves, imports and exports capsules. No accou
 cloud, no API key: files stay on your computer, and text reaches your AI only when it
 reads it through these tools, or when you paste it yourself (see ../PRIVACY.md).
 
-## Install
+## Quick start
+
+```sh
+npx context-capsule-mcp setup     # connects every AI app it finds here; keeps a .bak of each settings file
+npx context-capsule-mcp remove    # takes it out again
+```
+
+You also need [the Context Capsule app](https://github.com/The-Karya/context-capsule/releases/latest) to record your work. Then ask your AI:
+*"Make my capsules for today."*
+
+Not on npm yet: until it's published, use the app's **Connect** button. Copy-paste setup for each app is in
+[the main README](https://github.com/The-Karya/context-capsule#connect-your-ai-from-a-terminal).
+
+## Build from source
 
 Needs Node 18 or newer.
 
@@ -25,7 +38,7 @@ and your node with `which node`.
 
 The apps ship it as one self-contained program, `context-capsule-mcp` (no Node needed). Build it
 with `./build-binary.sh` (bun): `dist-bin/context-capsule-mcp-macos` (universal),
-`-windows-x64.exe`, `-linux-x64`, `-linux-arm64`. Or run it from npm: `npx context-capsule-mcp`.
+`-windows-x64.exe`, `-linux-x64`, `-linux-arm64`.
 
 ## Commands
 
@@ -33,6 +46,7 @@ with `./build-binary.sh` (bun): `dist-bin/context-capsule-mcp-macos` (universal)
 |---|---|
 | `serve` (or nothing) | the MCP server on stdio |
 | `serve --http [--port N]` | the MCP server over Streamable HTTP at `http://127.0.0.1:3740/mcp` (another free port if 3740 is taken; the address is printed on stderr). Only this computer can reach it; every request needs `Authorization: Bearer <token>`, the token being in `~/.context-capsule/mcp-token` (made on first use, readable by you only). No CORS: requests from web pages are refused |
+| `setup [app…]` / `remove [app…]` | connects every AI app found (or the ones named), or takes it out again; words for a person, not JSON |
 | `clients` | JSON: `[{"id","name","installed","connected","how"}]` for every AI app it knows |
 | `connect <id>` / `disconnect <id>` | adds / removes Context Capsule in that app's own MCP settings file; merges (other servers, settings and comments stay), keeps a `.bak`, never touches a file it can't read. `{"ok","message"}` |
 | `day [--date YYYY-MM-DD]` | JSON `{"text","chars"}`: one message (up to ~60,000 characters) to paste into any AI chat: the capsule guide, your day (screen text wrapped as information) and how to answer: each capsule between `=== CAPSULE ===` and `=== END ===` lines |
@@ -54,7 +68,8 @@ with `./build-binary.sh` (bun): `dist-bin/context-capsule-mcp-macos` (universal)
 | `gemini` | Gemini CLI | `~/.gemini/settings.json`, `mcpServers` |
 
 The entry runs the program itself with `serve` (from source: `node <abs>/dist/index.js serve`).
-"Connected" means the entry is there and points at a program that exists.
+From npx, it runs `npx -y context-capsule-mcp serve` (through `cmd /c` on Windows), since npx's own copy can go away.
+"Connected" means the entry is there and points at a program that exists, or at npx with this package.
 
 ## Use it with any MCP client
 
