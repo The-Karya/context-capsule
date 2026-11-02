@@ -199,8 +199,9 @@ export const CLIENTS: ClientDef[] = [
 // ---------- this program, as an app should start it ----------
 
 /** Running as the self-contained binary built with `bun build --compile`? */
-export function isCompiled(): boolean {
-  return /\$bunfs|~BUN/.test(import.meta.url);
+export function isCompiled(url: string = import.meta.url): boolean {
+  // On Windows the address is file:///B:/%7EBUN/root/…, with the ~ encoded.
+  return /\$bunfs|~BUN|%7EBUN/i.test(url);
 }
 
 function findOnPath(name: string, env: Record<string, string | undefined> = process.env): string | null {
@@ -459,9 +460,12 @@ function change(id: string, on: boolean, opts: { ctx?: Ctx; self?: SelfCommand }
     };
   if (on && !def.installed(c)) return { ok: false, message: `${def.name} isn't on this computer.` };
   const file = def.file!(c);
+  const self = opts.self ?? selfCommand();
+  // Never write (and call "connected") an entry that can't start: listClients would say not connected, rightly.
+  if (on && !opts.self && !pointsAtExisting(self)) return { ok: false, message: `Context Capsule couldn't find its own program, so it can't connect ${def.name}. Please reinstall Context Capsule.` };
   try {
-    if (def.format!.kind === "toml") return editToml(file, on ? (opts.self ?? selfCommand()) : undefined, def.name);
-    return editJson(file, def.format!.key, on ? jsonEntry(def, opts.self ?? selfCommand()) : undefined, def.name);
+    if (def.format!.kind === "toml") return editToml(file, on ? self : undefined, def.name);
+    return editJson(file, def.format!.key, on ? jsonEntry(def, self) : undefined, def.name);
   } catch (e) {
     return { ok: false, message: `Couldn't change ${file}: ${(e as Error).message}` };
   }

@@ -4,7 +4,7 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { parse as parseToml } from "smol-toml";
-import { CLIENTS, connect, disconnect, listClients, removeTomlTable, selfCommand, type Ctx } from "../src/clients.ts";
+import { CLIENTS, connect, disconnect, isCompiled, listClients, removeTomlTable, selfCommand, type Ctx } from "../src/clients.ts";
 
 let home: string;
 let ctx: Ctx;
@@ -73,6 +73,22 @@ describe("clients", () => {
     fs.mkdirSync(path.join(store, "Claude Extensions", "local.mcpb.karya.context-capsule"), { recursive: true });
     expect(clientOf("claude", win)).toMatchObject({ installed: true, connected: true });
     expect(fs.existsSync(path.join(home, "Roaming", "Claude"))).toBe(false);
+  });
+
+  test("the compiled program knows itself on every OS", () => {
+    expect(isCompiled("file:///B:/%7EBUN/root/context-capsule-mcp.exe")).toBe(true); // Windows
+    expect(isCompiled("file:///B:/~BUN/root/index.js")).toBe(true);
+    expect(isCompiled("file:///$bunfs/root/context-capsule-mcp")).toBe(true); // Mac, Linux
+    expect(isCompiled("file:///Users/me/karya-capsule/mcp/dist/clients.js")).toBe(false);
+  });
+
+  test("what 0.3.0 wrote on Windows reads as not connected, and Connect replaces it", () => {
+    fs.mkdirSync(path.join(home, ".codex"));
+    // node with a path that only exists inside the compiled program
+    fs.writeFileSync(fileOf("codex"), '[mcp_servers.context-capsule]\ncommand = "node"\nargs = ["B:\\\\~BUN\\\\root\\\\index.js", "serve"]\n');
+    expect(clientOf("codex").connected).toBe(false);
+    expect(connect("codex", { ctx, self: self() }).ok).toBe(true);
+    expect(clientOf("codex").connected).toBe(true);
   });
 
   test("Claude: the extension, never a settings file", () => {
