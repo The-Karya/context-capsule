@@ -1,5 +1,6 @@
 // context-capsule — mcp: the context-capsule-mcp commands. `serve` (or nothing) is the MCP server; every other
-// command prints JSON on stdout for the apps: clients, connect, disconnect, day, save, agents, make, view.
+// command prints JSON on stdout for the apps (clients, connect, disconnect, day, save, agents, make, view), except
+// setup and remove, which are for a person in a terminal.
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
 import { chatDay, saveReply } from "./anyai.js";
 import { agentsInfo, make } from "./auto.js";
@@ -7,6 +8,7 @@ import { connect, disconnect, listClients } from "./clients.js";
 import { checkDay } from "./day.js";
 import { DEFAULT_PORT, startHttp, tokenFile } from "./http.js";
 import { MAKE_TOOLS, VERSION, createServer } from "./server.js";
+import { remove, setup } from "./setup.js";
 import { viewCapsule } from "./viewer.js";
 
 export const USAGE = `context-capsule-mcp ${VERSION} — Context Capsule for any AI
@@ -15,6 +17,8 @@ export const USAGE = `context-capsule-mcp ${VERSION} — Context Capsule for any
   serve --make-only          only the tools that write a day's capsules (used by "make")
   serve --http [--port N]    the MCP server over HTTP on 127.0.0.1 (port ${DEFAULT_PORT} if free); needs the token in
                              ~/.context-capsule/mcp-token as "Authorization: Bearer <token>"
+  setup [app…]               connect every AI app found here, or the ones named (keeps a .bak of each settings file)
+  remove [app…]              take Context Capsule out of them again
   clients                    the AI apps on this computer, as JSON
   connect <id>               add Context Capsule to that app's MCP settings (keeps a .bak)
   disconnect <id>            remove it again
@@ -76,6 +80,14 @@ export async function main(argv: string[]): Promise<void> {
       return serve(args);
     case "clients":
       return print(listClients());
+    case "setup":
+    case "remove": {
+      const ids = args.filter((a) => !a.startsWith("--"));
+      const r = cmd === "setup" ? setup({ ids }) : remove({ ids });
+      if (!r.ok) process.exitCode = 1;
+      console.log(r.lines.join("\n"));
+      return;
+    }
     case "connect":
     case "disconnect": {
       const id = args[0];
