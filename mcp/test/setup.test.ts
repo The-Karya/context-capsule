@@ -58,7 +58,7 @@ describe("setup", () => {
     fs.mkdirSync(path.join(home, "Library", "Application Support", "Claude"), { recursive: true });
     fs.mkdirSync(path.join(home, ".claude"));
     const out = setup({ ctx, self }).lines.join("\n");
-    expect(out).toContain("Install Extension…");
+    expect(out).toContain("Connect next to Claude");
     expect(out).toContain(`claude mcp add --scope user context-capsule -- ${self.command} serve`);
     expect(fs.existsSync(path.join(home, ".claude.json"))).toBe(false);
   });

@@ -13,8 +13,7 @@ const claudeCodeHere = (c: Ctx) => fs.existsSync(path.join(c.home, ".claude")) |
 const quoted = (s: string) => (/\s/.test(s) ? `"${s}"` : s);
 
 export const RECORD_NOTE = "To record your work you also need the Context Capsule app: https://github.com/The-Karya/context-capsule/releases/latest";
-export const CLAUDE_STEPS =
-  "Claude app: add the extension by hand: Settings → Extensions → Advanced settings → Install Extension…, then pick context-capsule.mcpb from the latest release.";
+export const CLAUDE_STEPS = "Claude app: in the Context Capsule app, open Settings → Connect your AI and click Connect next to Claude.";
 
 /** Connect the apps named, or every app found. Claude's two kinds can't be connected from here, so say how. */
 export function setup(o: { ids?: string[]; ctx?: Ctx; self?: SelfCommand } = {}): SetupResult {
