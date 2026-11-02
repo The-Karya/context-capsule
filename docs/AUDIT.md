@@ -1,8 +1,8 @@
 # Full audit of Karya Context Capsule
 
-You are auditing this whole repo on **this computer**, and the same audit runs separately on a Mac, a Windows PC and
-a Linux desktop. Your job is to find out what really works, and to report it plainly. A short honest report beats a
-long reassuring one.
+You are auditing this whole repo from **one Mac**. The owner has no Windows PC or Linux desktop, so the Windows and Linux
+parts run in the ways listed under "Windows and Linux from a Mac" below. Your job is to find out what really works, and to
+report it plainly. A short honest report beats a long reassuring one.
 
 The product: a menu-bar / tray app records the text of the screen the user picks, plus voice notes, on their computer.
 Their AI (Claude, Codex, Cursor…) turns that into **capsules**: Markdown files another AI can continue from. It is for
@@ -18,6 +18,27 @@ everyone, including people who have never opened a terminal. Read `README.md`, `
 | The one window, shown in each system's web view | `ui/` | all three |
 | MCP server and its commands | `mcp/` | all three |
 | Update and release tools | `release/` | |
+
+## Windows and Linux from a Mac
+
+Use each of these, and say in the report which one produced each result. **Never count a weaker way as proof of a stronger one.**
+
+| Way | What it can prove | What it can't |
+|---|---|---|
+| **This Mac** | All of the Mac app. MCP server, window page and shared code. | Anything about how Windows or Linux behave |
+| **Cross-compile** (`cargo xwin`, already set up) plus tests run on the Mac | The Windows code compiles and its plain logic works | That it runs on Windows |
+| **Docker** (Linux, the `context-capsule-linux` image) | Linux builds and tests pass. The app can start under Xvfb, so you can take pictures of the window and see the message when WebKitGTK is missing | A real desktop, Wayland, the portal picker, tray, global shortcuts. It's an ARM Linux, not x86 |
+| **GitHub's Windows and Linux machines:** `gh workflow run audit`, `gh workflow run ci`, `gh workflow run windows-smoke -f release=v0.3.0` | The compiled program, the real installer, install / update / uninstall, and pictures of every page in real WebView2 | Real AI apps (no Claude or Codex there), the picker, microphone, hotkeys, real apps on screen. These are Windows Server machines, not a person's PC |
+| **A person with a real PC** | Everything else | |
+
+The owner has agreed to these three GitHub workflows. Start each once, use `gh run watch` and `gh run download`, and read the
+logs and pictures yourself: a green tick only means the steps ran. Don't run them repeatedly, because the repo's free minutes are limited.
+
+**This Mac is short of space** (about 13 GB free, 8 GB of memory). Check before each big build and run one at a time. If space runs low,
+stop and tell the person. Don't delete anything without asking. A Windows or Linux virtual machine won't fit, so don't try one.
+
+**Everything only a real PC can show gets one of these results, never PASS:** NEEDS PERSON (WINDOWS) or NEEDS PERSON (LINUX). Collect
+them into the two hand-off lists described in Step 7. Docs and code may suggest they'd work, but they are unproven until someone has done them.
 
 ## Rules
 
@@ -62,13 +83,12 @@ Group these so they aren't interrupted constantly. If nobody answers, mark it NE
 
 ## Step 0: start the report
 
-Create `audit-reports/<mac|windows|linux>-<date>.md` (git ignores this folder) with the commit (`git rev-parse HEAD`),
-OS and version, CPU type, desktop and display system on Linux, and versions of Node, Bun, Rust, Swift / Xcode and Docker.
-List which AI apps are installed, and take the hashes for rule 3. Keep the report updated as you go, so nothing is lost if you stop.
+Create `audit-reports/audit-<date>.md` (git ignores this folder) with the commit (`git rev-parse HEAD`), macOS version, CPU type, free
+disk space, and versions of Node, Bun, Rust, Swift / Xcode and Docker. List which AI apps are installed, and take the hashes for rule 3. Keep the report updated as you go, so nothing is lost if you stop.
 
 ## Step 1: automated checks
 
-Run everything for this OS. Never edit a test to make it pass. If a test fails, run it again to see whether it's flaky, and say so.
+Run all of these from this Mac, using the ways above. Never edit a test to make it pass. If a test fails, run it again to see whether it's flaky, and say so.
 
 **Every OS**
 
@@ -93,37 +113,46 @@ capture/tests/render-web.sh /tmp/cc-audit-data
 Look at the pictures in `/tmp/mac-web/`. Earlier runs of `web-window.sh` passed with the seed's date fixed to 2026-10-23, and
 6 timeline checks failed with today's date. Find out whether that is only a fragile test or a real bug in the Timeline.
 
-**Windows**
+**Windows, without a Windows PC**
 
-```powershell
+```sh
 cd capture-rs
-cargo test -p context-capsule-windows
-cargo clippy -p context-capsule-windows --all-targets -- -D warnings
-cargo build --release -p context-capsule-windows
+cargo test -p context-capsule-windows       # its plain logic, run on the Mac
+cargo xwin clippy -p context-capsule-windows --target x86_64-pc-windows-msvc --all-targets --no-default-features -- -D warnings
 ```
 
-Then read `capture-rs/ci/windows-smoke.ps1`. Its parts install and uninstall the app, so ask first and prefer a spare account or VM.
+Then start the workflows:
 
-**Linux**
+```sh
+gh workflow run audit                                 # the compiled program on Windows and Linux
+gh workflow run ci                                    # every test and build on Windows and Linux
+gh workflow run windows-smoke -f release=v0.3.0 -f part=all    # installer, every page, update, uninstall
+```
+
+`windows-smoke` hasn't been run since the old Windows window was deleted. Download its pictures and look at every one. Check that its
+`update` part really tests the current code. If a part can't download the release because the repo is private, report that as BLOCKED and say why.
+
+**Linux, without a Linux desktop**
 
 ```sh
 docker build -t context-capsule-linux -f capture-rs/ci/linux.Dockerfile capture-rs/ci
 docker run --rm -v "$PWD:/work" -w /work/capture-rs context-capsule-linux sh -c \
   "rustup component add clippy && cargo test -p context-capsule-linux && \
    cargo clippy -p context-capsule-linux --all-targets -- -D warnings && cargo build --release -p context-capsule-linux"
-capture-rs/linux/appimage.sh
 ```
 
-Docker proves it builds, not that it works on a desktop: Step 3 still applies. The Linux app has **never been tried on a real desktop**, so
-report which of GNOME on Wayland, KDE on Wayland and X11 you actually used.
+Then try running the built app in that container under Xvfb with a throwaway data folder. Take pictures of the window
+(`CONTEXT_CAPSULE_WINDOW_SIZE=1100x760` sets its size), and test the message shown without WebKitGTK. Stay within what Xvfb can show. The Linux
+app has **never been tried on a real desktop**, and this audit won't change that: say so in the verdict.
 
-**The compiled MCP program, on this OS.** This is what real users run, and most tests use something else. Build it with
-`mcp/build-binary.sh`, then against throwaway folders check `--version`, `clients`, `connect`, `disconnect`, `setup`, `remove`, `day`,
-`save` and `make`. List its tools with `npx @modelcontextprotocol/inspector --cli <program> serve --method tools/list`.
+**The compiled MCP program.** This is what real users run. `mcp/ci/check-program.mjs` checks it for real in a throwaway home: on the Mac, build it with
+`mcp/build-binary.sh macos-arm64` and run `node mcp/ci/check-program.mjs mcp/dist-bin/context-capsule-mcp-macos-arm64`; the `audit` workflow does the same on Windows and
+Linux. Read the script and list what it doesn't cover, then try those: `make`, a real `day` and `save` with seeded data. On the Mac, list the tools with
+`npx @modelcontextprotocol/inspector --cli <program> serve --method tools/list`.
 
 ## Step 2: known problems to check first
 
-Confirm or disprove each. "Fixed" means you saw it working on this OS.
+Confirm or disprove each. "Fixed" means you saw it working on that OS. For each one, say which way you tested it. Most Windows rows need a person for the final proof: test what you can, then add the rest to the hand-off list.
 
 | # | Claim | How to check |
 |---|---|---|
@@ -147,7 +176,8 @@ Confirm or disprove each. "Fixed" means you saw it working on this OS.
 
 ## Step 3: use the product as a person would
 
-Test the built app on this OS, using a throwaway data folder where you can. Put each row in the report with a result.
+Test the Mac app fully, using a throwaway data folder where you can. For Windows and Linux, test what the workflows and Docker can show. Every remaining item goes in the
+hand-off lists. Put each row in the report with a result, **for each of the three systems**.
 
 **Install and start**
 - Fresh install, first run, a second copy started at once, open at login. System warnings: what would a non-technical person see?
@@ -195,7 +225,7 @@ For each AI app here, with the person's permission: Connect, restart it, ask it 
 
 ## Step 4: across the three systems
 
-Things one machine can't show alone. Do your half, and put the sample files in `audit-reports/` so they can be compared.
+Have the `ci` and `audit` runs and Docker help where they can: for example, feed Windows and Linux files made on one system into the MCP server on the others, or make Linux files in Docker and read them on the Mac.
 - Capsules and session files made on one OS open correctly on another (line endings, paths, non-English text, emoji, long names).
 - The same input gives the same output: `spec/` holds cases all platforms should share. Are they really run on each? Where do the Swift and Rust rules differ?
 - Same words, same pages, same behaviour in the window. Differences that aren't needed are findings. The design rule is the plain Mac look everywhere: no gradients, sparkles or purple.
@@ -222,8 +252,8 @@ Try to break these, and report what you actually did.
 
 Keep this order:
 
-1. **Verdict in three lines:** could a non-technical person on this OS install it, connect an AI and get capsules today? Yes, no, or only with help, and why.
-2. **Findings, worst first.** For each: ID (`WIN-01`), severity, what happens, the steps to repeat it, evidence, who it affects, likely file and line, and a suggested fix (don't apply it).
+1. **Verdict, three lines for each of Mac, Windows and Linux:** could a non-technical person install it, connect an AI and get capsules today? Yes, no, only with help, or **unproven**, and why.
+2. **Findings, worst first.** For each: ID (`WIN-01`), severity, which way it was found, what happens, the steps to repeat it, evidence, who it affects, likely file and line, and a suggested fix (don't apply it).
    - **Critical:** loses data, breaks a privacy or security promise, or stops the main flow for most people.
    - **High:** a main feature fails, or a common setup is broken with no workaround.
    - **Medium:** it fails with a workaround, or misleads people.
@@ -232,11 +262,13 @@ Keep this order:
 4. **Everything tested:** every row from Steps 1, 3, 4 and 5, with result and evidence. Include the NOT TESTED rows: this is how the owner knows what's still unproven.
 5. **Fragile tests and gaps:** what the tests claim to cover but don't.
 6. **Proof the real data is untouched,** from rule 3.
+7. **Two hand-off lists,** saved as their own files so they can be sent to someone: `audit-reports/needs-person-windows.md` and `audit-reports/needs-person-linux.md`. Each is a checklist in plain words for someone non-technical,
+   in the order to do it, worst risk first, the first ones doable in about 15 minutes. Each item says what to click, what should happen, and what to send back. Put nothing private in them.
 
 Then tell the person where the report is, and how many Critical and High findings it has. Don't fix anything until they ask.
 
-## After all three machines
+## After a person tries a hand-off list
 
-Put the three reports in `audit-reports/` on one machine, open Codex there and say:
+Open Codex here and say:
 
-> Read every report in `audit-reports/` and `docs/AUDIT.md`. Write `audit-reports/SUMMARY.md`: one table of what passes, fails and wasn't tested on Mac, Windows and Linux; the findings that appear on more than one OS merged into one; and a fix order, worst first. Do not change any code.
+> Read `docs/AUDIT.md`, the report in `audit-reports/`, and these results from a real PC: (paste them). Update the report: change only the rows these results prove, note each as "reported by a person", and re-rank the findings. Do not change any code.
