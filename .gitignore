@@ -6,3 +6,4 @@ capture/build/
 dist-ext/
 dist-bin/
 .cargo-docker/
+audit-reports/
