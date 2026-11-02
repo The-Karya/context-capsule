@@ -216,10 +216,24 @@ function findOnPath(name: string, env: Record<string, string | undefined> = proc
   return null;
 }
 
+const PACKAGE = "context-capsule-mcp";
+
+/** Run with npx or bunx: this copy sits in a cache that can go away, so an app must not point at it. */
+export function isTemporaryRun(dir: string): boolean {
+  return /[\\/]_npx[\\/]|[\\/]bunx-/.test(dir);
+}
+
+/** What an app starts to run the npm package. On Windows npx is a script, which apps can only start through cmd. */
+export function npxCommand(platform: NodeJS.Platform = process.platform): SelfCommand {
+  const npx = ["npx", "-y", PACKAGE, "serve"];
+  return platform === "win32" ? { command: "cmd", args: ["/c", ...npx] } : { command: npx[0]!, args: npx.slice(1) };
+}
+
 /** The binary runs itself with `serve`; from source, `node <abs>/dist/index.js serve`. */
 export function selfCommand(): SelfCommand {
   if (isCompiled()) return { command: process.execPath, args: ["serve"] };
   const dir = path.dirname(fileURLToPath(import.meta.url));
+  if (isTemporaryRun(dir)) return npxCommand();
   const entry = path.basename(dir) === "src" ? path.join(dir, "..", "dist", "index.js") : path.join(dir, "index.js");
   const node = !process.versions.bun && /node(\.exe)?$/i.test(process.execPath) ? process.execPath : (findOnPath("node") ?? "node");
   return { command: node, args: [path.resolve(entry), "serve"] };
@@ -231,6 +245,9 @@ export function pointsAtExisting(entry: unknown): boolean {
   const { command, args } = entry as { command?: unknown; args?: unknown };
   if (typeof command !== "string" || !command.trim()) return false;
   const list = Array.isArray(args) ? args.filter((a): a is string => typeof a === "string") : [];
+  // npx finds the package itself: there's no path of ours to check
+  const run = /^cmd(\.exe)?$/i.test(path.basename(command)) && /^\/c$/i.test(list[0] ?? "") ? list.slice(1) : [command, ...list];
+  if (/^npx(\.cmd)?$/i.test(path.basename(run[0] ?? "")) && run.slice(1).some((a) => a === PACKAGE || a.startsWith(`${PACKAGE}@`))) return true;
   const isNode = /^node(\.exe)?$/i.test(path.basename(command));
   if (isNode) return !!list[0] && path.isAbsolute(list[0]) && exists(list[0]) && (!path.isAbsolute(command) || exists(command));
   return path.isAbsolute(command) && exists(command);
