@@ -15,7 +15,8 @@ export const words = {
   nothingToday: "Nothing recorded today yet.",
 };
 
-/** The host's answer, made safe: { mode, at, agent, running, autoDay, last }. Unknown or missing → click, no tool. */
+/** The host's answer, made safe: { mode, at, agent, problem, running, autoDay, last }. Unknown or missing → click, no
+ * tool. `problem`: tools are here, but none can make capsules now (plain words: "Codex isn't signed in…"). */
 export function parseStatus(v) {
   const o = v && typeof v === "object" ? v : {};
   const at = typeof o.at === "string" && /^\d{1,2}:\d{2}$/.test(o.at) ? o.at.padStart(5, "0") : "18:00";
@@ -30,12 +31,14 @@ export function parseStatus(v) {
         finishedAt: Date.parse(l.finished_at) || null,
         capsules: Number.isFinite(l.capsules) ? l.capsules : 0,
         reason: typeof l.reason === "string" ? l.reason : "",
+        note: typeof l.note === "string" ? l.note : "",
       }
     : null;
   return {
     mode: o.mode === "auto" ? "auto" : "click",
     at,
     agent,
+    problem: !agent && typeof o.problem === "string" && o.problem.trim() ? o.problem.trim() : "",
     running: o.running === true,
     autoDay: typeof o.autoDay === "string" ? o.autoDay : null,
     last,
@@ -73,7 +76,9 @@ export function control(st, now, time) {
   const counts = last && (st.autoDay === today || (last.startedAt != null && last.startedAt >= at));
   if (counts && last.status === "done") {
     const when = time(last.finishedAt ?? last.startedAt ?? now);
-    return { kind: "line", text: last.by === "auto" ? `Made automatically at ${when}` : `Made at ${when}` };
+    const text = last.by === "auto" ? `Made automatically at ${when}` : `Made at ${when}`;
+    // made by another tool than the first choice: why, so it can be fixed
+    return last.note ? { kind: "line", text, detail: last.note } : { kind: "line", text };
   }
   if (counts && last.status === "failed") {
     return { kind: "line", text: "Couldn't make them", detail: last.reason || "", action: "retry", actionText: words.tryAgain };
@@ -85,11 +90,18 @@ export function control(st, now, time) {
 /** Settings → Every day, under the card. */
 export function settingsNote(st) {
   if (!st || st.mode !== "auto") return null;
-  if (!st.agent) return null; // the "Needs…" line with its link is shown instead
+  if (!st.agent) return null; // the "Needs…" line (or what's wrong) is shown instead
   return `${st.agent.name} makes them in the background, using only Context Capsule.`;
+}
+
+/** Settings → Every day, Automatically without a tool that can make them: what's wrong (with Learn more), or null. */
+export function settingsProblem(st) {
+  if (!st || st.mode !== "auto" || st.agent) return null;
+  return st.problem ? `Can't make them automatically yet: ${st.problem}` : words.needs;
 }
 
 /** Home → Make today's capsules, the line above the button when a tool makes them. */
 export function homeLine(st) {
-  return st?.agent ? `${st.agent.name} makes them in the background. Nothing to paste.` : null;
+  if (st?.agent) return `${st.agent.name} makes them in the background. Nothing to paste.`;
+  return st?.problem ? `Can't make them in the background: ${st.problem}` : null;
 }

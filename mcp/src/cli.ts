@@ -24,7 +24,8 @@ export const USAGE = `context-capsule-mcp ${VERSION} — Context Capsule for any
   disconnect <id>            remove it again
   day [--date YYYY-MM-DD]    one paste-ready message for any AI chat: {"text","chars"}
   save [--date YYYY-MM-DD]   read the AI's answer on stdin and save its capsules: {"saved","refused"}
-  agents                     the AI command-line tools found here (Claude Code, Codex, Gemini CLI): {"agents","use"}
+  agents                     the AI command-line tools found here (Claude Code, Codex, Gemini CLI), each signed in or
+                             not: {"agents","use","problem"}
   make [--date D] [--by auto|click]
                              make the day's capsules with one of them, headless, with only Context Capsule's tools;
                              writes auto.json: {"ok","status","capsules","reason"}
@@ -117,7 +118,7 @@ export async function main(argv: string[]): Promise<void> {
       }
     }
     case "agents":
-      return print(agentsInfo());
+      return print(await agentsInfo());
     case "make": {
       try {
         const by = flag(args, "by") === "auto" ? "auto" : "click";

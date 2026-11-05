@@ -95,6 +95,8 @@ export async function copyDay(app, date) {
       return;
     }
     await call("clipboard.write", { text: day.text });
+    // when you come back with the AI's answer copied, the window offers to save it (offerAnswer)
+    app.ai.awaiting = { since: Date.now(), copied: day.text, offered: "" };
     const kind = app.kind();
     if (kind.type === "website") call("open.url", { url: kind.url }).catch(() => {});
     app.ai.dayLine = AI.pasteLine;
@@ -121,6 +123,7 @@ export async function saveFromClipboard(app) {
     const result = AI.parseSave(await mcp("save", { input: text }));
     if (result.saved.length) {
       app.ai.dayLine = null;
+      app.ai.awaiting = null;
       await app.loadCapsules();
       await app.loadStats();
       app.refresh("capsules");
@@ -132,6 +135,29 @@ export async function saveFromClipboard(app) {
   } finally {
     app.ai.working = false;
     changed(app);
+  }
+}
+
+/** Back in the window after Copy my day, with your AI's answer copied: offer to save it, once per answer. Only
+ * looks at the clipboard in the hours after Copy my day, while the window is in front; saves only on Save. */
+export async function offerAnswer(app) {
+  const w = app.ai.awaiting;
+  if (!w || app.ai.working || app.ai.offering) return;
+  if (Date.now() - w.since > AI.ANSWER_WAIT_MS) {
+    app.ai.awaiting = null;
+    return;
+  }
+  app.ai.offering = true;
+  try {
+    const text = (await call("clipboard.read").catch(() => null))?.text || "";
+    const n = AI.answerCount(text, w.copied);
+    if (!n || text === w.offered) return;
+    w.offered = text;
+    const o = AI.answerOffer(n);
+    const i = await alert({ title: o.title, message: o.message, buttons: [{ text: "Save", kind: "default" }, { text: "Not now", kind: "cancel" }] });
+    if (i === 0) await saveFromClipboard(app);
+  } finally {
+    app.ai.offering = false;
   }
 }
 

@@ -195,7 +195,7 @@ impl AutoFile {
     pub fn last_json(&self) -> Value {
         let Some(l) = &self.last else { return Value::Null };
         let mut out = serde_json::Map::new();
-        for k in ["day", "by", "status", "ai", "started_at", "finished_at", "capsules", "reason"] {
+        for k in ["day", "by", "status", "ai", "started_at", "finished_at", "capsules", "reason", "note"] {
             if let Some(v) = l.get(k) {
                 out.insert(k.into(), v.clone());
             }
@@ -224,15 +224,25 @@ impl Agent {
     }
 }
 
-/// `agents` → the one a run would use (`use`; None: no tool here). None: not an answer.
-pub fn parse_agents(out: &[u8]) -> Option<Option<Agent>> {
+/// What `agents` found.
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub struct Found {
+    /// The one a run would use. None: no tool here, or none that can make capsules now.
+    pub agent: Option<Agent>,
+    /// Tools are here but none can make capsules now: why, in plain words ("Codex isn't signed in…").
+    pub problem: Option<String>,
+}
+
+/// `agents` → what it found. None: not an answer.
+pub fn parse_agents(out: &[u8]) -> Option<Found> {
     let v = anyai::json(out)?;
     let o = v.as_object()?;
     if !o.contains_key("agents") {
         return None;
     }
     let one = |a: &Value| Some(Agent { id: a.get("id")?.as_str()?.to_string(), name: a.get("name")?.as_str()?.to_string() });
-    Some(o.get("use").and_then(one))
+    let problem = o.get("problem").and_then(Value::as_str).map(str::trim).filter(|p| !p.is_empty()).map(str::to_string);
+    Some(Found { agent: o.get("use").and_then(one), problem })
 }
 
 /// `make`'s answer.
@@ -343,6 +353,8 @@ pub trait AutoHost: Send + Sync {
 struct State {
     /// The tool a run would use, once looked for.
     agent: Option<Option<Agent>>,
+    /// Why none of the tools here can make capsules now (with no `agent`).
+    problem: Option<String>,
     agents_at: Option<Instant>,
     /// This app's run is going.
     running: bool,
@@ -389,10 +401,11 @@ impl Auto {
             let mut s = self.state();
             s.agents_at = Some(Instant::now());
             // Unreadable: keep what was known (none, the first time).
-            let agent = found.unwrap_or_else(|| s.agent.clone().flatten());
-            let changed = s.agent.as_ref() != Some(&agent);
-            s.agent = Some(agent.clone());
-            (agent, changed)
+            let found = found.unwrap_or_else(|| Found { agent: s.agent.clone().flatten(), problem: s.problem.clone() });
+            let changed = s.agent.as_ref() != Some(&found.agent) || s.problem != found.problem;
+            s.agent = Some(found.agent.clone());
+            s.problem = found.problem;
+            (found.agent, changed)
         };
         if changed {
             self.host.changed(self.status());
@@ -418,8 +431,13 @@ impl Auto {
         let (mode, at) = read_config(&self.paths.config());
         let file = AutoFile::load(&self.paths);
         let agent = self.agent();
+        let problem = self.state().problem.clone();
         let running = self.state().running || file.running(SystemTime::now(), &|pid| self.host.alive(pid));
-        status_json(mode, at.as_deref(), agent.as_ref(), running, &file)
+        let mut v = status_json(mode, at.as_deref(), agent.as_ref(), running, &file);
+        if let (Some(p), None) = (problem, &agent) {
+            v["problem"] = Value::String(p);
+        }
+        v
     }
 
     /// Automatically with a tool here: the evening reminder isn't shown.
@@ -675,13 +693,24 @@ mod tests {
         );
         let empty = status_json(Mode::Click, None, None, false, &AutoFile::default());
         assert_eq!(empty, json!({"mode": "click", "at": "18:00", "agent": null, "running": false, "autoDay": null, "last": null}));
+        // done with the next tool: the window says why
+        let other = AutoFile::parse(br#"{"last":{"day":"2026-10-23","status":"done","ai":"codex","pid":7,
+            "note":"Claude Code isn't signed in. Open it once and sign in. So Codex made them."}}"#);
+        assert_eq!(other.last_json()["note"], "Claude Code isn't signed in. Open it once and sign in. So Codex made them.");
+        assert!(other.last_json().get("pid").is_none());
     }
 
     #[test]
     fn program_answers() {
-        let a = parse_agents(br#"{"agents":[{"id":"codex","name":"Codex"}],"use":{"id":"codex","name":"Codex"}}"#);
-        assert_eq!(a, Some(Some(Agent { id: "codex".into(), name: "Codex".into() })));
-        assert_eq!(parse_agents(br#"{"agents":[],"use":null}"#), Some(None));
+        let a = parse_agents(br#"{"agents":[{"id":"codex","name":"Codex","ready":true}],"use":{"id":"codex","name":"Codex"}}"#);
+        assert_eq!(a, Some(Found { agent: Some(Agent { id: "codex".into(), name: "Codex".into() }), problem: None }));
+        assert_eq!(parse_agents(br#"{"agents":[],"use":null}"#), Some(Found::default()));
+        let none_ready = br#"{"agents":[{"id":"codex","name":"Codex","ready":false,"reason":"Codex isn't signed in. Open it once and sign in."}],
+            "use":null,"problem":"Codex isn't signed in. Open it once and sign in."}"#;
+        assert_eq!(
+            parse_agents(none_ready),
+            Some(Found { agent: None, problem: Some("Codex isn't signed in. Open it once and sign in.".into()) })
+        );
         assert_eq!(parse_agents(b"oops"), None);
         let m = parse_make(br#"{"ok":true,"day":"2026-10-23","status":"done","ai":"claude-code","name":"Claude Code","capsules":3}"#).unwrap();
         assert_eq!((m.status.as_str(), m.capsules, m.reason.as_deref()), ("done", 3, None));

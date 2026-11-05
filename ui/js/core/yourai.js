@@ -10,7 +10,28 @@ export const websites = [
 ];
 
 // Words.
-export const pasteLine = "Paste it into your AI. When it answers, copy its whole reply, then click Save from clipboard.";
+export const pasteLine = "Paste it into your AI. When it answers, copy its whole reply and come back: Context Capsule offers to save it.";
+
+/** How long after Copy my day the window looks for the AI's answer on the clipboard when you come back to it. */
+export const ANSWER_WAIT_MS = 3 * 60 * 60 * 1000;
+
+const START = /^[\s>*_`#-]*=+\s*CAPSULE\s*=+[\s*_`]*$/gim;
+
+/** How many capsules a chat AI's answer on the clipboard holds (the "=== CAPSULE ===" lines, as `save` reads them).
+ * 0: not an answer — empty, the day we copied ourselves (it shows the marker once, in its instructions), or text
+ * that starts like it. */
+export function answerCount(text, copied = "") {
+  if (!text || !text.trim() || (copied && text.trim() === copied.trim()) || /^\s*I use Context Capsule\./.test(text)) return 0;
+  return (text.match(START) || []).length;
+}
+
+/** The offer when you come back with the answer copied. */
+export function answerOffer(n) {
+  return {
+    title: n === 1 ? "Your AI's capsule is on the clipboard" : `Your AI's ${n} capsules are on the clipboard`,
+    message: n === 1 ? "Save it to Context Capsule?" : "Save them to Context Capsule?",
+  };
+}
 export const words = {
   connectYourAI: "Connect your AI",
   connectHelp: "Lets your AI start contextualizing and write your capsules.",

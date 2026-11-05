@@ -501,7 +501,11 @@ that day's notes, and adds a project the AI started once its capsule is saved.
 The apps (Settings → **Connect your AI**) list `clients`, with Connect / a ✓ per app. **Your AI** (a choice in
 Settings) is what **Make today's capsules** opens: an MCP app with the request typed in where it can be, or —
 for any other AI — **Copy my day** (runs `day`, copies `text`, opens the AI's website if chosen) and then
-**Save from clipboard** (runs `save` on the clipboard). Words say "your AI", not "Claude", wherever any AI works.
+**Save from clipboard** (runs `save` on the clipboard). For three hours after Copy my day, when the window is in front
+again (on focus, and every 2 s while it is in front) it reads the clipboard; if that holds an AI's answer — lines
+`=== CAPSULE ===`, not the copied day itself, nor text starting "I use Context Capsule." — it asks once per answer
+"Your AI's 2 capsules are on the clipboard. Save them to Context Capsule?" (**Save** / **Not now**); Save is Save from
+clipboard. Nothing is saved without Save. Words say "your AI", not "Claude", wherever any AI works.
 Nothing goes to the internet except what the person pastes into their AI themselves.
 
 ## Timeline (all recorders)
@@ -574,14 +578,39 @@ says what it needs ("Needs Claude Code, Codex or Gemini CLI on this computer") a
 **config.json:** `"make_capsules": "auto" | "click"` (missing = `"click"`). The time is `remind_at` (`"18:00"`; missing
 or `false` = 18:00 for Automatically). In Automatically mode with a tool installed, the evening reminder isn't shown.
 
-**The tools**, found by `context-capsule-mcp agents` (`{"agents":[{"id","name"}],"use":{"id","name"}|null}`) on the
-PATH and in the usual install folders (apps don't get the shell's PATH: `~/.local/bin`, `~/.claude/local`,
-`/opt/homebrew/bin`, `/usr/local/bin`, npm / bun / volta / nvm folders; Windows `%APPDATA%\npm`, `.exe` before `.cmd`).
-Order: **Claude Code** (`claude`), **Codex** (`codex`), **Gemini CLI** (`gemini`); the one matching Your AI
-(`codex`/`chatgpt` → Codex, `gemini` → Gemini CLI, `claude` → Claude Code) goes first.
+**The tools**, found by `context-capsule-mcp agents` on the PATH and in the usual install folders (apps don't get
+the shell's PATH: `~/.local/bin`, `~/.claude/local`, `/opt/homebrew/bin`, `/usr/local/bin`, npm / bun / volta / nvm
+folders; Windows `%APPDATA%\npm`, `%ProgramFiles%\nodejs` for node, `.exe` before `.cmd`). Order: **Claude Code**
+(`claude`), **Codex** (`codex`), **Gemini CLI** (`gemini`); the one matching Your AI (`codex`/`chatgpt` → Codex,
+`gemini` → Gemini CLI, `claude` → Claude Code) goes first.
 
-**One run** = `context-capsule-mcp make [--date D] [--by auto|click]` → `{"ok","day","status","ai","name","capsules","reason"}`
+`agents` also asks each one whether it is signed in, with its own status command (Claude Code `auth status`: its
+`loggedIn`; Codex `login status`: exit 0), 15 s at most each, never keeping what they print; Gemini CLI has none, so
+`~/.gemini/oauth_creds.json` or a key in the environment (`GEMINI_API_KEY`, `GOOGLE_API_KEY`,
+`GOOGLE_GENAI_USE_VERTEXAI`, `GOOGLE_APPLICATION_CREDENTIALS`) means signed in, else it can't tell (`null`):
+```json
+{"agents": [{"id": "claude-code", "name": "Claude Code", "ready": false, "reason": "Claude Code isn't signed in. Open it once and sign in."},
+            {"id": "codex", "name": "Codex", "ready": true}],
+ "use": {"id": "codex", "name": "Codex"}}
+```
+`use` = the first in the order above that isn't `ready: false`. None: `use` is null and, when tools are here,
+`problem` says why in plain words (each one's reason). The window shows it ahead of time: Settings → Every day
+"Can't make them automatically yet: <problem>" (instead of "Needs…"), Home "Can't make them in the background:
+<problem>"; the button then works as in "Any AI".
+
+**Starting a tool on Windows:** an npm launcher (`codex.cmd`, `gemini.cmd`, whose last line runs
+`"%_prog%" "%dp0%\node_modules\<package>\<script>.js" %*`) is started as node (its own `node.exe` next to it, else the
+one found) and that script, so the request reaches it whole: cmd.exe can't pass text with line breaks or quotes
+safely, and every request has them. Another `.cmd` goes through `cmd.exe /d /s /c` with every argument quoted, or
+doesn't start when an argument has `"`, `%` or a line break.
+
+**One run** = `context-capsule-mcp make [--date D] [--by auto|click]` → `{"ok","day","status","ai","name","capsules","reason","note"}`
 (`status`: `done`, `failed`, `running` = one is already going, `none` = no tool, `nothing` = nothing recorded that day).
+It tries the tools in the order above: one that `agents` says isn't signed in is skipped; one that couldn't start,
+isn't signed in or is out of usage (it never got to work) hands over to the next; any other failure (an error while
+working, too long, no internet, nothing saved) ends the run. Done after skipping some: `note` says why, e.g. "Claude
+Code isn't signed in. Open it once and sign in. So Codex made them." Failed: `reason` has each tool's reason, in the
+order tried. Every try gets its own pair of app.log lines; a skip, one line with its kind (`skipped (signin)`).
 It runs the tool headless in `<data>/auto/` (an empty folder: no project files) with the make_day_capsules request for
 that date, at low priority, stopped after **10 minutes**. The tool gets **only** our MCP server, started as
 `context-capsule-mcp serve --make-only`, which has only the tools that write a day's capsules (prepare_day,
@@ -603,7 +632,8 @@ Done = the tool ended well and at least one `.capsule.md` was saved or changed; 
 ```
 `auto_day` = the day an automatic run last started (set when it starts, so it never starts twice for a day, even if
 it was cut off). `last.status` `running` (with `pid`), `done` or `failed` (with `reason`: plain words, never content,
-e.g. "Claude Code isn't signed in. Open it once and sign in."). A `running` entry is over when its `pid` is gone or
+e.g. "Claude Code isn't signed in. Open it once and sign in."), and `done` may have `note` (see One run). `ai` is the
+tool at work (while running, the one being tried). A `running` entry is over when its `pid` is gone or
 after 15 minutes. app.log gets one line when a run starts and one when it ends (tool, capsule count, minutes).
 
 **When (the apps, every minute, at launch and when the computer wakes):** start an automatic run when all hold:
@@ -618,5 +648,5 @@ cases in both test suites.
 
 **The window:** bridge `auto.status`, `auto.run`, event `auto` (ui/BRIDGE.md). Capsules page header and Home's card
 show **Make today's capsules** (When I click, or no tool), or a quiet line — "Next at 6:00 PM" with **Make
-now**, "Made automatically at 6:04 PM", "Couldn't make them: <reason>" with **Try again** — and, while a run goes,
+now**, "Made automatically at 6:04 PM" (with its `note`, when there is one), "Couldn't make them: <reason>" with **Try again** — and, while a run goes,
 "Making today's capsules…" with a spinner (buttons off).
