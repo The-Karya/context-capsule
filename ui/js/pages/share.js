@@ -1,10 +1,12 @@
 // context-capsule — ui: sharing a capsule — no dialog: the capsule as it will be shared, with what might be private
 // marked where it is (hidden: struck through in orange; kept: a dashed underline; click one to change just it), the
-// kinds with switches on the side, and Share copy (the system share sheet on a Mac, else Copy file). SPEC "Sharing a capsule".
+// kinds with switches on the side, and Share copy (the system share sheet on a Mac, else Copy file). The copy starts
+// with a two-line note on what it is and how to use it, for someone without Context Capsule. SPEC "Sharing a capsule".
 
 import { h, menu } from "../dom.js";
 import * as MD from "../core/markdown.js";
 import * as Check from "../core/sharecheck.js";
+import * as Caps from "../core/capsules.js";
 import * as actions from "../actions.js";
 
 const KIND = Object.fromEntries(Check.KINDS.map((k) => [k.kind, k]));
@@ -35,7 +37,9 @@ export function mount(root, app, opts = {}) {
   let doc = null;
 
   async function draw() {
-    text = await actions.readCapsule(view.file);
+    const file = await actions.readCapsule(view.file);
+    // what is shared, and shown here: the capsule with the note on top
+    text = file == null ? null : Caps.withShareNote(file);
     const saved = app.capsules.find((c) => c.file === view.file);
     if (text == null || !saved) {
       content.replaceChildren(bar(saved?.title || "", false), h("p", { class: "body" }, "This capsule isn't there any more."));
@@ -91,8 +95,7 @@ export function mount(root, app, opts = {}) {
   function share(how) {
     const saved = app.capsules.find((c) => c.file === view.file);
     if (!saved || text == null) return;
-    const copy = hidden.size ? Check.shareCopy(text, items, hidden) : undefined;
-    return actions.share(app, saved, how, copy);
+    return actions.share(app, saved, how, hidden.size ? Check.shareCopy(text, items, hidden) : text);
   }
 
   // ---------- the kinds ----------

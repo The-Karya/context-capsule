@@ -98,3 +98,11 @@ test("an AI's answer on the clipboard: counted by its capsule lines; the day we 
   expect(A.answerOffer(3).title).toBe("Your AI's 3 capsules are on the clipboard");
   expect(A.pasteLine).toContain("come back");
 });
+
+test("the ChatGPT app makes capsules with Copy my day (its chats can't use the tools yet); Codex and the rest don't", () => {
+  expect(A.usesCopy(A.kindOf("chatgpt"))).toBe(true);
+  expect(A.usesCopy(A.kindOf("codex"))).toBe(false);
+  expect(A.usesCopy(A.kindOf("cursor"))).toBe(false);
+  expect(A.settingsLine(A.kindOf("chatgpt"), "ChatGPT")).toContain("copies your day and opens ChatGPT");
+  expect(A.makeLine(A.kindOf("chatgpt"), "ChatGPT")).toBe("Copy your day, paste it into ChatGPT, then save its reply here.");
+});

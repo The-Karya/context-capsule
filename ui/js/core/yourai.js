@@ -82,9 +82,13 @@ export function kindOf(id) {
   return { type: "app", id };
 }
 
-// Copy my day / Save from clipboard is the way (no MCP).
+// Apps that are connected but make capsules with Copy my day: the ChatGPT app loads Context Capsule's tools but
+// doesn't give them to its chats yet (openai/codex#38162, open since Aug 2026), so a request would go nowhere.
+export const copyApps = ["chatgpt"];
+
+// Copy my day / Save from clipboard is the way (no MCP, or MCP that its chats can't use yet: copyApps).
 export function usesCopy(kind) {
-  return kind.type === "website" || kind.type === "other";
+  return kind.type === "website" || kind.type === "other" || (kind.type === "app" && copyApps.includes(kind.id));
 }
 
 // Its name in sentences: "Claude", "Cursor", "ChatGPT", "your AI".
@@ -138,6 +142,9 @@ export function makeLine(kind, name, dayLine = null, enter = "Return") {
 
 // Settings → Your AI, under the choice.
 export function settingsLine(kind, name) {
+  if (kind.type === "app" && copyApps.includes(kind.id)) {
+    return `Make today's capsules copies your day and opens ${name}: paste it in, then you save its reply. (${name}'s chats can't use Context Capsule's tools yet.)`;
+  }
   return usesCopy(kind)
     ? `Make today's capsules copies your day to paste into ${name}, then you save its reply.`
     : `Make today's capsules opens ${name} with the request.`;

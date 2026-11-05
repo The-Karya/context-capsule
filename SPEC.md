@@ -244,7 +244,7 @@ Tools:
 | `get_capsule` `{name}` | full text |
 | `import_capsule` `{path}` | copies a received capsule (any file name: `.capsule.md`, `.md`…) into `capsules/` (validates format; "isn't a Context Capsule" otherwise); says when it is a newer or older version of a saved capsule (see "Two versions of a capsule") |
 | `search_capsules` `{query, limit?=8}` | read-only: ranks every saved capsule's `## ` sections by the query's words (stop words dropped; Decisions / Where things stand / Next steps and newer capsules weigh more); returns title, name, kind, date, section and text, each in a `<capsule>` block, cited as *(Pricing page, 19 Oct, Decisions)*; nothing found → says so and points to `get_day_activity` |
-| `export_capsule` `{name, to_path?, format?}` | copies to Desktop (default) or a path; returns the path, ready to email. `format: "html"` (or a `to_path` ending in `.html`): the capsule's web page instead (see "The capsule as a web page") |
+| `export_capsule` `{name, to_path?, format?}` | copies to Desktop (default) or a path, with the note on top (see "Sharing a capsule"); returns the path, ready to email. `format: "html"` (or a `to_path` ending in `.html`): the capsule's web page instead (see "The capsule as a web page") |
 | `compare_capsules` `{a, b}` | read-only: two versions of one capsule (saved names/titles or file paths): which is newer, what changed per section, decisions that differ, and the merged capsule (see "Two versions of a capsule"); saves nothing |
 | `list_projects` | projects with their clues, time spent today, and their capsules |
 | `create_project` `{name, match?}` | adds a project to `projects.json` |
@@ -361,6 +361,18 @@ saved capsule never changes): the system share sheet on a Mac, Copy file elsewhe
 Save a copy…. Nothing found: the same page, nothing marked, one click to share. No AI: plain rules, the same on every
 platform (`spec/share-check.json`: the eight kinds per case, and where each thing is — `{kind, text, start, end}`, offsets
 into the whole file). Capitalised words, @handles, percentages, bare numbers, dates and system paths are not flagged.
+
+**The note on top.** Most people who get a capsule don't have Context Capsule, so every shared copy (Share copy, Copy
+file, Copy text, Save a copy…, and `export_capsule`) starts, right under the front matter and a blank line, with:
+```
+> **This is a Context Capsule: <title>**, from <author>. It holds the context of this work, written for an AI.
+> **To carry on with it:** give this file to your AI (ChatGPT, Claude, Gemini or another) and say "Continue from this capsule." **To read it yourself:** start at In short.
+```
+(", from <author>" only with an `author`.) The share page shows it as part of the copy, and the share check runs on it
+too (a hidden name is `[removed]` there as well). Found again by its first line starting `> **This is a Context
+Capsule`, above the first `## ` section only: never added twice, and taken off when a capsule is opened in Context
+Capsule (the reading view) or imported (`import_capsule`), so the saved capsule is the one that was sent. The same
+words in ui/js/core/capsules.js and mcp/src/capsules.ts, checked by both against `spec/share-note.json`.
 
 Rules (on the body only: a leading `---` front matter block is skipped):
 1. **links** `https?://` up to whitespace, `)`, `>`, `]`; trailing `. , ; :` dropped; then blanked out (same
@@ -506,6 +518,12 @@ again (on focus, and every 2 s while it is in front) it reads the clipboard; if 
 `=== CAPSULE ===`, not the copied day itself, nor text starting "I use Context Capsule." — it asks once per answer
 "Your AI's 2 capsules are on the clipboard. Save them to Context Capsule?" (**Save** / **Not now**); Save is Save from
 clipboard. Nothing is saved without Save. Words say "your AI", not "Claude", wherever any AI works.
+
+**The ChatGPT app** can be connected (it reads the same `~/.codex/config.toml` as Codex), but it loads Context
+Capsule's tools without giving them to its chats yet (openai/codex#38162, open since Aug 2026). So with Your AI the
+ChatGPT app, Make today's capsules is **Copy my day**, and the app opens on a new chat with the day on the clipboard
+(`ai.open`); Continue from a capsule copies it the same way. Settings says why under Your AI. The list of such apps is
+`copyApps` (ui), `COPY_APPS` (Rust core), `YourAI.copyApps` (Swift): today only `chatgpt`. Codex is not on it.
 Nothing goes to the internet except what the person pastes into their AI themselves.
 
 ## Timeline (all recorders)

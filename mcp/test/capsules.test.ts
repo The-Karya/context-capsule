@@ -14,6 +14,9 @@ import {
   slugify,
   stringifyFrontMatter,
   validateCapsuleText,
+  SHARE_NOTE_START,
+  withShareNote,
+  withoutShareNote,
 } from "../src/capsules.ts";
 import { VALID_BODY, tempHome, writeFixtureSession } from "./helpers.ts";
 
@@ -185,5 +188,33 @@ describe("export_capsule", () => {
     } finally {
       process.env.HOME = oldHome;
     }
+  });
+});
+
+describe("the note on top of a shared copy (spec/share-note.json, as in the window)", () => {
+  const spec = JSON.parse(fs.readFileSync(path.join(import.meta.dir, "..", "..", "spec", "share-note.json"), "utf8"));
+  beforeEach(() => tempHome());
+
+  test("added once, taken off again: the same cases as ui/tests/capsules.test.js", () => {
+    for (const c of spec.cases) {
+      expect(withShareNote(c.capsule)).toBe(c.shared);
+      expect(withShareNote(c.shared)).toBe(c.shared);
+      expect(withoutShareNote(c.shared)).toBe(c.back);
+      expect(validateCapsuleText(c.shared).ok).toBe(true);
+    }
+  });
+
+  test("export_capsule's file has it; importing that file takes it off, so the round trip is the same capsule", () => {
+    saveCapsule({ title: "Share me", markdown: BODY });
+    const out = fs.mkdtempSync(path.join(os.tmpdir(), "context-capsule-out-"));
+    const file = exportCapsule("share-me", out);
+    const sent = fs.readFileSync(file, "utf8");
+    expect(sent).toContain(`${SHARE_NOTE_START}: Share me**`);
+    expect(sent).toContain('say "Continue from this capsule."');
+    tempHome(); // someone else's computer
+    const got = importCapsule(file);
+    const saved = fs.readFileSync(got.path, "utf8");
+    expect(saved).not.toContain(SHARE_NOTE_START);
+    expect(saved).toBe(withoutShareNote(sent));
   });
 });

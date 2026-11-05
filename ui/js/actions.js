@@ -99,6 +99,8 @@ export async function copyDay(app, date) {
     app.ai.awaiting = { since: Date.now(), copied: day.text, offered: "" };
     const kind = app.kind();
     if (kind.type === "website") call("open.url", { url: kind.url }).catch(() => {});
+    // an app that makes capsules this way (the ChatGPT app): it opens, the day still on the clipboard
+    if (kind.type === "app") call("ai.open", { id: kind.id, prompt: day.text }).catch(() => {});
     app.ai.dayLine = AI.pasteLine;
     toast(AI.pasteLine);
   } catch (e) {
@@ -221,7 +223,8 @@ export async function received(app, path, text) {
     await alert({ title: "This isn't a capsule", message: `${name} isn't a Context Capsule file.` });
     return;
   }
-  app.read({ path, text });
+  // the note a shared copy starts with is for people without Context Capsule
+  app.read({ path, text: Caps.withoutShareNote(text) });
 }
 
 /** The reading view's "Continue in <AI>": your AI carries on from the capsule (an AI without the app gets it pasted). */
@@ -230,6 +233,7 @@ export async function continueCapsule(app, { name, path, text, saved }) {
   if (AI.usesCopy(kind)) {
     await call("clipboard.write", { text: Caps.pastePrompt(text) }).catch(() => {});
     if (kind.type === "website") call("open.url", { url: kind.url }).catch(() => {});
+    if (kind.type === "app") call("ai.open", { id: kind.id, prompt: Caps.pastePrompt(text) }).catch(() => {});
     toast(`Copied. Paste it into ${app.aiName()}.`);
     return;
   }
@@ -251,7 +255,7 @@ export async function readCapsule(file) {
 // ---------- sharing ----------
 
 const SHARED = {
-  "copy-file": "Copied. Paste it in WhatsApp, Slack, email or any chat.",
+  "copy-file": "Copied. Paste it in WhatsApp, Slack, email or any chat. It says how to use it, even without Context Capsule.",
   "copy-text": "Text copied. Paste it into a chat, or into your AI.",
 };
 
@@ -260,7 +264,7 @@ export function openShare(app, c) {
   app.go("share", { file: c.file });
 }
 
-/** Share a capsule: `text` is the copy from the share page (undefined: the file as it is). */
+/** Share a capsule: `text` is the copy from the share page (with its note on top; undefined: the file as it is). */
 export async function share(app, c, how, text) {
   if (how === "reveal") return call("capsule.share", { file: c.file, how }).catch(() => {});
   try {

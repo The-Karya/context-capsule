@@ -149,3 +149,18 @@ test("capsules_view is a key both hosts let the page set", async () => {
   expect(keys).toContain('"capsules_view"');
   expect(readFileSync(new URL("../BRIDGE.md", import.meta.url), "utf8")).toContain("`capsules_view`");
 });
+
+test("a shared copy's note (spec/share-note.json): added once, taken off again", () => {
+  const { readFileSync } = require("node:fs");
+  const spec = JSON.parse(readFileSync(new URL("../../spec/share-note.json", import.meta.url), "utf8"));
+  for (const c of spec.cases) {
+    expect(C.withShareNote(c.capsule)).toBe(c.shared);
+    expect(C.withShareNote(c.shared)).toBe(c.shared);
+    expect(C.withoutShareNote(c.shared)).toBe(c.back);
+    expect(C.isCapsule(c.shared)).toBe(true);
+    expect(C.parse(c.shared, "x.capsule.md").inShort).toBe(C.parse(c.capsule, "x.capsule.md").inShort);
+  }
+  // the words quoted inside a section stay
+  const quoted = "---\ncapsule: 1\ntitle: T\n---\n## In short\n> **This is a Context Capsule: T**. quoted\n";
+  expect(C.withoutShareNote(quoted)).toBe(quoted);
+});

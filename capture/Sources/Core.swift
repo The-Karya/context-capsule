@@ -1658,9 +1658,17 @@ enum YourAI: Equatable {
         return .app(id)
     }
 
-    /// Copy my day / Save from clipboard is the way (no MCP).
+    /// Apps that are connected but make capsules with Copy my day: the ChatGPT app loads Context Capsule's tools
+    /// but doesn't give them to its chats yet (openai/codex#38162, open since Aug 2026), so a request would go nowhere.
+    static let copyApps = ["chatgpt"]
+
+    /// Copy my day / Save from clipboard is the way (no MCP, or MCP that its chats can't use yet: copyApps).
     var usesCopy: Bool {
-        switch self { case .website, .other: return true; case .claude, .app: return false }
+        switch self {
+        case .website, .other: return true
+        case .app(let id): return YourAI.copyApps.contains(id)
+        case .claude: return false
+        }
     }
 
     /// config.json "ai" (nil when not set).

@@ -1,7 +1,7 @@
 // context-capsule — ui: dev server — serves ui/ with a fake host (BRIDGE.md) over a data folder; writes stay in memory.
 // Usage: bun ui/dev/server.js [dataFolder=/tmp/mac-ref-data] [--port 5174]
 import { existsSync, readdirSync, readFileSync, statSync } from "node:fs";
-import { extname, join, normalize, resolve } from "node:path";
+import { extname, join, normalize, resolve, sep } from "node:path";
 
 const argv = process.argv.slice(2);
 const portAt = argv.indexOf("--port");
@@ -302,9 +302,9 @@ async function bridge(req) {
 // MARK: static files
 
 function file(pathname) {
-  const rel = normalize(decodeURIComponent(pathname === "/" ? "/index.html" : pathname)).replace(/^\/+/, "");
+  const rel = normalize(decodeURIComponent(pathname === "/" ? "/index.html" : pathname)).replace(/^[\\/]+/, ""); // Windows: normalize gives "\index.html"
   const full = resolve(UI, rel);
-  if (!full.startsWith(UI + "/") || !existsSync(full) || !statSync(full).isFile()) {
+  if (!full.startsWith(UI + sep) || !existsSync(full) || !statSync(full).isFile()) {
     return new Response("not found", { status: 404 });
   }
   const headers = { "content-type": MIME[extname(full)] ?? "application/octet-stream", "cache-control": "no-store" };
