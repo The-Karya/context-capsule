@@ -256,7 +256,11 @@ mod win {
     /// Make today's capsules, the way Your AI works: Claude with the request typed in, another app with it on the
     /// clipboard, or Copy my day. UI thread.
     pub fn make(ui: &Ui, log: &AppLog) {
-        match snapshot().kind() {
+        let kind = snapshot().kind();
+        if kind.uses_copy() {
+            return copy_my_day(ui, log);
+        }
+        match kind {
             YourAi::Claude => {
                 let (ui, log) = (ui.clone(), log.clone());
                 spawn(move || reminder::make(&ui, &log));

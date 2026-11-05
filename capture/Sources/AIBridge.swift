@@ -263,6 +263,7 @@ final class AIState: ObservableObject {
 
     /// Make today's capsules, the way Your AI works.
     func makeTodaysCapsules() {
+        if kind.usesCopy { return copyMyDay() }
         switch kind {
         case .claude: Claude.makeTodaysCapsules()
         case .app: open(ClaudeLink.dayPrompt, why: "to read your day", again: "click Make today's capsules again")

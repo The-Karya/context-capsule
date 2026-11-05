@@ -349,6 +349,10 @@ pub const WEBSITES: [Website; 2] = [
     Website { id: "gemini-web", name: "Gemini (website)", url: "https://gemini.google.com" },
 ];
 
+/// Apps that are connected but make capsules with Copy my day: the ChatGPT app loads Context Capsule's tools but
+/// doesn't give them to its chats yet (openai/codex#38162, open since Aug 2026), so a request would go nowhere.
+pub const COPY_APPS: [&str; 1] = ["chatgpt"];
+
 /// "Your AI" (config.json "ai"): an id from `clients`, a known website, or "any" for any other AI.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum YourAi {
@@ -375,9 +379,13 @@ impl YourAi {
         }
     }
 
-    /// Copy my day / Save from clipboard is the way (no MCP).
+    /// Copy my day / Save from clipboard is the way (no MCP, or MCP that its chats can't use yet: `COPY_APPS`).
     pub fn uses_copy(&self) -> bool {
-        matches!(self, YourAi::Website(_) | YourAi::Other)
+        match self {
+            YourAi::Website(_) | YourAi::Other => true,
+            YourAi::App(id) => COPY_APPS.contains(&id.as_str()),
+            YourAi::Claude => false,
+        }
     }
 
     /// Its name in sentences: "Claude", "Cursor", "ChatGPT", "your AI".
@@ -522,6 +530,8 @@ mod tests {
         assert_eq!(YourAi::of(""), YourAi::Other);
         assert!(YourAi::of("gemini-web").uses_copy() && YourAi::of("any").uses_copy());
         assert!(!YourAi::of("cursor").uses_copy() && !YourAi::Claude.uses_copy());
+        assert!(YourAi::of("chatgpt").uses_copy(), "the ChatGPT app's chats can't use the tools yet");
+        assert!(!YourAi::of("codex").uses_copy(), "Codex can");
         assert_eq!(YourAi::of("chatgpt-web").name(&[]), "ChatGPT");
         assert_eq!(YourAi::of("codex").name(&list), "CODEX");
 

@@ -43,6 +43,7 @@ impl Ctx {
             self.send(Msg::ToggleRecord);
         }
         match ai::state().kind() {
+            k if k.uses_copy() => self.copy_my_day(),
             YourAi::Claude => self.ask_claude(DAY_PROMPT),
             YourAi::App(_) => self.open_prompt(DAY_PROMPT, ai::WHY_DAY, ai::AGAIN_DAY),
             YourAi::Website(_) | YourAi::Other => self.copy_my_day(),

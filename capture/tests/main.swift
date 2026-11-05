@@ -922,6 +922,7 @@ check(YourAI.resolve(saved: "gone", clients: clients) == "cursor", "an app no lo
 check(YourAI.resolve(saved: "gone", clients: []) == "gone", "with no list yet, the saved one is kept")
 check(YourAI.of("claude") == .claude && YourAI.of("any") == .other && YourAI.of("cursor") == .app("cursor"), "kinds")
 check(YourAI.of("chatgpt-web") == .website("chatgpt-web", URL(string: "https://chatgpt.com")!), "ChatGPT website")
+check(YourAI.of("chatgpt").usesCopy && !YourAI.of("codex").usesCopy, "the ChatGPT app makes capsules with Copy my day")
 check(YourAI.of("gemini-web").usesCopy && YourAI.of("any").usesCopy && !YourAI.of("claude").usesCopy && !YourAI.of("cursor").usesCopy,
       "Copy my day for websites and any")
 let aiCfg = FileManager.default.temporaryDirectory.appendingPathComponent("cc-ai-\(getpid()).json")

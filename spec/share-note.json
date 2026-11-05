@@ -1,0 +1,17 @@
+{
+  "about": "The note on top of a shared capsule (SPEC \"Sharing a capsule\"). ui/js/core/capsules.js and mcp/src/capsules.ts both pass every case: withShareNote(`capsule`) = `shared`, withShareNote(`shared`) = `shared` (never twice), and withoutShareNote(`shared`) = `back` (the capsule; a blank line stays under the front matter).",
+  "cases": [
+    {
+      "name": "front matter, title and author",
+      "capsule": "---\ncapsule: 1\ntitle: Pricing page\nauthor: Saachi\n---\n\n## In short\nTeams is $12.\n",
+      "shared": "---\ncapsule: 1\ntitle: Pricing page\nauthor: Saachi\n---\n\n> **This is a Context Capsule: Pricing page**, from Saachi. It holds the context of this work, written for an AI.\n> **To carry on with it:** give this file to your AI (ChatGPT, Claude, Gemini or another) and say \"Continue from this capsule.\" **To read it yourself:** start at In short.\n\n## In short\nTeams is $12.\n",
+      "back": "---\ncapsule: 1\ntitle: Pricing page\nauthor: Saachi\n---\n\n## In short\nTeams is $12.\n"
+    },
+    {
+      "name": "no author, quoted title, body right under the front matter",
+      "capsule": "---\ncapsule: 1\ntitle: \"Site — 2026-10-19\"\n---\n## In short\nx\n",
+      "shared": "---\ncapsule: 1\ntitle: \"Site — 2026-10-19\"\n---\n\n> **This is a Context Capsule: Site — 2026-10-19**. It holds the context of this work, written for an AI.\n> **To carry on with it:** give this file to your AI (ChatGPT, Claude, Gemini or another) and say \"Continue from this capsule.\" **To read it yourself:** start at In short.\n\n## In short\nx\n",
+      "back": "---\ncapsule: 1\ntitle: \"Site — 2026-10-19\"\n---\n\n## In short\nx\n"
+    }
+  ]
+}
