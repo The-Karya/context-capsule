@@ -1,14 +1,16 @@
 # context-capsule — CI: Windows smoke test on a real Windows desktop, with screenshots (capture-rs/ci/windows-smoke.ps1).
 # shipped: the released exe (install, first run, a second copy, uninstall). pages: every page of the window (ui/ in
 # WebView2), built from this commit, light and dark, with seeded recordings. update: install the release, update it to this commit, then
-# uninstall (one Start menu shortcut, one Apps entry, the new name). Runs only when asked: `gh workflow run windows-smoke`.
+# uninstall (one Start menu shortcut, one Apps entry, the new name; a recording and a capsule survive; this commit's helper
+# and extension are the ones next to the exe). The builds carry this commit's helper and extension (ai-parts.yml).
+# The script fails the job when a check fails (summary.txt says which). Runs only when asked: `gh workflow run windows-smoke`.
 name: windows-smoke
 on:
   workflow_dispatch:
     inputs:
       release:
-        description: Release tag to test
-        default: v0.2.0
+        description: Release tag to test (0.3.0 or later; earlier ones have no shared window to check)
+        default: v0.3.0
       part:
         description: Which part
         type: choice
@@ -19,6 +21,10 @@ permissions:
   contents: read
 
 jobs:
+  ai-parts:
+    if: inputs.part != 'shipped'
+    uses: ./.github/workflows/ai-parts.yml
+
   shipped:
     if: inputs.part == 'all' || inputs.part == 'shipped'
     runs-on: windows-latest
@@ -47,6 +53,7 @@ jobs:
 
   pages:
     if: inputs.part == 'all' || inputs.part == 'pages'
+    needs: ai-parts
     runs-on: windows-latest
     timeout-minutes: 30
     defaults:
@@ -54,6 +61,10 @@ jobs:
         shell: pwsh
     steps:
       - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with:
+          name: ai-parts
+          path: mcp
       - uses: dtolnay/rust-toolchain@stable
       - uses: Swatinem/rust-cache@v2
         with:
@@ -65,15 +76,18 @@ jobs:
         continue-on-error: true
         run: Set-DisplayResolution -Width 1920 -Height 1080 -Force
       - name: Every page
-        run: ./capture-rs/ci/windows-smoke.ps1 -Part pages -Exe capture-rs/target/release/context-capsule.exe -Out "$env:RUNNER_TEMP\smoke"
+        run: ./capture-rs/ci/windows-smoke.ps1 -Part pages -Exe capture-rs/target/release/context-capsule.exe -Helper mcp/dist-bin/context-capsule-mcp-windows-x64.exe -Extension mcp/dist-ext/context-capsule.mcpb -Out "$env:RUNNER_TEMP\smoke"
       - uses: actions/upload-artifact@v4
         if: always()
         with:
           name: windows-smoke-pages
           path: ${{ runner.temp }}/smoke
 
+  # The update is the file swap the app does after its checks; the signed download (latest.json, its signature, size
+  # and SHA-256) isn't tested here: that needs a signed feed of its own.
   update:
     if: inputs.part == 'all' || inputs.part == 'update'
+    needs: ai-parts
     runs-on: windows-latest
     timeout-minutes: 30
     defaults:
@@ -81,6 +95,10 @@ jobs:
         shell: pwsh
     steps:
       - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with:
+          name: ai-parts
+          path: mcp
       - uses: dtolnay/rust-toolchain@stable
       - uses: Swatinem/rust-cache@v2
         with:
@@ -98,7 +116,7 @@ jobs:
       - name: Install the release, update to this commit, uninstall
         run: |
           $exe = (Get-ChildItem "$env:USERPROFILE\Downloads\Context-Capsule-*-windows.exe").FullName
-          ./capture-rs/ci/windows-smoke.ps1 -Part update -Exe $exe -New capture-rs/target/release/context-capsule.exe -Out "$env:RUNNER_TEMP\smoke"
+          ./capture-rs/ci/windows-smoke.ps1 -Part update -Exe $exe -New capture-rs/target/release/context-capsule.exe -Helper mcp/dist-bin/context-capsule-mcp-windows-x64.exe -Extension mcp/dist-ext/context-capsule.mcpb -Out "$env:RUNNER_TEMP\smoke"
       - uses: actions/upload-artifact@v4
         if: always()
         with:
