@@ -186,8 +186,8 @@ export const hasChanges = (c: SectionChange) => !!(c.added.length || c.removed.l
 const str = (v: unknown) => (typeof v === "string" ? v.trim() : "");
 
 /** Why two capsules are versions of the same one, or null: the same `id` (written when a capsule is first saved,
- * carried by its later versions); the same project, kind and (daily) date; or, without a project, the same title —
- * only when one of them has no `id` (capsules from before ids). */
+ * carried by its later versions); the same project, kind and (daily) date; or, without a project, the same title
+ * (also when the ids differ: the other person's AI may have saved its version without carrying the id over). */
 export function sameCapsule(a: FrontMatter, b: FrontMatter): string | null {
   const ia = str(a.id);
   const ib = str(b.id);
@@ -201,7 +201,6 @@ export function sameCapsule(a: FrontMatter, b: FrontMatter): string | null {
     if (ka === "project") return `the same project (${pa}), whole-project capsule`;
     return str(a.date) === str(b.date) ? `the same project (${pa}) and day (${str(a.date) || "no date"})` : null;
   }
-  if (ia && ib) return null; // two different capsules, whatever their titles
   const ta = str(a.title).toLowerCase();
   return ta && ta === str(b.title).toLowerCase() ? `the same title` : null;
 }
@@ -396,7 +395,7 @@ export function compareReport(a: Version, b: Version): { text: string; merged?: 
     ...(order === 0 ? ["Their dates don't say which is newer, so the second one is treated as the newer."] : []),
     same
       ? `They are versions of one capsule: ${same}.`
-      : "These don't look like versions of one capsule (a different id, project, day or title), so there is no merge. " +
+      : "These don't look like versions of one capsule (a different project, day or title), so there is no merge. " +
         "The differences are below anyway.",
   ];
   const found = [...scanForInstructions(a.text), ...scanForInstructions(b.text)];

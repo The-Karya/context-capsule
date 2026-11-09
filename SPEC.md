@@ -421,8 +421,8 @@ People send a capsule, the other person's AI carries on and sends an updated one
 - **The same capsule**: the same `id` (written by `save_capsule` when a capsule is first saved; a new version saved
   with `save_capsule` `id` keeps it, and a project's growing capsule keeps its own, so a rename doesn't break the
   match); or both have `project`, the same one, the same `kind` (missing = `daily`) and, for a daily capsule, the
-  same `date`; or neither has a project, at least one has no `id` (capsules from before ids) and their titles match
-  (any case). Two different `id`s without a project are two capsules. **Newer**: the later `created`; if that can't
+  same `date`; or neither has a project and their titles match (any case), even when their `id`s differ (the
+  other AI may have saved its version without carrying the id over, or one is from before ids). **Newer**: the later `created`; if that can't
   tell, the second one given.
 - **What changed**, per `## ` section in the newer one's order (sections only in the older one last): each section
   is a list of items (a bullet, a numbered step, a paragraph, a quote, a code block); items equal apart from

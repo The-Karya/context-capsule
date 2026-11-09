@@ -152,7 +152,9 @@ describe("versions of one capsule", () => {
 
   test("by id: a renamed capsule with no project is still the same one; two ids are two capsules", () => {
     expect(sameCapsule({ id: "cap-123456", title: "Pricing page" }, { id: "cap-123456", title: "Pricing page v2" })).toBe("the same capsule id");
-    expect(sameCapsule({ id: "cap-123456", title: "Pricing page" }, { id: "cap-999999", title: "Pricing page" })).toBeNull();
+    // different ids (an AI saved without carrying the id over): the title still decides
+    expect(sameCapsule({ id: "cap-123456", title: "Pricing page" }, { id: "cap-999999", title: "Pricing page" })).toBe("the same title");
+    expect(sameCapsule({ id: "cap-123456", title: "Pricing page" }, { id: "cap-999999", title: "Other page" })).toBeNull();
     // one from before ids: the title decides
     expect(sameCapsule({ title: "Pricing page" }, { id: "cap-123456", title: "pricing page" })).toBe("the same title");
     expect(sameCapsule({ title: "Pricing page" }, { id: "cap-123456", title: "Pricing v2" })).toBeNull();
