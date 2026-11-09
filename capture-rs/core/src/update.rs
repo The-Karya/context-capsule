@@ -35,8 +35,10 @@ const MAX_ASSET_BYTES: u64 = 2 * 1024 * 1024 * 1024;
 pub const CHECK_LABEL: &str = "Check for updates";
 pub const RESTART_NOW: &str = "Restart now";
 pub const LATER: &str = "Later";
-pub const UP_TO_DATE: &str = "You have the latest version.";
-pub const CHECK_FAILED: &str = "Couldn't check for updates. Try again later.";
+/// Said only after reading a signed feed that has nothing newer here. The same words as the Mac app (UpdateCore.swift).
+pub const UP_TO_DATE: &str = "You're up to date.";
+/// No feed (404), no network, a sign-in page, a server error, or a feed or download that doesn't check out.
+pub const CHECK_FAILED: &str = "Couldn't check for updates. Check your internet connection and try again later.";
 
 /// "Context Capsule 0.2.0 is ready. Restart to update."
 pub fn ready_message(version: &str) -> String {
@@ -940,6 +942,47 @@ mod tests {
         assert_eq!(u.check(), Outcome::Failed(UpdateError::BadSignature));
         assert!(!hits.lock().unwrap().iter().any(|h| h == "https://dl/new"), "only the feed and its signature were fetched");
         assert!(!dir.join("new.AppImage").exists());
+        std::fs::remove_dir_all(&dir).unwrap();
+    }
+
+    /// Never answers: as if the computer were offline.
+    struct Offline;
+
+    impl Downloader for Offline {
+        fn get(&self, _url: &str, _max_bytes: u64) -> Result<Vec<u8>, String> {
+            Err("cannot reach the server".into())
+        }
+    }
+
+    /// "Up to date" only after a signed feed was read: a missing feed (404) or no network says it couldn't check.
+    #[test]
+    fn what_a_check_says() {
+        let k = test_key();
+        let dir = tmp("words");
+        // The feed is missing (404): couldn't check, never "up to date".
+        let o = updater(Fake::default(), &dir, true, &k).check();
+        assert_eq!(o, Outcome::Failed(UpdateError::Network("404".into())));
+        assert_eq!(o.message(), CHECK_FAILED);
+        // The feed is there but its signature is missing: couldn't check.
+        let mut no_sig = served(&k, "0.1.0", "https://dl/new", b"x", None);
+        no_sig.files.remove(&feed_urls(DEFAULT_FEED).1);
+        assert_eq!(updater(no_sig, &dir, true, &k).check().message(), CHECK_FAILED);
+        // No network.
+        let u = Updater::new("0.1.0", Target::Linux, dir.join("config.json"), None, Box::new(Offline), AppLog::stderr_only())
+            .with_key(k.verifying_key().to_bytes());
+        let o = u.check();
+        assert!(matches!(o, Outcome::Failed(UpdateError::Network(_))));
+        assert_eq!(o.message(), CHECK_FAILED);
+        // A signed feed with the same version: up to date.
+        let o = updater(served(&k, "0.1.0", "https://dl/new", b"x", None), &dir, true, &k).check();
+        assert_eq!(o, Outcome::UpToDate);
+        assert_eq!(o.message(), "You're up to date.");
+        // A signed feed with a newer version: it's downloaded and ready.
+        let o = updater(served(&k, "0.2.0", "https://dl/new", b"new", None), &dir, true, &k).check();
+        assert!(matches!(&o, Outcome::Ready(r) if r.version == "0.2.0"));
+        assert_eq!(o.message(), "Context Capsule 0.2.0 is ready. Restart to update.");
+        // No codes or jargon in the words people see.
+        assert!(!CHECK_FAILED.contains("404") && !CHECK_FAILED.to_lowercase().contains("http"));
         std::fs::remove_dir_all(&dir).unwrap();
     }
 

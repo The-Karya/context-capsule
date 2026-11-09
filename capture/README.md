@@ -202,7 +202,9 @@ be Context Capsule, say that version, and be validly signed by the same signer a
 app aside, moves the new one in, quits, and a tiny shell script reopens it. Never while
 contextualizing or during a voice note. Any failure keeps the current version and is logged
 in app.log; you're told only if you clicked Check for Updates. `"auto_update": false` (Settings →
-Update automatically) stops the daily check. A 404 (no release yet) counts as "up to date".
+Update automatically) stops the daily check. "You're up to date" only after a signed feed was read;
+a missing feed (404), no network or a sign-in page says "Couldn't check for updates. Check your internet
+connection and try again later." (the reason goes in app.log).
 
 Run from the disk image or Downloads, the app asks once: **Move Context Capsule to
 Applications?** (Move / Not now). Move copies it there, puts the old copy in the Trash (not on a
