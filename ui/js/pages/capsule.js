@@ -70,7 +70,7 @@ export function mount(root, app, opts = {}) {
 
     const kind = app.kind();
     const aiName = app.aiName();
-    const go = AI.usesCopy(kind) ? (kind.type === "website" ? `Continue in ${aiName}` : "Copy for your AI") : `Continue in ${aiName}`;
+    const go = AI.usesCopy(kind) ? (kind.type === "other" ? "Copy for your AI" : `Continue in ${aiName}`) : `Continue in ${aiName}`;
     const acts = [button(go, () => actions.continueCapsule(app, { name, path: view.path, text, saved: !!saved }), {
       prominent: true,
       help: AI.usesCopy(kind) ? "Copies the capsule to paste into your AI's chat." : `${aiName} opens and carries on from this capsule.`,

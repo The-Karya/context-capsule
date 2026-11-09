@@ -43,7 +43,7 @@ export const app = {
   week: { seconds: 0, byProject: [] },
   streak: 0,
   weekCapsules: 0,
-  ai: { dayLine: null, working: false, busy: null, note: null },
+  ai: { dayLine: null, working: false, busy: null, note: null, awaiting: null, offering: false },
   // Automatic capsules (auto.status); null until the host answers (older hosts never do: the button stays)
   auto: null,
   page: "home",
@@ -416,6 +416,13 @@ document.addEventListener("drop", async (e) => {
   const f = e.dataTransfer?.files?.[0];
   if (f) actions.received(app, f.name, await f.text());
 });
+
+// Back from your AI after Copy my day, its answer copied: offer to save it. On focus, and every few seconds while
+// the window is in front (a WebView doesn't always hear focus come back to its window).
+window.addEventListener("focus", () => actions.offerAnswer(app));
+setInterval(() => {
+  if (app.ai.awaiting && document.hasFocus()) actions.offerAnswer(app);
+}, 2000);
 
 export { dayKey };
 start();

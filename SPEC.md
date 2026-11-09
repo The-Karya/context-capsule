@@ -244,7 +244,7 @@ Tools:
 | `get_capsule` `{name}` | full text |
 | `import_capsule` `{path}` | copies a received capsule (any file name: `.capsule.md`, `.md`…) into `capsules/` (validates format; "isn't a Context Capsule" otherwise); says when it is a newer or older version of a saved capsule (see "Two versions of a capsule") |
 | `search_capsules` `{query, limit?=8}` | read-only: ranks every saved capsule's `## ` sections by the query's words (stop words dropped; Decisions / Where things stand / Next steps and newer capsules weigh more); returns title, name, kind, date, section and text, each in a `<capsule>` block, cited as *(Pricing page, 19 Oct, Decisions)*; nothing found → says so and points to `get_day_activity` |
-| `export_capsule` `{name, to_path?, format?}` | copies to Desktop (default) or a path; returns the path, ready to email. `format: "html"` (or a `to_path` ending in `.html`): the capsule's web page instead (see "The capsule as a web page") |
+| `export_capsule` `{name, to_path?, format?}` | copies to Desktop (default) or a path, with the note on top (see "Sharing a capsule"); returns the path, ready to email. `format: "html"` (or a `to_path` ending in `.html`): the capsule's web page instead (see "The capsule as a web page") |
 | `compare_capsules` `{a, b}` | read-only: two versions of one capsule (saved names/titles or file paths): which is newer, what changed per section, decisions that differ, and the merged capsule (see "Two versions of a capsule"); saves nothing |
 | `list_projects` | projects with their clues, time spent today, and their capsules |
 | `create_project` `{name, match?}` | adds a project to `projects.json` |
@@ -362,6 +362,18 @@ saved capsule never changes): the system share sheet on a Mac, Copy file elsewhe
 Save a copy…. Nothing found: the same page, nothing marked, one click to share. No AI: plain rules, the same on every
 platform (`spec/share-check.json`: the eight kinds per case, and where each thing is — `{kind, text, start, end}`, offsets
 into the whole file). Capitalised words, @handles, percentages, bare numbers, dates and system paths are not flagged.
+
+**The note on top.** Most people who get a capsule don't have Context Capsule, so every shared copy (Share copy, Copy
+file, Copy text, Save a copy…, and `export_capsule`) starts, right under the front matter and a blank line, with:
+```
+> **This is a Context Capsule: <title>**, from <author>. It holds the context of this work, written for an AI.
+> **To carry on with it:** give this file to your AI (ChatGPT, Claude, Gemini or another) and say "Continue from this capsule." **To read it yourself:** start at In short.
+```
+(", from <author>" only with an `author`.) The share page shows it as part of the copy, and the share check runs on it
+too (a hidden name is `[removed]` there as well). Found again by its first line starting `> **This is a Context
+Capsule`, above the first `## ` section only: never added twice, and taken off when a capsule is opened in Context
+Capsule (the reading view) or imported (`import_capsule`), so the saved capsule is the one that was sent. The same
+words in ui/js/core/capsules.js and mcp/src/capsules.ts, checked by both against `spec/share-note.json`.
 
 Rules (on the body only: a leading `---` front matter block is skipped):
 1. **links** `https?://` up to whitespace, `)`, `>`, `]`; trailing `. , ; :` dropped; then blanked out (same
@@ -507,7 +519,17 @@ that day's notes, and adds a project the AI started once its capsule is saved.
 The apps (Settings → **Connect your AI**) list `clients`, with Connect / a ✓ per app. **Your AI** (a choice in
 Settings) is what **Make today's capsules** opens: an MCP app with the request typed in where it can be, or —
 for any other AI — **Copy my day** (runs `day`, copies `text`, opens the AI's website if chosen) and then
-**Save from clipboard** (runs `save` on the clipboard). Words say "your AI", not "Claude", wherever any AI works.
+**Save from clipboard** (runs `save` on the clipboard). For three hours after Copy my day, when the window is in front
+again (on focus, and every 2 s while it is in front) it reads the clipboard; if that holds an AI's answer — lines
+`=== CAPSULE ===`, not the copied day itself, nor text starting "I use Context Capsule." — it asks once per answer
+"Your AI's 2 capsules are on the clipboard. Save them to Context Capsule?" (**Save** / **Not now**); Save is Save from
+clipboard. Nothing is saved without Save. Words say "your AI", not "Claude", wherever any AI works.
+
+**The ChatGPT app** can be connected (it reads the same `~/.codex/config.toml` as Codex), but it loads Context
+Capsule's tools without giving them to its chats yet (openai/codex#38162, open since Aug 2026). So with Your AI the
+ChatGPT app, Make today's capsules is **Copy my day**, and the app opens on a new chat with the day on the clipboard
+(`ai.open`); Continue from a capsule copies it the same way. Settings says why under Your AI. The list of such apps is
+`copyApps` (ui), `COPY_APPS` (Rust core), `YourAI.copyApps` (Swift): today only `chatgpt`. Codex is not on it.
 Nothing goes to the internet except what the person pastes into their AI themselves.
 
 ## Timeline (all recorders)
@@ -580,14 +602,39 @@ says what it needs ("Needs Claude Code, Codex or Gemini CLI on this computer") a
 **config.json:** `"make_capsules": "auto" | "click"` (missing = `"click"`). The time is `remind_at` (`"18:00"`; missing
 or `false` = 18:00 for Automatically). In Automatically mode with a tool installed, the evening reminder isn't shown.
 
-**The tools**, found by `context-capsule-mcp agents` (`{"agents":[{"id","name"}],"use":{"id","name"}|null}`) on the
-PATH and in the usual install folders (apps don't get the shell's PATH: `~/.local/bin`, `~/.claude/local`,
-`/opt/homebrew/bin`, `/usr/local/bin`, npm / bun / volta / nvm folders; Windows `%APPDATA%\npm`, `.exe` before `.cmd`).
-Order: **Claude Code** (`claude`), **Codex** (`codex`), **Gemini CLI** (`gemini`); the one matching Your AI
-(`codex`/`chatgpt` → Codex, `gemini` → Gemini CLI, `claude` → Claude Code) goes first.
+**The tools**, found by `context-capsule-mcp agents` on the PATH and in the usual install folders (apps don't get
+the shell's PATH: `~/.local/bin`, `~/.claude/local`, `/opt/homebrew/bin`, `/usr/local/bin`, npm / bun / volta / nvm
+folders; Windows `%APPDATA%\npm`, `%ProgramFiles%\nodejs` for node, `.exe` before `.cmd`). Order: **Claude Code**
+(`claude`), **Codex** (`codex`), **Gemini CLI** (`gemini`); the one matching Your AI (`codex`/`chatgpt` → Codex,
+`gemini` → Gemini CLI, `claude` → Claude Code) goes first.
 
-**One run** = `context-capsule-mcp make [--date D] [--by auto|click]` → `{"ok","day","status","ai","name","capsules","reason"}`
+`agents` also asks each one whether it is signed in, with its own status command (Claude Code `auth status`: its
+`loggedIn`; Codex `login status`: exit 0), 15 s at most each, never keeping what they print; Gemini CLI has none, so
+`~/.gemini/oauth_creds.json` or a key in the environment (`GEMINI_API_KEY`, `GOOGLE_API_KEY`,
+`GOOGLE_GENAI_USE_VERTEXAI`, `GOOGLE_APPLICATION_CREDENTIALS`) means signed in, else it can't tell (`null`):
+```json
+{"agents": [{"id": "claude-code", "name": "Claude Code", "ready": false, "reason": "Claude Code isn't signed in. Open it once and sign in."},
+            {"id": "codex", "name": "Codex", "ready": true}],
+ "use": {"id": "codex", "name": "Codex"}}
+```
+`use` = the first in the order above that isn't `ready: false`. None: `use` is null and, when tools are here,
+`problem` says why in plain words (each one's reason). The window shows it ahead of time: Settings → Every day
+"Can't make them automatically yet: <problem>" (instead of "Needs…"), Home "Can't make them in the background:
+<problem>"; the button then works as in "Any AI".
+
+**Starting a tool on Windows:** an npm launcher (`codex.cmd`, `gemini.cmd`, whose last line runs
+`"%_prog%" "%dp0%\node_modules\<package>\<script>.js" %*`) is started as node (its own `node.exe` next to it, else the
+one found) and that script, so the request reaches it whole: cmd.exe can't pass text with line breaks or quotes
+safely, and every request has them. Another `.cmd` goes through `cmd.exe /d /s /c` with every argument quoted, or
+doesn't start when an argument has `"`, `%` or a line break.
+
+**One run** = `context-capsule-mcp make [--date D] [--by auto|click]` → `{"ok","day","status","ai","name","capsules","reason","note"}`
 (`status`: `done`, `failed`, `running` = one is already going, `none` = no tool, `nothing` = nothing recorded that day).
+It tries the tools in the order above: one that `agents` says isn't signed in is skipped; one that couldn't start,
+isn't signed in or is out of usage (it never got to work) hands over to the next; any other failure (an error while
+working, too long, no internet, nothing saved) ends the run. Done after skipping some: `note` says why, e.g. "Claude
+Code isn't signed in. Open it once and sign in. So Codex made them." Failed: `reason` has each tool's reason, in the
+order tried. Every try gets its own pair of app.log lines; a skip, one line with its kind (`skipped (signin)`).
 It runs the tool headless in `<data>/auto/` (an empty folder: no project files) with the make_day_capsules request for
 that date, at low priority, stopped after **10 minutes**. The tool gets **only** our MCP server, started as
 `context-capsule-mcp serve --make-only`, which has only the tools that write a day's capsules (prepare_day,
@@ -609,7 +656,8 @@ Done = the tool ended well and at least one `.capsule.md` was saved or changed; 
 ```
 `auto_day` = the day an automatic run last started (set when it starts, so it never starts twice for a day, even if
 it was cut off). `last.status` `running` (with `pid`), `done` or `failed` (with `reason`: plain words, never content,
-e.g. "Claude Code isn't signed in. Open it once and sign in."). A `running` entry is over when its `pid` is gone or
+e.g. "Claude Code isn't signed in. Open it once and sign in."), and `done` may have `note` (see One run). `ai` is the
+tool at work (while running, the one being tried). A `running` entry is over when its `pid` is gone or
 after 15 minutes. app.log gets one line when a run starts and one when it ends (tool, capsule count, minutes).
 
 **When (the apps, every minute, at launch and when the computer wakes):** start an automatic run when all hold:
@@ -624,5 +672,5 @@ cases in both test suites.
 
 **The window:** bridge `auto.status`, `auto.run`, event `auto` (ui/BRIDGE.md). Capsules page header and Home's card
 show **Make today's capsules** (When I click, or no tool), or a quiet line — "Next at 6:00 PM" with **Make
-now**, "Made automatically at 6:04 PM", "Couldn't make them: <reason>" with **Try again** — and, while a run goes,
+now**, "Made automatically at 6:04 PM" (with its `note`, when there is one), "Couldn't make them: <reason>" with **Try again** — and, while a run goes,
 "Making today's capsules…" with a spinner (buttons off).

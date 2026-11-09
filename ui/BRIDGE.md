@@ -152,10 +152,11 @@ Has code: Swift `Claude.open`, `AIState.open`, `appURL`; Rust windows/linux `lin
 ```json
 { "mode": "auto" | "click",             // config make_capsules (missing = "click")
   "at": "18:00",                         // config remind_at, "18:00" when missing or false
-  "agent": { "id": "claude-code", "name": "Claude Code" } | null,   // the tool a run would use; null = none here
+  "agent": { "id": "claude-code", "name": "Claude Code" } | null,   // the tool a run would use; null = none here, or none can now
+  "problem": "Codex isn't signed in. Open it once and sign in.",    // only with agent null and tools here: why none can
   "running": false,                      // a run is going (this app's, or one in auto.json whose pid is alive)
   "autoDay": "2026-10-23" | null,        // auto.json auto_day
-  "last": { "day", "by", "status", "ai", "started_at", "finished_at", "capsules", "reason" } | null }  // auto.json last
+  "last": { "day", "by", "status", "ai", "started_at", "finished_at", "capsules", "reason", "note" } | null }  // auto.json last
 ```
 The host finds the tools with `context-capsule-mcp agents` (at launch, then at most every 5 minutes, and after
 `config.set ai`). **`auto.run`** `{}` → `{ "started": true }`, or error `"none"` (no tool: the page uses Your AI as

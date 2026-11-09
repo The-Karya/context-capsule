@@ -132,7 +132,7 @@ enum AIBridge {
     }
     /// Automatic capsules: the AI command-line tools here (`agents`), and one run (`make`, up to 10 minutes).
     static func agents(_ done: @escaping (Result<Data, Failure>) -> Void) {
-        run(["agents"], timeout: 15, done: done)
+        run(["agents"], timeout: 30, done: done)
     }
     static func make(date: String, by: String, _ done: @escaping (Result<Data, Failure>) -> Void) {
         run(["make", "--date", date, "--by", by], timeout: 12 * 60, lowPriority: true, done: done)
@@ -263,6 +263,7 @@ final class AIState: ObservableObject {
 
     /// Make today's capsules, the way Your AI works.
     func makeTodaysCapsules() {
+        if kind.usesCopy { return copyMyDay() }
         switch kind {
         case .claude: Claude.makeTodaysCapsules()
         case .app: open(ClaudeLink.dayPrompt, why: "to read your day", again: "click Make today's capsules again")

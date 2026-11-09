@@ -1,6 +1,6 @@
 // context-capsule — mcp: Automatic capsules — finding the AI tools, the restricted command lines, auto.json, and a
 // whole `make` run with a stand-in tool (a small script that saves a capsule, or fails, or hangs)
-import { afterAll, beforeAll, describe, expect, test } from "bun:test";
+import { afterAll, beforeAll, beforeEach, describe, expect, test } from "bun:test";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
@@ -16,9 +16,14 @@ import {
   changedCount,
   failureKind,
   failureReason,
+  checkAgent,
   findAgents,
+  findProgram,
+  inOrder,
   isRunning,
+  launchLine,
   make,
+  npmShimScript,
   pickAgent,
   readAuto,
   windowsCmdLine,
@@ -102,6 +107,56 @@ describe("restricted command lines", () => {
   });
 });
 
+/** An npm launcher, exactly as npm writes it on Windows, for `node_modules\<pkg>\bin\<pkg>.js`. */
+const npmCmd = (pkg: string) =>
+  `@ECHO off\r\nGOTO start\r\n:find_dp0\r\nSET dp0=%~dp0\r\nEXIT /b\r\n:start\r\nSETLOCAL\r\nCALL :find_dp0\r\n\r\n` +
+  `IF EXIST "%dp0%\\node.exe" (\r\n  SET "_prog=%dp0%\\node.exe"\r\n) ELSE (\r\n  SET "_prog=node"\r\n  SET PATHEXT=%PATHEXT:;.JS;=;%\r\n)\r\n\r\n` +
+  `endLocal & goto #_undefined_# 2>NUL || title %COMSPEC% & "%_prog%"  "%dp0%\\node_modules\\${pkg}\\bin\\${pkg}.js" %*\r\n`;
+
+describe("starting a tool on Windows", () => {
+  let dir: string;
+  const win = (env: Record<string, string> = {}) => ({ os: "windows" as const, home: dir, env: { PATH: path.join(dir, "nodejs"), ...env } });
+  beforeAll(() => {
+    dir = fs.mkdtempSync(path.join(os.tmpdir(), "cc-npm-"));
+    fs.mkdirSync(path.join(dir, "node_modules", "codex", "bin"), { recursive: true });
+    fs.writeFileSync(path.join(dir, "node_modules", "codex", "bin", "codex.js"), "");
+    fs.writeFileSync(path.join(dir, "codex.cmd"), npmCmd("codex"));
+    fs.writeFileSync(path.join(dir, "other.cmd"), "@echo off\r\nsomething.exe %*\r\n");
+    fs.mkdirSync(path.join(dir, "nodejs"));
+    fs.writeFileSync(path.join(dir, "nodejs", "node.exe"), "");
+  });
+
+  test("an npm launcher runs as node and its script, so a request with line breaks and quotes gets there whole", () => {
+    const script = path.join(dir, "node_modules", "codex", "bin", "codex.js");
+    expect(npmShimScript(path.join(dir, "codex.cmd"))).toBe(script);
+    const request = 'Turn my work into capsules.\n\n1. Call prepare_day with date "2026-10-19". 100%';
+    const line = launchLine(path.join(dir, "codex.cmd"), ["exec", request], win())!;
+    expect(line).toEqual({ command: path.join(dir, "nodejs", "node.exe"), args: [script, "exec", request], verbatim: false });
+  });
+
+  test("its own node.exe next to it first; without node, cmd.exe (refused when the request isn't safe there)", () => {
+    fs.writeFileSync(path.join(dir, "node.exe"), "");
+    expect(launchLine(path.join(dir, "codex.cmd"), ["x"], win())!.command).toBe(path.join(dir, "node.exe"));
+    fs.rmSync(path.join(dir, "node.exe"));
+    const nowhere = { os: "windows" as const, home: path.join(dir, "none"), env: { PATH: path.join(dir, "none"), ProgramFiles: path.join(dir, "none") } };
+    expect(launchLine(path.join(dir, "codex.cmd"), ["exec", "a b"], nowhere)!.verbatim).toBe(true);
+    expect(launchLine(path.join(dir, "codex.cmd"), ["exec", "two\nlines"], nowhere)).toBeNull();
+  });
+
+  test("another .cmd goes through cmd.exe; a program, and anything off Windows, as it is", () => {
+    expect(npmShimScript(path.join(dir, "other.cmd"))).toBeNull();
+    expect(launchLine(path.join(dir, "other.cmd"), ["a"], win())!.verbatim).toBe(true);
+    expect(launchLine("C:\\bin\\claude.exe", ["-p", "x\ny"], win())).toEqual({ command: "C:\\bin\\claude.exe", args: ["-p", "x\ny"], verbatim: false });
+    expect(launchLine("/bin/codex.cmd", ["x"], { ...win(), os: "linux" })!.command).toBe("/bin/codex.cmd");
+  });
+
+  test("node is found in Program Files when the app has no shell PATH", () => {
+    fs.mkdirSync(path.join(dir, "pf", "nodejs"), { recursive: true });
+    fs.writeFileSync(path.join(dir, "pf", "nodejs", "node.exe"), "");
+    expect(findProgram("node", { os: "windows", home: dir, env: { PATH: "", ProgramFiles: path.join(dir, "pf") } })).toBe(path.join(dir, "pf", "nodejs", "node.exe"));
+  });
+});
+
 describe("finding the tools", () => {
   let dir: string;
   beforeAll(() => {
@@ -120,6 +175,7 @@ describe("finding the tools", () => {
     expect(pickAgent([agent("claude-code"), agent("codex")], "chatgpt")!.id).toBe("codex");
     expect(pickAgent([agent("claude-code"), agent("codex")], "cursor")!.id).toBe("claude-code");
     expect(pickAgent([], "claude")).toBeNull();
+    expect(inOrder([agent("claude-code"), agent("codex"), agent("gemini")], "gemini").map((a) => a.id)).toEqual(["gemini", "claude-code", "codex"]);
   });
 
   test("in the usual install folders when the app has no shell PATH", () => {
@@ -277,6 +333,114 @@ describe.if(unix)("a whole run with a stand-in tool", () => {
     const r = await make({ day, by: "click", agent: tool("exit 0") });
     expect(r.status).toBe("running");
   });
+});
+
+describe("trying the next tool (stand-ins started like the real ones: an npm launcher on Windows)", () => {
+  let home: string;
+  let bin: string;
+  let n = 0;
+  const day = "2026-10-19";
+  /** A Node script that notes it ran and what it got, then does `body`. */
+  const tool = (id: Agent["id"], name: string, body: string): Agent => {
+    const pkg = `fake${n++}`;
+    const js =
+      `const fs = require("fs"), path = require("path");\nconst home = process.env.CONTEXT_CAPSULE_HOME;\n` +
+      `fs.appendFileSync(path.join(home, "ran.txt"), "${pkg}\\n");\n` +
+      `fs.writeFileSync(path.join(home, "${pkg}-args.json"), JSON.stringify(process.argv.slice(2)));\n${body}\n`;
+    if (process.platform === "win32") {
+      fs.mkdirSync(path.join(bin, "node_modules", pkg, "bin"), { recursive: true });
+      fs.writeFileSync(path.join(bin, "node_modules", pkg, "bin", `${pkg}.js`), js);
+      fs.writeFileSync(path.join(bin, `${pkg}.cmd`), npmCmd(pkg));
+      return { id, name, path: path.join(bin, `${pkg}.cmd`) };
+    }
+    fs.writeFileSync(path.join(bin, `${pkg}.js`), js);
+    fs.writeFileSync(path.join(bin, pkg), `#!/bin/sh\nexec node "${path.join(bin, `${pkg}.js`)}" "$@"\n`, { mode: 0o755 });
+    return { id, name, path: path.join(bin, pkg) };
+  };
+  const saves = (file: string) => `fs.mkdirSync(path.join(home, "capsules"), { recursive: true });\nfs.writeFileSync(path.join(home, "capsules", "${file}.capsule.md"), "x");`;
+  // each tool's own sign-in words (only those count as signed out)
+  const LOGIN = `console.error("Please run /login"); process.exit(1);`;
+  const CODEX_LOGIN = `console.error("Please log out and sign in again."); process.exit(1);`;
+  const LIMIT = `console.error("Claude AI usage limit reached"); process.exit(1);`;
+  const ran = () => fs.readFileSync(path.join(home, "ran.txt"), "utf8").trim().split("\n");
+  beforeEach(() => {
+    home = tempHome();
+    bin = fs.mkdtempSync(path.join(os.tmpdir(), "cc-tools-"));
+    n = 0;
+    writeFixtureSession(home, "20261019-100000");
+  });
+
+  test("the whole request reaches the tool, line breaks and quotes too", async () => {
+    const a = tool("claude-code", "Claude Code", saves("site"));
+    const r = await make({ day, by: "click", agent: a });
+    expect(r).toMatchObject({ ok: true, status: "done", capsules: 1 });
+    const args: string[] = JSON.parse(fs.readFileSync(path.join(home, "fake0-args.json"), "utf8"));
+    const request = after(args, "-p")!;
+    expect(request).toContain(`1. Call prepare_day with date "${day}".`);
+    expect(request).toContain("\n\nYou are running on your own");
+  }, 20000);
+
+  test("one that isn't signed in is skipped; the next makes them and says why", async () => {
+    const first = tool("claude-code", "Claude Code", saves("never"));
+    const second = tool("codex", "Codex", saves("site"));
+    const check = async (a: Agent) => (a === first ? { ready: false, kind: "signed-out" as const, reason: "Claude Code isn't signed in. Open it once and sign in." } : { ready: true });
+    const r = await make({ day, by: "click", agents: [first, second], check });
+    expect(r).toMatchObject({ ok: true, ai: "codex", capsules: 1, note: "Claude Code isn't signed in. Open it once and sign in. So Codex made them." });
+    expect(ran()).toEqual(["fake1"]);
+    expect(readAuto().last).toMatchObject({ status: "done", ai: "codex", note: r.note });
+  }, 20000);
+
+  test("one that fails before working (signed out) hands over to the next", async () => {
+    const r = await make({ day, by: "click", agents: [tool("claude-code", "Claude Code", LOGIN), tool("codex", "Codex", saves("site"))] });
+    expect(r).toMatchObject({ ok: true, ai: "codex", note: "Claude Code isn't signed in. Open it once and sign in. So Codex made them." });
+    expect(ran()).toEqual(["fake0", "fake1"]);
+  }, 20000);
+
+  test("one that fails while working stops the run: the next isn't tried", async () => {
+    const r = await make({ day, by: "click", agents: [tool("claude-code", "Claude Code", "process.exit(3);"), tool("codex", "Codex", saves("site"))] });
+    expect(r).toMatchObject({ ok: false, status: "failed", ai: "claude-code", reason: "Couldn't make the capsules. Try again, or open Claude Code to check it's working." });
+    expect(ran()).toEqual(["fake0"]);
+  }, 20000);
+
+  test("an error that only mentions sign-in words isn't a sign-in: the next isn't tried", async () => {
+    const r = await make({ day, by: "click", agents: [tool("claude-code", "Claude Code", `console.error("missing credentials.json fixture"); process.exit(17);`), tool("codex", "Codex", saves("site"))] });
+    expect(r).toMatchObject({ ok: false, status: "failed", ai: "claude-code", reason: "Couldn't make the capsules. Try again, or open Claude Code to check it's working." });
+    expect(ran()).toEqual(["fake0"]);
+  }, 20000);
+
+  test("one that saved some before running out of usage: the next isn't tried, so nothing is made twice", async () => {
+    const r = await make({ day, by: "click", agents: [tool("claude-code", "Claude Code", saves("half") + "\n" + LIMIT), tool("codex", "Codex", saves("site"))] });
+    expect(r).toMatchObject({ ok: false, status: "failed", ai: "claude-code", capsules: 1, reason: "Claude Code has reached its usage limit. Try again later." });
+    expect(ran()).toEqual(["fake0"]);
+  }, 20000);
+
+  test("out of usage before saving anything: the next makes them", async () => {
+    const r = await make({ day, by: "click", agents: [tool("claude-code", "Claude Code", LIMIT), tool("codex", "Codex", saves("site"))] });
+    expect(r).toMatchObject({ ok: true, ai: "codex", note: "Claude Code has reached its usage limit. Try again later. So Codex made them." });
+    expect(ran()).toEqual(["fake0", "fake1"]);
+  }, 20000);
+
+  test("none can: every reason, in the order tried", async () => {
+    const r = await make({ day, by: "click", agents: [tool("claude-code", "Claude Code", LOGIN), tool("codex", "Codex", CODEX_LOGIN)] });
+    expect(r).toMatchObject({ ok: false, status: "failed", ai: "codex" });
+    expect(r.reason).toBe("Claude Code isn't signed in. Open it once and sign in. Codex isn't signed in. Open it once and sign in.");
+    expect(readAuto().last).toMatchObject({ status: "failed", reason: r.reason });
+  }, 20000);
+
+  test("signed in or not, from each tool's own status command", async () => {
+    const ctx = { os: (process.platform === "win32" ? "windows" : "linux") as "windows" | "linux", home, env: process.env };
+    expect(await checkAgent(tool("claude-code", "Claude Code", `console.log(JSON.stringify({ loggedIn: true }));`), ctx)).toEqual({ ready: true });
+    expect(await checkAgent(tool("claude-code", "Claude Code", `console.log(JSON.stringify({ loggedIn: false }));`), ctx)).toMatchObject({ ready: false, kind: "signed-out" });
+    expect(await checkAgent(tool("codex", "Codex", "process.exit(1);"), ctx)).toMatchObject({ ready: false, reason: "Codex isn't signed in. Open it once and sign in." });
+    expect(await checkAgent(tool("codex", "Codex", ""), ctx)).toEqual({ ready: true });
+    expect(await checkAgent({ id: "codex", name: "Codex", path: path.join(bin, "missing") }, ctx)).toMatchObject({ ready: false, kind: "start" });
+    const gemini = { id: "gemini" as const, name: "Gemini CLI", path: "unused" };
+    expect(await checkAgent(gemini, { ...ctx, env: {} })).toEqual({ ready: null });
+    expect(await checkAgent(gemini, { ...ctx, env: { GEMINI_API_KEY: "k" } })).toEqual({ ready: true });
+    // what the status commands got
+    expect(JSON.parse(fs.readFileSync(path.join(home, "fake0-args.json"), "utf8"))).toEqual(["auth", "status"]);
+    expect(JSON.parse(fs.readFileSync(path.join(home, "fake2-args.json"), "utf8"))).toEqual(["login", "status"]);
+  }, 30000);
 });
 
 describe("serve --make-only", () => {

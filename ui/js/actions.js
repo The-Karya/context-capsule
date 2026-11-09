@@ -95,8 +95,12 @@ export async function copyDay(app, date) {
       return;
     }
     await call("clipboard.write", { text: day.text });
+    // when you come back with the AI's answer copied, the window offers to save it (offerAnswer)
+    app.ai.awaiting = { since: Date.now(), copied: day.text, offered: "" };
     const kind = app.kind();
     if (kind.type === "website") call("open.url", { url: kind.url }).catch(() => {});
+    // an app that makes capsules this way (the ChatGPT app): it opens, the day still on the clipboard
+    if (kind.type === "app") call("ai.open", { id: kind.id, prompt: day.text }).catch(() => {});
     app.ai.dayLine = AI.pasteLine;
     toast(AI.pasteLine);
   } catch (e) {
@@ -121,6 +125,7 @@ export async function saveFromClipboard(app) {
     const result = AI.parseSave(await mcp("save", { input: text }));
     if (result.saved.length) {
       app.ai.dayLine = null;
+      app.ai.awaiting = null;
       await app.loadCapsules();
       await app.loadStats();
       app.refresh("capsules");
@@ -132,6 +137,29 @@ export async function saveFromClipboard(app) {
   } finally {
     app.ai.working = false;
     changed(app);
+  }
+}
+
+/** Back in the window after Copy my day, with your AI's answer copied: offer to save it, once per answer. Only
+ * looks at the clipboard in the hours after Copy my day, while the window is in front; saves only on Save. */
+export async function offerAnswer(app) {
+  const w = app.ai.awaiting;
+  if (!w || app.ai.working || app.ai.offering) return;
+  if (Date.now() - w.since > AI.ANSWER_WAIT_MS) {
+    app.ai.awaiting = null;
+    return;
+  }
+  app.ai.offering = true;
+  try {
+    const text = (await call("clipboard.read").catch(() => null))?.text || "";
+    const n = AI.answerCount(text, w.copied);
+    if (!n || text === w.offered) return;
+    w.offered = text;
+    const o = AI.answerOffer(n);
+    const i = await alert({ title: o.title, message: o.message, buttons: [{ text: "Save", kind: "default" }, { text: "Not now", kind: "cancel" }] });
+    if (i === 0) await saveFromClipboard(app);
+  } finally {
+    app.ai.offering = false;
   }
 }
 
@@ -204,7 +232,8 @@ export async function received(app, path, text) {
     await alert({ title: "This isn't a capsule", message: `${name} isn't a Context Capsule file.` });
     return;
   }
-  app.read({ path, text });
+  // the note a shared copy starts with is for people without Context Capsule
+  app.read({ path, text: Caps.withoutShareNote(text) });
 }
 
 /** The reading view's "Continue in <AI>": your AI carries on from the capsule (an AI without the app gets it pasted). */
@@ -213,6 +242,7 @@ export async function continueCapsule(app, { name, path, text, saved }) {
   if (AI.usesCopy(kind)) {
     await call("clipboard.write", { text: Caps.pastePrompt(text) }).catch(() => {});
     if (kind.type === "website") call("open.url", { url: kind.url }).catch(() => {});
+    if (kind.type === "app") call("ai.open", { id: kind.id, prompt: Caps.pastePrompt(text) }).catch(() => {});
     toast(`Copied. Paste it into ${app.aiName()}.`);
     return;
   }
@@ -234,7 +264,7 @@ export async function readCapsule(file) {
 // ---------- sharing ----------
 
 const SHARED = {
-  "copy-file": "Copied. Paste it in WhatsApp, Slack, email or any chat.",
+  "copy-file": "Copied. Paste it in WhatsApp, Slack, email or any chat. It says how to use it, even without Context Capsule.",
   "copy-text": "Text copied. Paste it into a chat, or into your AI.",
 };
 
@@ -243,7 +273,7 @@ export function openShare(app, c) {
   app.go("share", { file: c.file });
 }
 
-/** Share a capsule: `text` is the copy from the share page (undefined: the file as it is). */
+/** Share a capsule: `text` is the copy from the share page (with its note on top; undefined: the file as it is). */
 export async function share(app, c, how, text) {
   if (how === "reveal") return call("capsule.share", { file: c.file, how }).catch(() => {});
   try {

@@ -87,6 +87,26 @@ test("save summary", () => {
   expect(A.saveSummary({ saved: [r.saved[0], r.saved[0]], refused: [] }).title).toBe("Saved 2 capsules");
 });
 
+test("an AI's answer on the clipboard: counted by its capsule lines; the day we copied isn't one", () => {
+  const answer = "=== CAPSULE ===\n---\ntitle: Site — 2026-10-23\n---\n## In short\nx\n=== END ===\n\n**=== CAPSULE ===**\n## In short\ny\n=== END ===";
+  expect(A.answerCount(answer)).toBe(2);
+  expect(A.answerCount(answer, answer)).toBe(0);
+  expect(A.answerCount("I use Context Capsule. It recorded what I did…\n=== CAPSULE ===\n---")).toBe(0);
+  expect(A.answerCount("just some text")).toBe(0);
+  expect(A.answerCount("")).toBe(0);
+  expect(A.answerOffer(1)).toEqual({ title: "Your AI's capsule is on the clipboard", message: "Save it to Context Capsule?" });
+  expect(A.answerOffer(3).title).toBe("Your AI's 3 capsules are on the clipboard");
+  expect(A.pasteLine).toContain("come back");
+});
+
+test("the ChatGPT app makes capsules with Copy my day (its chats can't use the tools yet); Codex and the rest don't", () => {
+  expect(A.usesCopy(A.kindOf("chatgpt"))).toBe(true);
+  expect(A.usesCopy(A.kindOf("codex"))).toBe(false);
+  expect(A.usesCopy(A.kindOf("cursor"))).toBe(false);
+  expect(A.settingsLine(A.kindOf("chatgpt"), "ChatGPT")).toContain("copies your day and opens ChatGPT");
+  expect(A.makeLine(A.kindOf("chatgpt"), "ChatGPT")).toBe("Copy your day, paste it into ChatGPT, then save its reply here.");
+});
+
 test("Codex and ChatGPT share one connection, and both rows say so", () => {
   const codex = { id: "codex", name: "Codex", installed: true, connected: true, how: "config" };
   const chatgpt = { id: "chatgpt", name: "ChatGPT", installed: true, connected: true, how: "config" };

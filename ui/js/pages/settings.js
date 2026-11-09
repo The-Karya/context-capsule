@@ -366,12 +366,13 @@ export function mount(root, app) {
     }, 180);
     const card = h("div", { class: "rows" }, row(Auto.words.makeCapsules, mode));
     if (auto) {
-      if (st && !st.agent) {
+      const problem = Auto.settingsProblem(st);
+      if (problem) {
         card.append(
           h(
             "div",
             { class: "card-note flush" },
-            Auto.words.needs + " ",
+            problem + " ",
             h("button", { class: "link", type: "button", onclick: () => call("open.url", { url: Auto.words.learnMoreUrl }).catch(() => {}) }, Auto.words.learnMore),
           ),
         );

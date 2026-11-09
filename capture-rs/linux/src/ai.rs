@@ -356,6 +356,7 @@ pub fn make_todays_capsules(window: &WindowLink, notifier: &Notifier, tx: Option
     std::thread::spawn(move || {
         ensure_loaded();
         match state().kind() {
+            k if k.uses_copy() => copy_day_alone(&n),
             YourAi::Claude => reminder::claude_with(&n, DAY_PROMPT),
             YourAi::App(_) => open_alone(&n, DAY_PROMPT, WHY_DAY, AGAIN_DAY),
             YourAi::Website(_) | YourAi::Other => copy_day_alone(&n),

@@ -60,7 +60,16 @@ export function searchDirs(c: FindCtx): string[] {
   if (c.os === "windows") {
     const appData = c.env.APPDATA?.trim() || j("AppData", "Roaming");
     const local = c.env.LOCALAPPDATA?.trim() || j("AppData", "Local");
-    dirs.push(j(".local", "bin"), path.join(appData, "npm"), j(".bun", "bin"), path.join(local, "Volta", "bin"), path.join(local, "Programs", "claude"));
+    const programs = c.env.ProgramFiles?.trim() || "C:\\Program Files";
+    dirs.push(
+      j(".local", "bin"),
+      path.join(appData, "npm"),
+      j(".bun", "bin"),
+      path.join(local, "Volta", "bin"),
+      path.join(local, "Programs", "claude"),
+      // node, for the npm launchers (see launchLine)
+      path.join(programs, "nodejs"),
+    );
   } else {
     dirs.push(j(".local", "bin"), j(".claude", "local"), "/opt/homebrew/bin", "/usr/local/bin", "/usr/bin", j(".npm-global", "bin"), j(".bun", "bin"), j(".volta", "bin"), j("bin"));
     // nvm: every installed Node's bin, newest name last (globals live with the Node they were installed with)
@@ -104,8 +113,51 @@ export function findAgents(c: FindCtx = defaultFindCtx()): Agent[] {
 
 /** Which one to use: the one matching Your AI (config "ai": codex / gemini / claude) if installed, else the first. */
 export function pickAgent(agents: Agent[], yourAI?: unknown): Agent | null {
+  return inOrder(agents, yourAI)[0] ?? null;
+}
+
+/** The order to try them in: Your AI's own first, then the rest as found. */
+export function inOrder(agents: Agent[], yourAI?: unknown): Agent[] {
   const want: AgentID | null = yourAI === "codex" || yourAI === "chatgpt" ? "codex" : yourAI === "gemini" ? "gemini" : yourAI === "claude" ? "claude-code" : null;
-  return agents.find((a) => a.id === want) ?? agents[0] ?? null;
+  return [...agents.filter((a) => a.id === want), ...agents.filter((a) => a.id !== want)];
+}
+
+// ---------- starting them on Windows ----------
+
+/** The Node script an npm launcher (`codex.cmd`, `gemini.cmd`) runs, or null when the file isn't one. */
+export function npmShimScript(cmdFile: string): string | null {
+  let text: string;
+  try {
+    text = fs.readFileSync(cmdFile, "utf8");
+  } catch {
+    return null;
+  }
+  const m = /"%dp0%\\([^"%\r\n]+\.[cm]?js)"\s+%\*/i.exec(text);
+  if (!m) return null;
+  const script = path.join(path.dirname(cmdFile), ...m[1]!.split(/[\\/]/));
+  return isFile(script) ? script : null;
+}
+
+export interface Launch {
+  command: string;
+  args: string[];
+  /** cmd.exe's line, already quoted: passed as it is. */
+  verbatim: boolean;
+}
+
+/** How to start a program. On Windows an npm launcher (.cmd) is started as node and its script, so the request
+ * reaches the tool whole: through cmd.exe a request with line breaks or quotes can't be passed safely (and every
+ * request has them). Another .cmd goes through cmd.exe, or is refused (null) when that isn't safe. */
+export function launchLine(command: string, args: string[], c: FindCtx = defaultFindCtx()): Launch | null {
+  if (c.os !== "windows" || !/\.(cmd|bat)$/i.test(command)) return { command, args, verbatim: false };
+  const script = npmShimScript(command);
+  if (script) {
+    const own = path.join(path.dirname(command), "node.exe");
+    const node = isFile(own) ? own : findProgram("node", c);
+    if (node) return { command: node, args: [script, ...args], verbatim: false };
+  }
+  const line = windowsCmdLine({ command, args, files: [], env: {} });
+  return line ? { ...line, verbatim: true } : null;
 }
 
 // ---------- the restricted command ----------
@@ -289,6 +341,8 @@ export interface Run {
   capsules?: number;
   /** Plain words, never content. */
   reason?: string;
+  /** Done with another tool than the first choice: why ("Claude Code isn't signed in…, so Codex made them."). */
+  note?: string;
   pid?: number;
 }
 
@@ -376,7 +430,7 @@ export function recordedOn(day: string): boolean {
 
 /** Why a run failed, as far as can be told for sure. Only exact messages each tool is known to print count;
  * anything else is "error", so a run that failed for another reason is never blamed on the sign-in. */
-export type FailureKind = "timeout" | "signed-out" | "limit" | "offline" | "no-capsules" | "error";
+export type FailureKind = "start" | "timeout" | "signed-out" | "limit" | "offline" | "no-capsules" | "error";
 
 /** Each tool's own words (or exit code) for "not signed in" and "out of usage", and nothing broader. */
 const SIGNALS: Record<AgentID, { signedOut: RegExp[]; limit: RegExp[]; signedOutCode?: number }> = {
@@ -417,6 +471,8 @@ export function failureKind(agent: AgentID, code: number | null, output: string,
 /** Plain words for a failed run. */
 export function failureReason(kind: FailureKind, name: string): string {
   switch (kind) {
+    case "start":
+      return `${name} couldn't start.`;
     case "timeout":
       return `${name} took longer than 10 minutes, so it was stopped.`;
     case "signed-out":
@@ -432,6 +488,96 @@ export function failureReason(kind: FailureKind, name: string): string {
   }
 }
 
+/** Worth trying the next tool: this one never got to work (it couldn't start, isn't signed in or is out of usage)
+ * and saved nothing, so the next one can't make a second copy of a capsule. */
+export const triesNext = (kind: FailureKind, saved: number) =>
+  saved === 0 && (kind === "start" || kind === "signed-out" || kind === "limit");
+
+// ---------- is it signed in? ----------
+
+export interface Readiness {
+  /** true: signed in; false: it can't make capsules now (reason says why); null: can't tell, so it is tried. */
+  ready: boolean | null;
+  reason?: string;
+  kind?: FailureKind;
+}
+
+/** Run a program to its end, or stop it after `ms`: its exit code and what it printed. */
+function runProgram(
+  line: Launch,
+  o: { cwd?: string; env?: Record<string, string>; ms: number; low?: boolean },
+): Promise<{ code: number | null; output: string; timedOut: boolean; error?: string }> {
+  return new Promise((resolve) => {
+    let output = "";
+    let timedOut = false;
+    let child;
+    try {
+      child = spawn(line.command, line.args, {
+        cwd: o.cwd,
+        env: o.env,
+        stdio: ["ignore", "pipe", "pipe"],
+        detached: process.platform !== "win32",
+        windowsHide: true,
+        windowsVerbatimArguments: line.verbatim,
+      });
+    } catch (e) {
+      return resolve({ code: null, output: "", timedOut: false, error: (e as Error).message });
+    }
+    if (o.low) {
+      try {
+        if (child.pid) os.setPriority(child.pid, os.constants.priority.PRIORITY_LOW);
+      } catch {
+        // best effort
+      }
+    }
+    const keep = (b: Buffer) => {
+      output = (output + b.toString("utf8")).slice(-20000);
+    };
+    child.stdout?.on("data", keep);
+    child.stderr?.on("data", keep);
+    const timer = setTimeout(() => {
+      timedOut = true;
+      if (child.pid) killTree(child.pid);
+    }, o.ms);
+    child.on("error", (e) => {
+      clearTimeout(timer);
+      resolve({ code: null, output, timedOut, error: e.message });
+    });
+    child.on("close", (code) => {
+      clearTimeout(timer);
+      resolve({ code, output, timedOut });
+    });
+  });
+}
+
+/** Ask a tool whether it is signed in, with its own status command (Claude Code `auth status`, Codex `login
+ * status`); Gemini CLI has none, so its sign-in files and keys are looked for. Never keeps what they print. */
+export async function checkAgent(agent: Agent, c: FindCtx = defaultFindCtx(), ms = 8000): Promise<Readiness> {
+  const no = (kind: FailureKind): Readiness => ({ ready: false, kind, reason: failureReason(kind, agent.name) });
+  if (agent.id === "gemini") {
+    const keys = ["GEMINI_API_KEY", "GOOGLE_API_KEY", "GOOGLE_GENAI_USE_VERTEXAI", "GOOGLE_APPLICATION_CREDENTIALS"];
+    if (keys.some((k) => c.env[k]?.trim()) || isFile(path.join(c.home, ".gemini", "oauth_creds.json"))) return { ready: true };
+    return { ready: null };
+  }
+  const args = agent.id === "claude-code" ? ["auth", "status"] : ["login", "status"];
+  const line = launchLine(agent.path, args, c);
+  if (!line) return no("start");
+  const r = await runProgram(line, { env: c.env as Record<string, string>, ms });
+  if (r.error) return no("start");
+  if (r.timedOut) return { ready: null };
+  if (agent.id === "claude-code") {
+    try {
+      const s = JSON.parse(r.output.slice(r.output.indexOf("{")));
+      if (typeof s?.loggedIn === "boolean") return s.loggedIn ? { ready: true } : no("signed-out");
+    } catch {
+      // an older Claude Code: the exit code says it
+    }
+  }
+  if (r.code === 0) return { ready: true };
+  // Codex's `login status` exits non-zero exactly when it isn't signed in; others only on their own sign-in words
+  return failureKind(agent.id, r.code, r.output, false) === "signed-out" || agent.id === "codex" ? no("signed-out") : { ready: null };
+}
+
 export interface MakeResult {
   ok: boolean;
   day: string;
@@ -441,6 +587,7 @@ export interface MakeResult {
   name?: string;
   capsules?: number;
   reason?: string;
+  note?: string;
 }
 
 /** Stop a process and everything it started. */
@@ -463,27 +610,70 @@ export function windowsCmdLine(cmd: Command): { command: string; args: string[] 
 export interface MakeOpts {
   day: string;
   by: "auto" | "click";
-  /** Override which tool (tests); else Your AI's match or the first found. */
+  /** Override which tool (tests); else Your AI's match first, then the others installed. */
   agent?: Agent;
+  /** Override the tools to try, in order (tests). */
+  agents?: Agent[];
+  /** Override the sign-in check (tests; with `agent` / `agents` the default is "can't tell"). */
+  check?: (a: Agent) => Promise<Readiness>;
   timeLimitMs?: number;
   self?: SelfCommand;
 }
 
-/** Make the day's capsules with a local AI tool, headless and restricted. Writes auto.json; logs the outcome. */
+/** Make the day's capsules with a local AI tool, headless and restricted. Your AI's tool goes first; one that isn't
+ * signed in, can't start or is out of usage is skipped for the next one installed. Writes auto.json; logs the outcome. */
 export async function make(o: MakeOpts): Promise<MakeResult> {
   const { day, by } = o;
   const state = readAuto();
   if (isRunning(state)) return { ok: false, day, status: "running", reason: "Already making today's capsules." };
   if (!recordedOn(day)) return { ok: false, day, status: "nothing", reason: "Nothing recorded today yet." };
-  let yourAI: unknown;
-  try {
-    yourAI = JSON.parse(fs.readFileSync(configFile(), "utf8"))?.ai;
-  } catch {
-    // no config
-  }
-  const agent = o.agent ?? pickAgent(findAgents(), yourAI);
-  if (!agent) return { ok: false, day, status: "none", reason: "Needs Claude Code, Codex or Gemini CLI on this computer." };
+  const given = o.agents ?? (o.agent ? [o.agent] : null);
+  const agents = given ?? inOrder(findAgents(), readYourAI());
+  if (!agents.length) return { ok: false, day, status: "none", reason: "Needs Claude Code, Codex or Gemini CLI on this computer." };
+  const check = o.check ?? (given ? async () => ({ ready: null }) : (a: Agent) => checkAgent(a));
 
+  const started = new Date();
+  // the first one on file while the run goes; the one at work once it's known
+  const run: Run = { day, by, status: "running", ai: agents[0]!.id, started_at: isoSeconds(started), pid: process.pid };
+  writeAuto({ ...state, ...(by === "auto" ? { auto_day: day } : {}), last: run });
+
+  const skipped: string[] = [];
+  let last: { agent: Agent; n: number; reason: string } | null = null;
+  for (const agent of agents) {
+    const ready = await check(agent);
+    if (ready.ready === false) {
+      logLine(`auto: ${by} run for ${day}: ${agent.name} skipped (${ready.kind})`);
+      skipped.push(ready.reason ?? failureReason("start", agent.name));
+      continue;
+    }
+    writeAuto({ ...readAuto(), last: { ...run, ai: agent.id } });
+    const r = await runAgent(agent, o);
+    if (r.ok) {
+      const finished = new Date();
+      const note = skipped.length ? `${skipped.join(" ")} So ${agent.name} made them.` : undefined;
+      const done: Run = { ...run, ai: agent.id, status: "done", finished_at: isoSeconds(finished), capsules: r.n, ...(note ? { note } : {}) };
+      delete done.pid;
+      writeAuto({ ...readAuto(), last: done });
+      return { ok: true, day, status: "done", ai: agent.id, name: agent.name, capsules: r.n, ...(note ? { note } : {}) };
+    }
+    last = { agent, n: r.n, reason: r.reason };
+    // saved some and then stopped: no next tool, so nothing is made twice
+    if (!triesNext(r.kind, r.n)) break;
+    skipped.push(r.reason);
+  }
+
+  // every tool's reason, in the order tried (the last one's too when it stopped the run)
+  const reason = (last && !skipped.includes(last.reason) ? [...skipped, last.reason] : skipped).join(" ");
+  const ai = (last?.agent ?? agents[0]!).id;
+  const done: Run = { ...run, ai, status: "failed", finished_at: isoSeconds(new Date()), capsules: last?.n ?? 0, reason };
+  delete done.pid;
+  writeAuto({ ...readAuto(), last: done });
+  return { ok: false, day, status: "failed", ai, name: (last?.agent ?? agents[0]!).name, capsules: last?.n ?? 0, reason };
+}
+
+/** One tool, one try: its restricted command, the time limit, low priority. */
+async function runAgent(agent: Agent, o: MakeOpts): Promise<{ ok: boolean; n: number; kind: FailureKind; reason: string }> {
+  const { day, by } = o;
   const home = capsuleHome();
   const work = path.join(home, "auto");
   fs.mkdirSync(work, { recursive: true });
@@ -496,86 +686,55 @@ export async function make(o: MakeOpts): Promise<MakeResult> {
   for (const f of cmd.files) writeFileAtomic(f.path, f.text);
 
   const started = new Date();
-  const run: Run = { day, by, status: "running", ai: agent.id, started_at: isoSeconds(started), pid: process.pid };
-  writeAuto({ ...state, ...(by === "auto" ? { auto_day: day } : {}), last: run });
   logLine(`auto: ${by} run for ${day} with ${agent.name} started`);
-
   const before = snapshot();
   // the tool's own folder first, so a script tool (#!/usr/bin/env node) finds its node
   const env: Record<string, string> = { ...(process.env as Record<string, string>), ...cmd.env, CONTEXT_CAPSULE_HOME: home };
   for (const [k, v] of Object.entries(env)) if (v === "") delete env[k];
   const sep = process.platform === "win32" ? ";" : ":";
-  env.PATH = [path.dirname(agent.path), ...searchDirs({ os: currentOS(), home: homeDir(), env: process.env })].join(sep);
+  const find: FindCtx = { os: currentOS(), home: homeDir(), env: process.env };
+  env.PATH = [path.dirname(agent.path), ...searchDirs(find)].join(sep);
 
-  let line: { command: string; args: string[] } | null = { command: cmd.command, args: cmd.args };
-  if (process.platform === "win32" && /\.(cmd|bat)$/i.test(cmd.command)) line = windowsCmdLine(cmd);
-
-  const limit = o.timeLimitMs ?? TIME_LIMIT_MS;
-  const outcome = await new Promise<{ code: number | null; output: string; timedOut: boolean; error?: string }>((resolve) => {
-    if (!line) return resolve({ code: null, output: "", timedOut: false, error: "unsafe path" });
-    let output = "";
-    let timedOut = false;
-    let child;
-    try {
-      child = spawn(line.command, line.args, {
-        cwd: work,
-        env,
-        stdio: ["ignore", "pipe", "pipe"],
-        detached: process.platform !== "win32",
-        windowsHide: true,
-        windowsVerbatimArguments: line.command !== cmd.command,
-      });
-    } catch (e) {
-      return resolve({ code: null, output: "", timedOut: false, error: (e as Error).message });
-    }
-    try {
-      if (child.pid) os.setPriority(child.pid, os.constants.priority.PRIORITY_LOW);
-    } catch {
-      // best effort
-    }
-    const keep = (b: Buffer) => {
-      output = (output + b.toString("utf8")).slice(-20000);
-    };
-    child.stdout?.on("data", keep);
-    child.stderr?.on("data", keep);
-    const timer = setTimeout(() => {
-      timedOut = true;
-      if (child.pid) killTree(child.pid);
-    }, limit);
-    child.on("error", (e) => {
-      clearTimeout(timer);
-      resolve({ code: null, output, timedOut, error: e.message });
-    });
-    child.on("close", (code) => {
-      clearTimeout(timer);
-      resolve({ code, output, timedOut });
-    });
-  });
+  const line = launchLine(cmd.command, cmd.args, find);
+  const outcome = line
+    ? await runProgram(line, { cwd: work, env, ms: o.timeLimitMs ?? TIME_LIMIT_MS, low: true })
+    : { code: null, output: "", timedOut: false, error: "unsafe path" };
 
   const n = changedCount(before, snapshot());
   const ok = !outcome.timedOut && !outcome.error && outcome.code === 0 && n > 0;
-  const kind = ok || outcome.error ? undefined : failureKind(agent.id, outcome.code, outcome.output, outcome.timedOut);
-  const reason = ok ? undefined : kind ? failureReason(kind, agent.name) : `Couldn't start ${agent.name}.`;
-  const finished = new Date();
-  const done: Run = { ...run, status: ok ? "done" : "failed", finished_at: isoSeconds(finished), capsules: n, ...(reason ? { reason } : {}) };
-  delete done.pid;
-  writeAuto({ ...readAuto(), last: done });
-  const mins = Math.max(1, Math.round((finished.getTime() - started.getTime()) / 60000));
-  logLine(`auto: ${by} run for ${day} with ${agent.name} ${ok ? "done" : "failed"}: ${n} capsule(s) saved, ${mins} min${ok ? "" : `, exit ${outcome.timedOut ? "timeout" : (outcome.code ?? "none")}, ${kind ?? "couldn't start"}`}`);
-  return { ok, day, status: ok ? "done" : "failed", ai: agent.id, name: agent.name, capsules: n, ...(reason ? { reason } : {}) };
+  const kind: FailureKind = outcome.error ? "start" : failureKind(agent.id, outcome.code, outcome.output, outcome.timedOut);
+  const mins = Math.max(1, Math.round((Date.now() - started.getTime()) / 60000));
+  logLine(`auto: ${by} run for ${day} with ${agent.name} ${ok ? "done" : "failed"}: ${n} capsule(s) saved, ${mins} min${ok ? "" : `, exit ${outcome.timedOut ? "timeout" : (outcome.code ?? "none")}, ${kind}`}`);
+  return { ok, n, kind, reason: ok ? "" : failureReason(kind, agent.name) };
 }
 
-/** `agents`: what's installed and which one a run would use. */
-export function agentsInfo(): { agents: { id: AgentID; name: string }[]; use: { id: AgentID; name: string } | null } {
-  let yourAI: unknown;
+function readYourAI(): unknown {
   try {
-    yourAI = JSON.parse(fs.readFileSync(configFile(), "utf8"))?.ai;
+    return JSON.parse(fs.readFileSync(configFile(), "utf8"))?.ai;
   } catch {
-    // no config
+    return undefined; // no config
   }
-  const agents = findAgents();
-  const use = pickAgent(agents, yourAI);
-  return { agents: agents.map((a) => ({ id: a.id, name: a.name })), use: use ? { id: use.id, name: use.name } : null };
+}
+
+export interface AgentsInfo {
+  agents: { id: AgentID; name: string; ready: boolean | null; reason?: string }[];
+  /** The one a run would start with: Your AI's own, unless it can't make capsules now. */
+  use: { id: AgentID; name: string } | null;
+  /** None of them can make capsules now: why, in plain words. */
+  problem?: string;
+}
+
+/** `agents`: what's installed, whether each is signed in, and which one a run would use. */
+export async function agentsInfo(c: FindCtx = defaultFindCtx()): Promise<AgentsInfo> {
+  const agents = inOrder(findAgents(c), readYourAI());
+  const ready = await Promise.all(agents.map((a) => checkAgent(a, c)));
+  const list = agents.map((a, i) => ({ id: a.id, name: a.name, ready: ready[i]!.ready, ...(ready[i]!.reason ? { reason: ready[i]!.reason } : {}) }));
+  const use = agents.find((_, i) => ready[i]!.ready !== false);
+  // the order found, as before (Your AI's own moves only `use`)
+  const order = AGENTS.map((a) => a.id);
+  list.sort((a, b) => order.indexOf(a.id) - order.indexOf(b.id));
+  if (use) return { agents: list, use: { id: use.id, name: use.name } };
+  return { agents: list, use: null, ...(agents.length ? { problem: ready.map((r) => r.reason).filter(Boolean).join(" ") } : {}) };
 }
 
 export const today = () => localDay(new Date().toISOString());

@@ -22,6 +22,48 @@ export function pastePrompt(text) {
   return `Here is a capsule of my work: context for you. Read its "For Claude" section first, treat its Decisions as settled, then carry on from its Next steps.\n\n${text}`;
 }
 
+// ---------- the note on top of a shared copy (SPEC "Sharing a capsule"; the same words in mcp/src/capsules.ts) ----------
+
+/** How the note starts: also how it is found again, to take it off. */
+export const SHARE_NOTE_START = "> **This is a Context Capsule";
+
+/** Two lines for whoever gets the file, with or without Context Capsule: what it is, and what to do with it. */
+export function shareNote(title, author) {
+  const who = author ? `, from ${author}` : "";
+  return (
+    `${SHARE_NOTE_START}: ${title}**${who}. It holds the context of this work, written for an AI.\n` +
+    `> **To carry on with it:** give this file to your AI (ChatGPT, Claude, Gemini or another) and say ` +
+    `"Continue from this capsule." **To read it yourself:** start at In short.`
+  );
+}
+
+/** The capsule without the note (as it was before it was shared). */
+export function withoutShareNote(text) {
+  const t = String(text).replace(/\r\n/g, "\n");
+  const lines = t.split("\n");
+  const at = lines.findIndex((l) => l.startsWith(SHARE_NOTE_START));
+  // only above the first section: a capsule may quote the words anywhere else
+  const first = lines.findIndex((l) => /^##\s/.test(l));
+  if (at < 0 || (first >= 0 && at > first)) return t;
+  let end = at;
+  while (end < lines.length && lines[end].startsWith(">")) end++;
+  if (end < lines.length && !lines[end].trim()) end++;
+  return [...lines.slice(0, at), ...lines.slice(end)].join("\n");
+}
+
+/** The copy that is shared: the note right after the front matter (once, however often it is shared). */
+export function withShareNote(text) {
+  const t = withoutShareNote(text);
+  const c = parse(t, "");
+  const note = shareNote(c.title, c.author);
+  const end = t.startsWith("---\n") ? t.indexOf("\n---", 4) : -1;
+  if (end < 0) return `${note}\n\n${t}`;
+  const after = t.indexOf("\n", end + 4);
+  const head = after < 0 ? `${t}\n` : t.slice(0, after + 1);
+  const body = after < 0 ? "" : t.slice(after + 1).replace(/^\n+/, "");
+  return `${head}\n${note}\n\n${body}`;
+}
+
 /** "Show in Finder" (Mac), "Show in folder" (Windows), "Show in Files" (Linux). */
 export function showLabel(platform) {
   return platform === "mac" ? "Show in Finder" : platform === "linux" ? "Show in Files" : "Show in folder";
