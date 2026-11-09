@@ -146,8 +146,8 @@ the repo's `mcp/dist-bin` build, else `node mcp/dist/index.js`.
 Build it with `./appimage.sh`, for this machine's arch (on a Mac it runs itself in the Docker
 image from `../ci/linux.Dockerfile`, natively: an arm Mac makes an aarch64 AppImage). It takes
 `mcp/dist-bin/context-capsule-mcp-linux-<x64|arm64>`: build that first with `mcp/build-binary.sh` (in
-Docker that folder is mounted at `/mcp-bin`; without it the AppImage is made with a warning, and Connect your
-AI / Copy my day can't work). The x86_64
+Docker that folder is mounted at `/mcp-bin`; without it the script stops: an AppImage without it couldn't
+Connect your AI or Copy my day). The x86_64
 release file comes from the `appimage` job of the manual CI workflow (an artifact). The file lands in
 `../target-appimage/`, and the script prints its size and SHA-256 (for `latest.json`).
 
