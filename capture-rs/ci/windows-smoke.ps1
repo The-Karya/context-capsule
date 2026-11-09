@@ -71,19 +71,35 @@ public static class W {
 }
 '@
 
+# Screenshots that stayed blank (one colour all over, e.g. all black) after every try: the run fails at the end.
+$BlankShots = @()
+$ShotTries = 3
+
 function Shot($name) {
     Start-Sleep -Milliseconds 400
     $b = [System.Windows.Forms.SystemInformation]::VirtualScreen
-    $bmp = New-Object System.Drawing.Bitmap $b.Width, $b.Height
-    $g = [System.Drawing.Graphics]::FromImage($bmp)
-    try { $g.CopyFromScreen($b.Left, $b.Top, 0, 0, $bmp.Size) } catch { Note "shot $name failed: $_" }
-    $sum = 0; $n = 0
-    for ($x = 5; $x -lt $b.Width; $x += [int]($b.Width / 24)) {
-        for ($y = 5; $y -lt $b.Height; $y += [int]($b.Height / 18)) { $p = $bmp.GetPixel($x, $y); $sum += ($p.R + $p.G + $p.B) / 3; $n++ }
+    for ($try = 1; $try -le $ShotTries; $try++) {
+        $bmp = New-Object System.Drawing.Bitmap $b.Width, $b.Height
+        $g = [System.Drawing.Graphics]::FromImage($bmp)
+        try { $g.CopyFromScreen($b.Left, $b.Top, 0, 0, $bmp.Size) } catch { Note "shot $name failed: $_" }
+        # A 96 × 72 grid (fine enough to land on the taskbar): blank when every channel stays within 6 levels.
+        $sum = 0; $n = 0; $lo = @(255, 255, 255); $hi = @(0, 0, 0)
+        for ($x = 5; $x -lt $b.Width; $x += [Math]::Max(1, [int]($b.Width / 96))) {
+            for ($y = 5; $y -lt $b.Height; $y += [Math]::Max(1, [int]($b.Height / 72))) {
+                $p = $bmp.GetPixel($x, $y); $c = @($p.R, $p.G, $p.B)
+                for ($i = 0; $i -lt 3; $i++) { if ($c[$i] -lt $lo[$i]) { $lo[$i] = $c[$i] }; if ($c[$i] -gt $hi[$i]) { $hi[$i] = $c[$i] } }
+                $sum += ($p.R + $p.G + $p.B) / 3; $n++
+            }
+        }
+        $blank = ($hi[0] - $lo[0] -le 6) -and ($hi[1] - $lo[1] -le 6) -and ($hi[2] - $lo[2] -le 6)
+        if (-not $blank -or $try -eq $ShotTries) { $bmp.Save((Join-Path $Out "$name.png"), [System.Drawing.Imaging.ImageFormat]::Png) }
+        $g.Dispose(); $bmp.Dispose()
+        if (-not $blank) { break }
+        Note "shot ${name}: picture $try of $ShotTries is blank (one colour)"
+        Start-Sleep -Seconds 2
     }
-    $bmp.Save((Join-Path $Out "$name.png"), [System.Drawing.Imaging.ImageFormat]::Png)
-    $g.Dispose(); $bmp.Dispose()
-    Note ("shot {0}: {1}x{2}, mean brightness {3:N0}{4}" -f $name, $b.Width, $b.Height, ($sum / $n), $(if ($sum / $n -lt 3) { ' (BLACK?)' } else { '' }))
+    if ($blank) { $script:BlankShots += $name }
+    Note ("shot {0}: {1}x{2}, mean brightness {3:N0}{4}" -f $name, $b.Width, $b.Height, ($sum / $n), $(if ($blank) { " (BLANK after $ShotTries tries)" } else { '' }))
 }
 
 function WaitFor([scriptblock] $cond, [int] $seconds = 20) {
@@ -200,9 +216,12 @@ if ($Part -eq 'shipped') {
     # The build from main, put where the installer would (so it doesn't ask to install).
     New-Item -ItemType Directory -Force -Path $Dir | Out-Null
     Copy-Item $Exe $Installed -Force
-    $seed = @(python (Join-Path $PSScriptRoot 'windows-smoke-seed.py') $Data)
+    # One clock for the seed and the window: `--show <page> <day>` sets the page's clock to <day> 19:00
+    # (show_query in web_window.rs), so the data is seeded for exactly that.
+    $clock = (Get-Date).ToString('yyyy-MM-dd') + 'T19:00:00'
+    $seed = @(python (Join-Path $PSScriptRoot 'windows-smoke-seed.py') $Data $clock)
     $day = $seed[0]; $session = $seed[1]
-    Note "seeded $day, first recording $session"
+    Note "seeded $day for the clock $clock, first recording $session"
     $config = Join-Path $Data 'config.json'
 
     # Scrolls with the real wheel over the page.
@@ -260,3 +279,8 @@ Copy-Item (Join-Path $Data 'app.log') (Join-Path $Out 'app.log') -ErrorAction Si
 $log = Get-Content (Join-Path $Data 'app.log') -ErrorAction SilentlyContinue
 Note "app.log lines: $($log.Count); error-like lines:"
 $log | Select-String -Pattern 'error|fail|panic|cannot|couldn' | ForEach-Object { Note "  $_" }
+
+if ($BlankShots.Count) {
+    Note "FAILED: $($BlankShots.Count) screenshot(s) stayed blank (one colour) after $ShotTries tries: $($BlankShots -join ', ')"
+    exit 1
+}
