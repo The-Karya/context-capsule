@@ -553,6 +553,8 @@ button { cursor: default; }
 .ai-row .ic.app { width: 18px; height: 18px; color: var(--muted); }
 .ai-row .done { color: var(--green); width: 14px; height: 14px; }
 .ai-row .icon-btn { width: 24px; height: 24px; }
+.ai-row.shared { padding-top: 4px; padding-bottom: 4px; }
+.ai-row .label small { display: block; font-size: 11px; color: var(--muted); }
 .more-row {
   -webkit-appearance: none; appearance: none; border: 0; background: none; width: auto;
   display: flex; align-items: center; gap: 6px; height: 28px; padding: 0 8px; margin: 2px 0 2px 22px; border-radius: var(--radius);

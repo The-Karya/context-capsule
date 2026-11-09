@@ -266,7 +266,9 @@ url = "https://example.com/mcp"
     fs.mkdirSync(path.join(home, ".codex"));
     const file = fileOf("chatgpt");
     fs.writeFileSync(file, original);
-    expect(connect("chatgpt", { ctx, self: self() }).message).toContain("Restart ChatGPT");
+    expect(connect("chatgpt", { ctx, self: self() }).message).toBe(
+      "Connected to ChatGPT. Restart ChatGPT to use Context Capsule. Codex shares this connection, so it's connected too.",
+    );
     expect(clientOf("chatgpt").connected).toBe(true);
     expect(clientOf("codex").connected).toBe(true);
     const once = read(file);
@@ -280,8 +282,9 @@ url = "https://example.com/mcp"
     expect(read(file).match(/\[mcp_servers\.context-capsule\]/g)!.length).toBe(1);
     expect((parseToml(read(file)) as any).mcp_servers["context-capsule"].command).toBe(bin2); // TOML escapes \ on Windows
 
-    expect(disconnect("chatgpt", { ctx }).ok).toBe(true);
+    expect(disconnect("chatgpt", { ctx }).message).toBe("Disconnected from ChatGPT. Codex shares this connection, so it's disconnected too.");
     expect(read(file)).toBe(original);
+    expect(clientOf("codex").connected).toBe(false);
     expect(disconnect("codex", { ctx }).message).toContain("wasn't connected");
   });
 

@@ -533,8 +533,15 @@ function change(id: string, on: boolean, opts: { ctx?: Ctx; self?: SelfCommand }
   // Never write (and call "connected") an entry that can't start: listClients would say not connected, rightly.
   if (on && !opts.self && !pointsAtExisting(self)) return { ok: false, message: `Context Capsule couldn't find its own program, so it can't connect ${def.name}. Please reinstall Context Capsule.` };
   try {
-    if (def.format!.kind === "toml") return editToml(file, on ? self : undefined, def.name);
-    return editJson(file, def.format!.key, on ? jsonEntry(def, self) : undefined, def.name);
+    const r =
+      def.format!.kind === "toml"
+        ? editToml(file, on ? self : undefined, def.name)
+        : editJson(file, def.format!.key, on ? jsonEntry(def, self) : undefined, def.name);
+    // Codex and the ChatGPT app read one file: changing it changes both, so say so
+    const sharing = CLIENTS.filter((d) => d !== def && d.file?.(c) === file && d.installed(c)).map((d) => d.name);
+    if (r.ok && sharing.length && /^(Connected to|Disconnected from) /.test(r.message))
+      r.message += ` ${sharing.join(" and ")} shares this connection, so it's ${on ? "connected" : "disconnected"} too.`;
+    return r;
   } catch (e) {
     // the error's code for the log (never its text: it holds paths); plain words for the person
     logLine(`${on ? "connect" : "disconnect"} ${def.id}: couldn't change its settings (${(e as NodeJS.ErrnoException).code ?? "error"})`);
