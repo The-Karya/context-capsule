@@ -1,0 +1,39 @@
+# context-capsule — CI: the AI parts every app build carries, built from this commit the way a release builds them
+# (mcp/build-binary.sh, mcp/extension/build.sh): context-capsule-mcp for Windows and Linux, and the Claude extension
+# (context-capsule.mcpb). Not run by itself: ci.yml and windows-smoke.yml call it, and their app jobs download the
+# "ai-parts" artifact into mcp/ before building (mcp/dist-bin/…, mcp/dist-ext/context-capsule.mcpb). An app build
+# without them stops (capture-rs/windows/build.rs, capture-rs/linux/appimage.sh).
+name: ai-parts
+on:
+  workflow_call:
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    defaults:
+      run:
+        working-directory: mcp
+    steps:
+      - uses: actions/checkout@v4
+      - uses: oven-sh/setup-bun@v2
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+      - run: bun install --frozen-lockfile
+      - run: sh build-binary.sh windows-x64 linux-x64 linux-arm64
+      - run: sh extension/build.sh
+      - name: Runs
+        run: ./dist-bin/context-capsule-mcp-linux-x64 --version && ./dist-bin/context-capsule-mcp-linux-x64 clients
+      - uses: actions/upload-artifact@v4
+        with:
+          name: ai-parts
+          if-no-files-found: error
+          path: |
+            mcp/dist-bin/context-capsule-mcp-windows-x64.exe
+            mcp/dist-bin/context-capsule-mcp-linux-x64
+            mcp/dist-bin/context-capsule-mcp-linux-arm64
+            mcp/dist-ext/context-capsule.mcpb
