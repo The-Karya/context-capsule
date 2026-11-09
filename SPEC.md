@@ -239,7 +239,7 @@ Tools:
 | `add_note` `{text}` | writes `control` note; waits for `note_at`; errors if not recording |
 | `list_sessions` | id, start, end, duration, text source mix (ax / ocr), note count, top apps |
 | `get_session_activity` `{session_id, max_chars?=60000}` | a condensed timeline for the AI: grouped by app/window, time spans, de-duplicated text (drop lines seen before, collapse whitespace), notes inline as `>> You said (HH:MM): "…"` / `>> You typed (HH:MM): "…"`, trimmed to `max_chars` — notes budgeted first and never cut before screen text, then a fair share per segment |
-| `save_capsule` `{title, markdown, session_ids?}` | validates + writes `capsules/<slug>.capsule.md` with front matter; returns path |
+| `save_capsule` `{title, markdown, session_ids?, id?}` | validates + writes `capsules/<slug>.capsule.md` with front matter; returns path. `id`: the front matter id of the capsule this is a new version of (otherwise a new one is made) |
 | `list_capsules` | title, author, created, path |
 | `get_capsule` `{name}` | full text |
 | `import_capsule` `{path}` | copies a received capsule (any file name: `.capsule.md`, `.md`…) into `capsules/` (validates format; "isn't a Context Capsule" otherwise); says when it is a newer or older version of a saved capsule (see "Two versions of a capsule") |
@@ -312,6 +312,7 @@ Resource: each capsule as `capsule://<slug>` so Claude can read them directly.
 ---
 capsule: 1
 title: Pricing page redesign
+id: 0b6f3c1e-8a2d-4f57-9c1a-2e4d6b8f0a13   # written on first save; later versions keep it (save_capsule id)
 author: Saachi            # from config.json "author", else OS user full name
 created: 2026-10-19T11:30:00Z
 sessions: [20261019-100103]
@@ -428,23 +429,28 @@ capsule is escaped, links are http(s) only, `rel="noopener noreferrer"`. The sys
 
 ## Two versions of a capsule (mcp/)
 
-People send a capsule, the other person's AI carries on and sends an updated one back. No new front matter:
-- **The same capsule**: both have `project`, the same one, the same `kind` (missing = `daily`) and, for a daily
-  capsule, the same `date`; or neither has a project and their titles match (any case). **Newer**: the later
-  `created`; if that can't tell, the second one given.
+People send a capsule, the other person's AI carries on and sends an updated one back.
+- **The same capsule**: the same `id` (written by `save_capsule` when a capsule is first saved; a new version saved
+  with `save_capsule` `id` keeps it, and a project's growing capsule keeps its own, so a rename doesn't break the
+  match); or both have `project`, the same one, the same `kind` (missing = `daily`) and, for a daily capsule, the
+  same `date`; or neither has a project and their titles match (any case), even when their `id`s differ (the
+  other AI may have saved its version without carrying the id over, or one is from before ids). **Newer**: the later `created`; if that can't
+  tell, the second one given.
 - **What changed**, per `## ` section in the newer one's order (sections only in the older one last): each section
   is a list of items (a bullet, a numbered step, a paragraph, a quote, a code block); items equal apart from
   Markdown marks, case and spacing are unchanged; a decision is matched by its **bold** name, alike names
   ("Teams at $12/seat" / "Teams at $14/seat") being the same decision; other items with half their words in common
   (little words left out, simple endings like -ed, -ing, -s ignored) are the same item reworded; the rest is added or
   removed.
-- **Merge**: the newer `In short`, `For Claude` and `Where things stand`; every other section is the newer text
-  plus the items only the older one had (continuing its list and numbering), so decisions, next steps and open
-  questions are the union. A decision reworded between the two is a **conflict**: the merge keeps the newer one and
-  `compare_capsules` lists it for the person to settle. An older next step that the newer `What was done` covers
-  (three quarters of its words) is done, so it isn't brought back.
-- `compare_capsules` never saves: the AI saves the merge with `save_capsule` (title, project, kind, date of the
-  newer one) only if the user wants. Capsule text in its answer stays inside `<capsule>` blocks.
+- **Merge**: the newer text of every section. Items only the older one had (outside `In short`, `For Claude` and
+  `Where things stand`, which the newer simply replaces) were removed by the newer one, maybe on purpose (a
+  cancelled next step, a dropped decision), so they are **not** brought back: `compare_capsules` lists them under
+  "Removed in the newer version", by section, and the AI asks the user which, if any, to put back before saving.
+  An older next step that the newer `What was done` covers (three quarters of its words) is done: left out, not
+  asked about. A decision reworded between the two is a **conflict**: the merge keeps the newer one and
+  `compare_capsules` lists it for the person to settle.
+- `compare_capsules` never saves: the AI saves the merge with `save_capsule` (title, project, kind, date and `id` of
+  the newer one) only if the user wants. Capsule text in its answer stays inside `<capsule>` blocks.
 - `import_capsule` names any saved capsule that is another version of the one imported, whether it is newer or
   older, and the `compare_capsules` call to make.
 

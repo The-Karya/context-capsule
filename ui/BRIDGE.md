@@ -256,7 +256,8 @@ the server) that answers every method above from a data folder (default `/tmp/ma
 URL options: `#home` … `#help`, `?capsule=capsules/<file>` (the reading view), `?share=capsules/<file>` (the share page), `?open=first` (open the first recording), `?dark=1`, `?firstRun=1`,
 `?platform=windows|linux`, `?material=glass`, `?locale=en-GB`, `?recording=1`, `?now=2026-10-23T19:00:00` (the page's clock).
 
-Renders: `ui/dev/render-all.sh` (WKWebView, `ui/dev/snap.swift`) writes every page in light and dark to
+Renders: `ui/dev/render-all.sh` (WKWebView, `ui/dev/snap.swift`) seeds throwaway data for its clock
+(`capture-rs/ci/windows-smoke-seed.py`, `CONTEXT_CAPSULE_NOW`, default 2026-10-23T19:00:00) and writes every page in light and dark to
 `/tmp/shared-ui/<page>-<mode>.png` (860 × 620 @2×, like the Mac's `--render-web-page`), plus `full/` (860 × 1700),
 `narrow/` (640 × 620) and `large/` (1280 × 900); `ui/dev/compare.sh` puts each next to the Mac's render in
 `/tmp/shared-ui/compare/`. `snap <url> <out> <w> <h> <light|dark> [script]` runs a script first (open a menu…).

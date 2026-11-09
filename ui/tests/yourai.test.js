@@ -106,3 +106,23 @@ test("the ChatGPT app makes capsules with Copy my day (its chats can't use the t
   expect(A.settingsLine(A.kindOf("chatgpt"), "ChatGPT")).toContain("copies your day and opens ChatGPT");
   expect(A.makeLine(A.kindOf("chatgpt"), "ChatGPT")).toBe("Copy your day, paste it into ChatGPT, then save its reply here.");
 });
+
+test("Codex and ChatGPT share one connection, and both rows say so", () => {
+  const codex = { id: "codex", name: "Codex", installed: true, connected: true, how: "config" };
+  const chatgpt = { id: "chatgpt", name: "ChatGPT", installed: true, connected: true, how: "config" };
+  const cursor = { id: "cursor", name: "Cursor", installed: true, connected: true, how: "config" };
+  const all = [chatgpt, codex, cursor];
+  expect(A.sharesWith(chatgpt, all)).toEqual([codex]);
+  expect(A.sharesWith(codex, all)).toEqual([chatgpt]);
+  expect(A.sharesWith(cursor, all)).toEqual([]);
+  // the other one isn't installed: nothing to explain
+  expect(A.sharesWith(codex, [{ ...chatgpt, installed: false }, codex])).toEqual([]);
+  expect(A.sharesNote([codex])).toBe("Shares its connection with Codex");
+  expect(A.sharesNote([chatgpt])).toBe("Shares its connection with ChatGPT");
+  expect(A.disconnectBoth(chatgpt, [codex])).toBe("Disconnect ChatGPT and Codex…");
+  expect(A.disconnectBothTitle(codex, [chatgpt])).toBe("Disconnect Codex and ChatGPT?");
+  expect(A.disconnectBothBody(chatgpt, [codex])).toBe(
+    "ChatGPT and Codex share one connection, so both will be disconnected. You can connect them again here anytime.",
+  );
+  expect(A.disconnectBothButton([codex])).toBe("Disconnect Both");
+});

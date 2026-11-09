@@ -105,13 +105,13 @@ capture/tests/run.sh
 mcp/extension/build.sh && mcp/build-binary.sh macos-arm64   # macos-x64 on Intel
 capture/build.sh
 "capture/build/Context Capsule.app/Contents/MacOS/ContextCapsule" --selftest
-python3 capture-rs/ci/windows-smoke-seed.py /tmp/cc-audit-data
-capture/tests/web-window.sh /tmp/cc-audit-data
-capture/tests/render-web.sh /tmp/cc-audit-data
+capture/tests/web-window.sh                                        # today at 19:00
+CONTEXT_CAPSULE_NOW=2026-10-23T19:00:00 capture/tests/web-window.sh  # any other day
+capture/tests/render-web.sh
 ```
 
-Look at the pictures in `/tmp/mac-web/`. Earlier runs of `web-window.sh` passed with the seed's date fixed to 2026-10-23, and
-6 timeline checks failed with today's date. Find out whether that is only a fragile test or a real bug in the Timeline.
+Both seed their own throwaway data (`capture-rs/ci/windows-smoke-seed.py`) for one clock and give the window the same clock,
+so they pass on any day. A render that stays blank fails `render-web.sh`. Look at the pictures in `/tmp/mac-web/`.
 
 **Windows, without a Windows PC**
 

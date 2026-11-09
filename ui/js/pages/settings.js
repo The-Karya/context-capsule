@@ -189,14 +189,20 @@ export function mount(root, app) {
     );
     for (const c of installed) {
       out.push(sep("in48"));
+      // Codex and ChatGPT share one connection: say so on both rows and in Disconnect
+      const others = AI.sharesWith(c, app.clients);
       let right;
       if (app.ai.busy === c.id) right = h("span", { class: "note" }, "…");
       else if (c.connected) {
         const more = h("button", { class: "icon-btn", type: "button", title: "More", "aria-label": `More for ${c.name}`, "aria-haspopup": "menu" }, icon("ellipsis"));
-        more.addEventListener("click", () => menu(more, [{ text: AI.words.disconnect, action: () => actions.disconnect(app, c) }]));
+        const text = others.length ? AI.disconnectBoth(c, others) : AI.words.disconnect;
+        more.addEventListener("click", () => menu(more, [{ text, action: () => actions.disconnect(app, c) }]));
         right = [h("span", { role: "img", "aria-label": "Connected" }, icon("check", "done")), more];
       } else right = button(AI.words.connect, () => actions.connect(app, c), { size: "small", disabled: app.ai.busy != null, label: `Connect ${c.name}` });
-      out.push(h("div", { class: "ai-row" }, appIcon(c.name, "", "terminal", "app"), h("span", { class: "label" }, c.name), right));
+      const label = others.length
+        ? h("span", { class: "label" }, c.name, h("small", null, AI.sharesNote(others)))
+        : h("span", { class: "label" }, c.name);
+      out.push(h("div", { class: "ai-row" + (others.length ? " shared" : "") }, appIcon(c.name, "", "terminal", "app"), label, right));
     }
     if (missing.length) {
       out.push(sep("in48"));

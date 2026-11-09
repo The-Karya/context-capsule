@@ -192,6 +192,15 @@ export async function connect(app, c) {
 }
 
 export async function disconnect(app, c) {
+  const others = AI.sharesWith(c, app.clients);
+  if (others.length) {
+    const pressed = await alert({
+      title: AI.disconnectBothTitle(c, others),
+      message: AI.disconnectBothBody(c, others),
+      buttons: [{ text: AI.disconnectBothButton(others), kind: "destructive" }, { text: "Cancel", kind: "cancel" }],
+    });
+    if (pressed !== 0) return;
+  }
   app.ai.busy = c.id;
   app.ai.note = null;
   changed(app);

@@ -29,14 +29,10 @@ export CARGO_TARGET_X86_64_PC_WINDOWS_MSVC_RUSTFLAGS="-C target-feature=+crt-sta
 
 # The Claude extension goes inside the exe (build.rs); build it first with mcp/extension/build.sh.
 MCPB=../mcp/dist-ext/context-capsule.mcpb
-if [ ! -f "$MCPB" ]; then
-  echo "warning: $MCPB is missing: run mcp/extension/build.sh first, or Connect Claude won't work" >&2
-fi
+[ -s "$MCPB" ] || { echo "$MCPB is missing: run mcp/extension/build.sh first" >&2; exit 1; }
 # The any-AI program goes inside too (build.rs compresses it); build it with mcp/build-binary.sh windows-x64.
 MCP=../mcp/dist-bin/context-capsule-mcp-windows-x64.exe
-if [ ! -f "$MCP" ]; then
-  echo "warning: $MCP is missing: run mcp/build-binary.sh windows-x64 first, or Connect your AI and Copy my day won't work" >&2
-fi
+[ -s "$MCP" ] || { echo "$MCP is missing: run mcp/build-binary.sh windows-x64 first" >&2; exit 1; }
 
 nice -n 19 cargo xwin build --release --target $TARGET -p context-capsule-windows --target-dir target-xwin "$@"
 EXE=target-xwin/$TARGET/release/context-capsule.exe
@@ -44,12 +40,8 @@ if llvm-objdump -p "$EXE" | grep "DLL Name" | grep -qiE "msvcp|vcruntime|api-ms-
   echo "warning: $EXE still needs the Visual C++ runtime DLLs" >&2
 fi
 # Also next to the exe, for a plain zip kit (the exe writes it there itself when missing).
-if [ -f "$MCPB" ]; then
-  cp "$MCPB" "$(dirname "$EXE")/"
-fi
-if [ -f "$MCP" ]; then
-  cp "$MCP" "$(dirname "$EXE")/context-capsule-mcp.exe"
-fi
+cp "$MCPB" "$(dirname "$EXE")/"
+cp "$MCP" "$(dirname "$EXE")/context-capsule-mcp.exe"
 VERSION=$(sed -n 's/^version = "\(.*\)"/\1/p' Cargo.toml | head -n 1)
 RELEASE=target-xwin/Context-Capsule-$VERSION-windows.exe
 cp "$EXE" "$RELEASE"

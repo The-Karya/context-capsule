@@ -617,9 +617,16 @@ export function createServer(opts: ServerOptions = {}): McpServer {
         project: z.string().optional().describe("Project id (see list_projects)"),
         kind: z.enum(["daily", "project"]).optional().describe('"daily": one day of a project; "project": the growing capsule'),
         date: z.string().optional().describe("Local day YYYY-MM-DD (daily capsules)"),
+        id: z
+          .string()
+          .optional()
+          .describe(
+            "Only when this is a new version of a capsule you were given or merged (continuing from it): the `id` from that " +
+              "capsule's front matter, so both stay known as one capsule even if the title changes. Leave out for a new capsule.",
+          ),
       },
     },
-    safe((args: { title: string; markdown: string; session_ids?: string[]; project?: string; kind?: "daily" | "project"; date?: string }) => {
+    safe((args: { title: string; markdown: string; session_ids?: string[]; project?: string; kind?: "daily" | "project"; date?: string; id?: string }) => {
       let r: ReturnType<typeof saveCapsule>;
       try {
         r = saveCapsule(args);
@@ -747,9 +754,9 @@ export function createServer(opts: ServerOptions = {}): McpServer {
       annotations: hints("compare_capsules"),
       description:
         "Two versions of one capsule — e.g. the one the user sent and the one that came back: what changed in each section " +
-        "(added, removed, reworded lines), decisions that differ (conflicts for the user to settle), and one merged capsule " +
-        "(the newer \"Where things stand\", every decision and next step from both). Saves nothing: to keep the merge, " +
-        "save_capsule it, only if the user wants.",
+        "(added, removed, reworded lines), decisions that differ (conflicts for the user to settle), lines the newer one " +
+        "removed (next steps, decisions…: left out of the merge, ask the user which, if any, come back) and one merged " +
+        "capsule (the newer text of every section). Saves nothing: to keep the merge, save_capsule it, only if the user wants.",
       inputSchema: {
         a: z.string().min(1).describe("A saved capsule's name or title, or the path of a capsule file"),
         b: z.string().min(1).describe("The other version: a name, title or file path"),

@@ -1,5 +1,6 @@
 // context-capsule — mcp: capsule files (front matter, save, list, get, import, export)
 import { execFileSync } from "node:child_process";
+import { randomUUID } from "node:crypto";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
@@ -280,6 +281,10 @@ export function logLine(message: string): void {
 const attempts = new Map<string, number>();
 export const MAX_TRIES = 3;
 
+/** A capsule's `id`: written when it is first saved and carried by its later versions (save_capsule `id`), so two
+ * versions are known as one capsule even after a rename. Capsules from before ids have none. */
+export const CAPSULE_ID = /^[A-Za-z0-9][A-Za-z0-9_-]{5,63}$/;
+
 export interface SaveResult {
   path: string;
   slug: string;
@@ -294,6 +299,8 @@ export function saveCapsule(input: {
   project?: string;
   kind?: CapsuleKind;
   date?: string;
+  /** The id of the capsule this is a new version of (its front matter `id`); a new id when left out. */
+  id?: string;
   /** Never save as a draft: every refusal is reported (the pasted-reply `save` command; nobody retries there). */
   noDraft?: boolean;
 }): SaveResult {
@@ -308,6 +315,9 @@ export function saveCapsule(input: {
   const date = input.date?.trim() || undefined;
   if (date && !/^\d{4}-\d{2}-\d{2}$/.test(date)) throw new Error(`"${date}" is not a date like 2026-10-19.`);
   if (kind === "daily" && !date) throw new Error("A daily capsule needs its date (YYYY-MM-DD).");
+  const givenId = input.id?.trim() || undefined;
+  if (givenId && !CAPSULE_ID.test(givenId))
+    throw new Error(`"${givenId}" is not a capsule id. Pass the id from the front matter of the capsule this continues, or leave it out.`);
 
   // the AI may have added its own front matter; ours wins
   let body = parseCapsule(input.markdown).body.trim();
@@ -374,9 +384,17 @@ export function saveCapsule(input: {
     }
   }
 
+  const projectFile = kind === "project" ? path.join(capsulesDir(), `${project}${CAPSULE_EXT}`) : "";
+  let id = givenId;
+  if (!id && projectFile && fs.existsSync(projectFile)) {
+    // the project's growing capsule keeps its id from one update to the next
+    const old = parseCapsule(fs.readFileSync(projectFile, "utf8")).front?.id;
+    if (typeof old === "string" && CAPSULE_ID.test(old)) id = old;
+  }
   const front: FrontMatter = {
     capsule: 1,
     title,
+    id: id ?? randomUUID(),
     author: resolveAuthor(),
     created: new Date().toISOString().replace(/\.\d{3}Z$/, "Z"),
     sessions,
@@ -390,7 +408,7 @@ export function saveCapsule(input: {
 
   if (kind === "project") {
     // One growing capsule per project: replace it, keeping the previous version in .history/.
-    const file = path.join(capsulesDir(), `${project}${CAPSULE_EXT}`);
+    const file = projectFile;
     if (fs.existsSync(file)) {
       const stamp = new Date().toISOString().replace(/[:.]/g, "-").replace(/-\d{3}Z$/, "Z");
       const old = path.join(capsulesDir(), ".history", `${project}-${stamp}${CAPSULE_EXT}`);

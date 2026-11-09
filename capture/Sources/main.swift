@@ -37,7 +37,8 @@ if let i = CommandLine.arguments.firstIndex(of: "--render-icons"), i + 1 < Comma
 
 if let i = CommandLine.arguments.firstIndex(of: "--render-web-page"), i + 2 < CommandLine.arguments.count {
     // The shared window (ui/) in its real web view: --render-web-page <page> <out.png> [light|dark] [width height] [glass|flat]
-    // offscreen at 2×, with the data in CONTEXT_CAPSULE_HOME. Pages: WebWindow.renderPages. Default 860 × 620, light, flat.
+    // offscreen at 2×, with the data in CONTEXT_CAPSULE_HOME and the page's clock in CONTEXT_CAPSULE_NOW.
+    // Pages: WebWindow.renderPages. Default 860 × 620, light, flat.
     let a = Array(CommandLine.arguments[(i + 1)...])
     let dark = a.count > 2 && a[2] == "dark"
     let size = a.count > 4 ? NSSize(width: Double(a[3]) ?? 860, height: Double(a[4]) ?? 620) : NSSize(width: 860, height: 620)
@@ -53,7 +54,8 @@ if let i = CommandLine.arguments.firstIndex(of: "--render-web-page"), i + 2 < Co
 }
 
 if CommandLine.arguments.contains("--test-web-window") {
-    // Drives the shared window through its real bridge on the data in CONTEXT_CAPSULE_HOME (a copy: it deletes and edits).
+    // Drives the shared window through its real bridge on the data in CONTEXT_CAPSULE_HOME (a copy: it deletes and edits)
+    // with the page's clock in CONTEXT_CAPSULE_NOW.
     _ = WebWindow.RenderApplication.shared
     NSApp.setActivationPolicy(.accessory)
     NSApp.finishLaunching()

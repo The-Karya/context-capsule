@@ -197,7 +197,9 @@ const methods = {
     if (command === "connect" || command === "disconnect") {
       const c = clients.find((c) => c.id === id);
       if (!c) refuse(`unknown client ${id}`);
-      c.connected = command === "connect";
+      // Codex and ChatGPT share one settings file, as in mcp/src/clients.ts
+      const shared = ["codex", "chatgpt"].includes(id) ? clients.filter((x) => ["codex", "chatgpt"].includes(x.id)) : [c];
+      for (const x of shared) x.connected = command === "connect";
       emit("data-changed", { what: ["clients"] });
       return out({ ok: true, message: "" });
     }

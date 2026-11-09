@@ -134,7 +134,7 @@ export function npmShimScript(cmdFile: string): string | null {
   }
   const m = /"%dp0%\\([^"%\r\n]+\.[cm]?js)"\s+%\*/i.exec(text);
   if (!m) return null;
-  const script = path.join(path.dirname(cmdFile), m[1]!);
+  const script = path.join(path.dirname(cmdFile), ...m[1]!.split(/[\\/]/));
   return isFile(script) ? script : null;
 }
 
@@ -428,48 +428,70 @@ export function recordedOn(day: string): boolean {
   }
 }
 
-/** What went wrong with a run. "start", "signin" and "limit" happen before any work, so the next tool may try. */
-export type Failure = "start" | "signin" | "limit" | "network" | "timeout" | "nothing" | "error";
+/** Why a run failed, as far as can be told for sure. Only exact messages each tool is known to print count;
+ * anything else is "error", so a run that failed for another reason is never blamed on the sign-in. */
+export type FailureKind = "start" | "timeout" | "signed-out" | "limit" | "offline" | "no-capsules" | "error";
 
-/** From a run's exit code and what it printed (only matched, never kept). */
-export function failureKind(code: number | null, output: string, timedOut: boolean): Failure {
+/** Each tool's own words (or exit code) for "not signed in" and "out of usage", and nothing broader. */
+const SIGNALS: Record<AgentID, { signedOut: RegExp[]; limit: RegExp[]; signedOutCode?: number }> = {
+  // Claude Code: "Invalid API key · Please run /login", "Not logged in · Please run /login", "OAuth token has
+  // expired", or the API's own {"type":"authentication_error"}.
+  "claude-code": {
+    signedOut: [/please run \/login/i, /"type"\s*:\s*"authentication_error"/, /oauth token (has expired|revoked)/i, /invalid api key ·/i],
+    limit: [/claude ai usage limit reached/i, /credit balance is too low/i, /you've hit your limit/i, /\b\d+-hour limit reached/i, /"type"\s*:\s*"rate_limit_error"/],
+  },
+  // Codex: "Please log out and sign in again" (its sign-in can't be renewed), "unexpected status 401
+  // Unauthorized", or telling you to run `codex login`.
+  codex: {
+    signedOut: [/please log out and sign in again/i, /unexpected status 401\b/i, /\bcodex login\b/i],
+    limit: [/you've hit your usage limit/i, /quota exceeded\. check your plan/i, /unexpected status 429\b/i],
+  },
+  // Gemini CLI: exits with 41 (its sign-in error) or asks for an auth method before it starts.
+  gemini: {
+    signedOut: [/please set an auth method/i, /"type"\s*:\s*"FatalAuthenticationError"/],
+    signedOutCode: 41,
+    limit: [/resource_exhausted/i, /quota exceeded for quota metric/i],
+  },
+};
+
+/** No internet: the system's own error codes, not just the word "network" somewhere in the output. */
+const OFFLINE = [/\bENOTFOUND\b/, /\bEAI_AGAIN\b/, /\bECONNREFUSED\b/, /\bENETUNREACH\b/, /getaddrinfo/];
+
+/** Sort a failed run by its exit code and what it printed (only matched, never kept). */
+export function failureKind(agent: AgentID, code: number | null, output: string, timedOut: boolean): FailureKind {
   if (timedOut) return "timeout";
-  const o = output.toLowerCase();
-  if (/not (logged|signed) in|please (log|sign) ?in|\/login|run `?\w* login|authenticat|invalid api key|api key|unauthori[sz]ed|401|credentials/.test(o)) {
-    return "signin";
-  }
-  if (/usage limit|rate limit|quota|429|credit balance|out of credits/.test(o)) return "limit";
-  if (/enotfound|network|offline|econnrefused|could not connect|connection error/.test(o)) return "network";
-  return code === 0 ? "nothing" : "error";
+  const s = SIGNALS[agent];
+  if ((s.signedOutCode !== undefined && code === s.signedOutCode) || s.signedOut.some((r) => r.test(output))) return "signed-out";
+  if (s.limit.some((r) => r.test(output))) return "limit";
+  if (OFFLINE.some((r) => r.test(output))) return "offline";
+  if (code === 0) return "no-capsules";
+  return "error";
 }
 
-/** Plain words for each kind of failure. */
-export function failureWords(name: string, kind: Failure, code?: number | null): string {
+/** Plain words for a failed run. */
+export function failureReason(kind: FailureKind, name: string): string {
   switch (kind) {
     case "start":
       return `${name} couldn't start.`;
-    case "signin":
+    case "timeout":
+      return `${name} took longer than 10 minutes, so it was stopped.`;
+    case "signed-out":
       return `${name} isn't signed in. Open it once and sign in.`;
     case "limit":
       return `${name} has reached its usage limit. Try again later.`;
-    case "network":
+    case "offline":
       return `${name} couldn't reach the internet.`;
-    case "timeout":
-      return `${name} took longer than 10 minutes, so it was stopped.`;
-    case "nothing":
+    case "no-capsules":
       return `${name} didn't save any capsules.`;
     case "error":
-      return `${name} stopped with an error (code ${code ?? "?"}).`;
+      return `Couldn't make the capsules. Try again, or open ${name} to check it's working.`;
   }
 }
 
-/** Plain words for a failed run, from its exit code and what it printed (only matched, never kept). */
-export function failureReason(name: string, code: number | null, output: string, timedOut: boolean): string {
-  return failureWords(name, failureKind(code, output, timedOut), code);
-}
-
-/** Worth trying the next tool: this one never got to work. */
-export const triesNext = (k: Failure) => k === "start" || k === "signin" || k === "limit";
+/** Worth trying the next tool: this one never got to work (it couldn't start, isn't signed in or is out of usage)
+ * and saved nothing, so the next one can't make a second copy of a capsule. */
+export const triesNext = (kind: FailureKind, saved: number) =>
+  saved === 0 && (kind === "start" || kind === "signed-out" || kind === "limit");
 
 // ---------- is it signed in? ----------
 
@@ -477,7 +499,7 @@ export interface Readiness {
   /** true: signed in; false: it can't make capsules now (reason says why); null: can't tell, so it is tried. */
   ready: boolean | null;
   reason?: string;
-  kind?: Failure;
+  kind?: FailureKind;
 }
 
 /** Run a program to its end, or stop it after `ms`: its exit code and what it printed. */
@@ -530,8 +552,8 @@ function runProgram(
 
 /** Ask a tool whether it is signed in, with its own status command (Claude Code `auth status`, Codex `login
  * status`); Gemini CLI has none, so its sign-in files and keys are looked for. Never keeps what they print. */
-export async function checkAgent(agent: Agent, c: FindCtx = defaultFindCtx(), ms = 15000): Promise<Readiness> {
-  const no = (kind: Failure): Readiness => ({ ready: false, kind, reason: failureWords(agent.name, kind) });
+export async function checkAgent(agent: Agent, c: FindCtx = defaultFindCtx(), ms = 8000): Promise<Readiness> {
+  const no = (kind: FailureKind): Readiness => ({ ready: false, kind, reason: failureReason(kind, agent.name) });
   if (agent.id === "gemini") {
     const keys = ["GEMINI_API_KEY", "GOOGLE_API_KEY", "GOOGLE_GENAI_USE_VERTEXAI", "GOOGLE_APPLICATION_CREDENTIALS"];
     if (keys.some((k) => c.env[k]?.trim()) || isFile(path.join(c.home, ".gemini", "oauth_creds.json"))) return { ready: true };
@@ -546,13 +568,14 @@ export async function checkAgent(agent: Agent, c: FindCtx = defaultFindCtx(), ms
   if (agent.id === "claude-code") {
     try {
       const s = JSON.parse(r.output.slice(r.output.indexOf("{")));
-      if (typeof s?.loggedIn === "boolean") return s.loggedIn ? { ready: true } : no("signin");
+      if (typeof s?.loggedIn === "boolean") return s.loggedIn ? { ready: true } : no("signed-out");
     } catch {
       // an older Claude Code: the exit code says it
     }
   }
   if (r.code === 0) return { ready: true };
-  return failureKind(r.code, r.output, false) === "signin" || agent.id === "codex" ? no("signin") : { ready: null };
+  // Codex's `login status` exits non-zero exactly when it isn't signed in; others only on their own sign-in words
+  return failureKind(agent.id, r.code, r.output, false) === "signed-out" || agent.id === "codex" ? no("signed-out") : { ready: null };
 }
 
 export interface MakeResult {
@@ -620,7 +643,7 @@ export async function make(o: MakeOpts): Promise<MakeResult> {
     const ready = await check(agent);
     if (ready.ready === false) {
       logLine(`auto: ${by} run for ${day}: ${agent.name} skipped (${ready.kind})`);
-      skipped.push(ready.reason ?? failureWords(agent.name, "start"));
+      skipped.push(ready.reason ?? failureReason("start", agent.name));
       continue;
     }
     writeAuto({ ...readAuto(), last: { ...run, ai: agent.id } });
@@ -634,7 +657,8 @@ export async function make(o: MakeOpts): Promise<MakeResult> {
       return { ok: true, day, status: "done", ai: agent.id, name: agent.name, capsules: r.n, ...(note ? { note } : {}) };
     }
     last = { agent, n: r.n, reason: r.reason };
-    if (!triesNext(r.kind)) break;
+    // saved some and then stopped: no next tool, so nothing is made twice
+    if (!triesNext(r.kind, r.n)) break;
     skipped.push(r.reason);
   }
 
@@ -648,7 +672,7 @@ export async function make(o: MakeOpts): Promise<MakeResult> {
 }
 
 /** One tool, one try: its restricted command, the time limit, low priority. */
-async function runAgent(agent: Agent, o: MakeOpts): Promise<{ ok: boolean; n: number; kind: Failure; reason: string }> {
+async function runAgent(agent: Agent, o: MakeOpts): Promise<{ ok: boolean; n: number; kind: FailureKind; reason: string }> {
   const { day, by } = o;
   const home = capsuleHome();
   const work = path.join(home, "auto");
@@ -678,10 +702,10 @@ async function runAgent(agent: Agent, o: MakeOpts): Promise<{ ok: boolean; n: nu
 
   const n = changedCount(before, snapshot());
   const ok = !outcome.timedOut && !outcome.error && outcome.code === 0 && n > 0;
-  const kind: Failure = outcome.error ? "start" : failureKind(outcome.code, outcome.output, outcome.timedOut);
+  const kind: FailureKind = outcome.error ? "start" : failureKind(agent.id, outcome.code, outcome.output, outcome.timedOut);
   const mins = Math.max(1, Math.round((Date.now() - started.getTime()) / 60000));
-  logLine(`auto: ${by} run for ${day} with ${agent.name} ${ok ? "done" : "failed"}: ${n} capsule(s) saved, ${mins} min${ok ? "" : `, exit ${outcome.timedOut ? "timeout" : (outcome.code ?? "none")}`}`);
-  return { ok, n, kind, reason: ok ? "" : failureWords(agent.name, kind, outcome.code) };
+  logLine(`auto: ${by} run for ${day} with ${agent.name} ${ok ? "done" : "failed"}: ${n} capsule(s) saved, ${mins} min${ok ? "" : `, exit ${outcome.timedOut ? "timeout" : (outcome.code ?? "none")}, ${kind}`}`);
+  return { ok, n, kind, reason: ok ? "" : failureReason(kind, agent.name) };
 }
 
 function readYourAI(): unknown {

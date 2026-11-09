@@ -281,7 +281,8 @@ No AI at hand? Your Claude can save any capsule as a web page (`export_capsule` 
 `format: "html"`, or `context-capsule-mcp view <file>`) that opens in any browser and prints
 cleanly. Got back a newer version of a capsule you sent? Claude compares the two
 (`compare_capsules`): what changed, section by section, and one merged capsule, with
-decisions that differ set apart for you to settle.
+decisions that differ set apart for you to settle. Anything the newer version removed
+stays out of the merge until you say it should come back.
 
 ## Safe by design
 
@@ -320,6 +321,7 @@ Details: [mcp/README.md](mcp/README.md) and [SPEC.md](SPEC.md).
 - **Claude didn't offer to install the extension.** Install it by hand: Settings → Extensions → Advanced settings →
   Install Extension…, then pick `context-capsule.mcpb` (the app shows you where it is).
 - **"Claude Code isn't signed in."** Open Claude Code once and sign in.
+- **"Couldn't make the capsules."** Open the AI tool it names once to check it works, then click Try again.
 - **Your AI finds nothing to write up.** Nothing has been recorded that day. Press ⌥C (Alt+C on Windows and Linux) and pick a screen first.
 
 ## Limitations
@@ -343,9 +345,9 @@ mcp/build-binary.sh macos-arm64 # Mac only: the helper behind Settings → Conne
   `capture/build/Context Capsule.app`. The Claude extension and `context-capsule-mcp` (from
   `mcp/dist-bin/`, when built) are bundled inside, so Settings → Connect your AI works.
   `capture/package.sh` makes the disk image and zip.
-- **Windows 10/11:** `capture-rs\windows\build.ps1` (Rust, Visual Studio Build Tools, CMake,
-  LLVM), or from a Mac `capture-rs/windows/cross-build.sh`. Keep `context-capsule.mcpb`
-  next to the `.exe`. See [capture-rs/windows/README.md](capture-rs/windows/README.md).
+- **Windows 10/11:** first `mcp/build-binary.sh windows-x64` (with the extension above: both go
+  inside the `.exe`, and the build stops without them), then `capture-rs\windows\build.ps1` (Rust,
+  Visual Studio Build Tools, CMake, LLVM), or from a Mac `capture-rs/windows/cross-build.sh`. See [capture-rs/windows/README.md](capture-rs/windows/README.md).
 - **Linux:** `capture-rs/linux/build.sh`. See [capture-rs/linux/README.md](capture-rs/linux/README.md).
 - **Claude Code** instead of the Claude app:
   `claude mcp add context-capsule -- node /absolute/path/to/context-capsule/mcp/dist/index.js`

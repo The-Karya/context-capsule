@@ -4,7 +4,9 @@
 // - the Claude extension (mcp/dist-ext/context-capsule.mcpb, built by mcp/extension/build.sh);
 // - the any-AI program (mcp/dist-bin/context-capsule-mcp-windows-x64.exe, built by mcp/build-binary.sh),
 //   zstd-compressed (about 87 MB → 33 MB), with its SHA-256 and size so the app can check the copy it writes.
-// Without a file the exe embeds nothing for it and expects it next to it, as before.
+// A release build for Windows stops with an error when either file is missing or empty: the exe is what people
+// download, and without them Connect your AI and Copy my day can't work. Debug builds and builds on other hosts
+// (tests, clippy) embed nothing; developing, the app finds the repo's mcp/dist-bin and mcp/dist instead.
 // Also the app icon (icon.ico, the Karya panther) and the version info ("Karya Context Capsule"), as a .res the
 // linker takes in (src/res.rs writes it: no resource compiler needed).
 
@@ -44,21 +46,17 @@ fn main() {
         println!("cargo:rustc-link-arg-bins={}", path.display());
     }
 
+    // Both files must be there for a Windows release build.
+    let required = windows_msvc && release;
     let mcpb = manifest.join("../../mcp/dist-ext/context-capsule.mcpb");
     println!("cargo:rerun-if-changed={}", mcpb.display());
-    let data = std::fs::read(&mcpb).unwrap_or_default();
-    if data.is_empty() && windows_msvc && release {
-        println!("cargo:warning=mcp/dist-ext/context-capsule.mcpb is missing: run mcp/extension/build.sh first, or the exe has no Claude extension inside");
-    }
+    let data = read_input(&mcpb, required, "run mcp/extension/build.sh first");
     std::fs::write(out_dir.join("context-capsule.mcpb"), data).expect("write OUT_DIR/context-capsule.mcpb");
 
     // The any-AI program. Only compressed for Windows builds (other hosts run the tests: nothing to embed).
     let program = manifest.join("../../mcp/dist-bin/context-capsule-mcp-windows-x64.exe");
     println!("cargo:rerun-if-changed={}", program.display());
-    let raw = if windows_msvc { std::fs::read(&program).unwrap_or_default() } else { Vec::new() };
-    if raw.is_empty() && windows_msvc && release {
-        println!("cargo:warning=mcp/dist-bin/context-capsule-mcp-windows-x64.exe is missing: run mcp/build-binary.sh windows-x64 first, or Connect your AI and Copy my day won't work");
-    }
+    let raw = if windows_msvc { read_input(&program, required, "run mcp/build-binary.sh windows-x64 first") } else { Vec::new() };
     let (packed, sha) = if raw.is_empty() {
         (Vec::new(), String::new())
     } else {
@@ -70,4 +68,16 @@ fn main() {
     std::fs::write(out_dir.join("context-capsule-mcp.exe.zst"), packed).expect("write OUT_DIR/context-capsule-mcp.exe.zst");
     println!("cargo:rustc-env=CC_MCP_SHA256={sha}");
     println!("cargo:rustc-env=CC_MCP_SIZE={}", raw.len());
+}
+
+/// The file's bytes (empty when it's missing). `required`: a missing or empty file stops the build instead.
+fn read_input(path: &std::path::Path, required: bool, how: &str) -> Vec<u8> {
+    let data = std::fs::read(path).unwrap_or_default();
+    if data.is_empty() && required {
+        panic!(
+            "{} is missing or empty: {how}. A Windows release build carries it inside the exe (Connect your AI, Copy my day).",
+            path.display()
+        );
+    }
+    data
 }

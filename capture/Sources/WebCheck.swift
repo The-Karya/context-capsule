@@ -1,7 +1,8 @@
 // context-capsule — capture: the shared window, checked — `--render-web-page` (the real web window drawn offscreen into a
 // PNG) and `--test-web-window` (drives the page through the real bridge with evaluateJavaScript:
 // every page, search, a recording opened, a read deleted, settings changed, events sent). Both use the data in
-// CONTEXT_CAPSULE_HOME; the test refuses to run on ~/.context-capsule. Nothing is recorded; no app, link or panel opens.
+// CONTEXT_CAPSULE_HOME and the page's clock in CONTEXT_CAPSULE_NOW (the one the data was seeded with); the test refuses
+// to run on ~/.context-capsule. Nothing is recorded; no app, link or panel opens.
 
 import AppKit
 import WebKit
@@ -37,8 +38,15 @@ extension WebWindow {
     /// The pages --render-web-page draws ("timeline-open": a recording opened; "welcome": Settings on first launch).
     static let renderPages = ["home", "timeline", "timeline-open", "capsules", "projects", "settings", "help", "welcome"]
 
-    /// The page's clock in renders and tests, so they match ui/dev/render-all.sh.
-    static let renderNow = "2026-10-23T19:00:00"
+    /// The page's clock in renders and tests: CONTEXT_CAPSULE_NOW (e.g. 2026-10-23T19:00:00, this computer's time), the
+    /// same clock the data was seeded with (capture-rs/ci/windows-smoke-seed.py), so the two agree on any day.
+    /// capture/tests/web-window.sh and render-web.sh set both. nil (and says so) when it isn't set.
+    static func pageClock() -> String? {
+        let v = ProcessInfo.processInfo.environment["CONTEXT_CAPSULE_NOW"] ?? ""
+        if v.range(of: #"^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}$"#, options: .regularExpression) != nil { return v }
+        FileHandle.standardError.write("set CONTEXT_CAPSULE_NOW to the clock the data was seeded with, e.g. 2026-10-23T19:00:00\n".data(using: .utf8)!)
+        return nil
+    }
 
     static func spin(_ seconds: Double) { RunLoop.main.run(until: Date().addingTimeInterval(seconds)) }
 
@@ -107,6 +115,7 @@ extension WebWindow {
     /// Pages: renderPages ("welcome" = first launch, nothing set up; no AI apps installed).
     /// material "glass" puts a desktop picture behind the window.
     static func renderPage(_ page: String, to out: URL, dark: Bool, size: NSSize, material: String) -> Bool {
+        guard let now = pageClock() else { return false }
         let paths = Paths.standard
         let model = AppModel()
         NSApp.appearance = NSAppearance(named: dark ? .darkAqua : .aqua)
@@ -139,18 +148,65 @@ extension WebWindow {
             b.orderFront(nil)
             below = b
         }
-        w.attach(window, query: "now=\(renderNow)" + (page == "timeline-open" ? "&open=first" : ""), page: hash)
+        w.attach(window, query: "now=\(now)" + (page == "timeline-open" ? "&open=first" : ""), page: hash)
         NSApp.activate(ignoringOtherApps: true)
         window.makeKeyAndOrderFront(nil)
-        guard let web = w.web else { return false }
-        let ready = spin(until: { js(web, "return document.documentElement.dataset.ready === '1'") == "1" }, timeout: 15)
-        if !ready { FileHandle.standardError.write("render: the page never said it was ready\n".data(using: .utf8)!) }
+        func fail(_ why: String) -> Bool {
+            FileHandle.standardError.write("render \(page) → \(out.lastPathComponent): \(why)\n".data(using: .utf8)!)
+            window.orderOut(nil)
+            below?.orderOut(nil)
+            return false
+        }
+        guard let web = w.web else { return fail("no web view") }
+        // Ready: the page says so, its page area has content and its fonts are loaded; then a moment to draw.
+        // (Not requestAnimationFrame: it doesn't run for a window off the screen.)
+        let ready = spin(until: {
+            js(web, "return document.documentElement.dataset.ready === '1' && (document.getElementById('page')?.innerText.length ?? 0) > 20") == "1"
+        }, timeout: 15)
+        guard ready else { return fail("the page never said it was ready (or its page area stayed empty)") }
+        _ = js(web, "await document.fonts.ready; return 1", timeout: 5)
         spin(0.6)
-        let shot = below.map { image(of: [$0, window]) } ?? windowImage(window)
+        // The window server sometimes hands back a picture before it has drawn the window (all black): try again a
+        // few times, then fail rather than save a blank picture.
+        var shot: CGImage?
+        for attempt in 1...renderTries {
+            shot = below.map { image(of: [$0, window]) } ?? windowImage(window)
+            if let s = shot, !isBlank(s) { break }
+            FileHandle.standardError.write("render \(page): picture \(attempt) of \(renderTries) is blank, trying again\n".data(using: .utf8)!)
+            shot = nil
+            spin(1.0)
+        }
+        guard let shot else { return fail("the picture was blank (one colour) \(renderTries) times") }
         window.orderOut(nil)
         below?.orderOut(nil)
-        guard let shot, let png = NSBitmapImageRep(cgImage: shot).representation(using: .png, properties: [:]) else { return false }
-        return (try? png.write(to: out)) != nil && ready
+        guard let png = NSBitmapImageRep(cgImage: shot).representation(using: .png, properties: [:]) else { return fail("couldn't make a PNG") }
+        do { try png.write(to: out) } catch { return fail("couldn't write: \(error.localizedDescription)") }
+        return true
+    }
+
+    /// How many pictures a render takes before it gives up on a blank one.
+    static let renderTries = 3
+
+    /// Is the picture blank: every pixel (every 3rd row and column) within a few levels of the first, in each channel?
+    /// A page always has text on it, so one colour all over (all black, or transparent) is a picture the window
+    /// server hadn't drawn yet.
+    static func isBlank(_ image: CGImage, tolerance: Int = 6) -> Bool {
+        let w = image.width, h = image.height
+        guard w > 0, h > 0, let ctx = CGContext(data: nil, width: w, height: h, bitsPerComponent: 8, bytesPerRow: w * 4,
+                                               space: CGColorSpace(name: CGColorSpace.sRGB)!,
+                                               bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue),
+              let data = ctx.data else { return true }
+        ctx.draw(image, in: CGRect(x: 0, y: 0, width: w, height: h))
+        let px = data.bindMemory(to: UInt8.self, capacity: w * h * 4)
+        let first = (Int(px[0]), Int(px[1]), Int(px[2]), Int(px[3]))
+        for y in stride(from: 0, to: h, by: 3) {
+            for x in stride(from: 0, to: w, by: 3) {
+                let i = (y * w + x) * 4
+                if abs(Int(px[i]) - first.0) > tolerance || abs(Int(px[i + 1]) - first.1) > tolerance
+                    || abs(Int(px[i + 2]) - first.2) > tolerance || abs(Int(px[i + 3]) - first.3) > tolerance { return false }
+            }
+        }
+        return true
     }
 }
 
@@ -158,6 +214,7 @@ extension WebWindow {
 /// The recorder, shortcuts and updates are stand-ins that note what was asked; apps, links and panels are never opened.
 enum WebCheck {
     static func run() -> Bool {
+        guard let now = WebWindow.pageClock() else { return false }
         let paths = Paths.standard
         let real = FileManager.default.homeDirectoryForCurrentUser.appendingPathComponent(".context-capsule").standardizedFileURL.path
         guard ProcessInfo.processInfo.environment["CONTEXT_CAPSULE_HOME"] != nil, paths.root.standardizedFileURL.path != real else {
@@ -200,7 +257,7 @@ enum WebCheck {
         let window = w.makeWindow(WebWindow.OffscreenWindow.self)
         window.setContentSize(NSSize(width: 860, height: 620))
         window.setFrameOrigin(NSPoint(x: -30_000, y: -30_000))
-        w.attach(window, query: "now=\(WebWindow.renderNow)", page: "home")
+        w.attach(window, query: "now=\(now)", page: "home")
         window.makeKeyAndOrderFront(nil)
         guard let web = w.web else { return false }
         func js(_ body: String) -> String { WebWindow.js(web, body) }

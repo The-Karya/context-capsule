@@ -1,16 +1,28 @@
-# context-capsule — ci: seeds a realistic data folder for the Windows smoke test (windows-smoke.yml):
-# three recordings today (one with a voice note, a typed note and a gap), one yesterday, projects and capsules.
-# Usage: python windows-smoke-seed.py <data folder>. Prints the day it used (today, or yesterday before 07:00).
+# context-capsule — ci: seeds a realistic data folder for the window checks (windows-smoke.ps1, capture/tests/web-window.sh,
+# capture/tests/render-web.sh, ui/dev/render-all.sh, ui/tests/smoke.test.js): three recordings on the clock's day (one
+# with a voice note, a typed note and a gap), one the day before, projects and capsules.
+# Usage: python windows-smoke-seed.py <data folder> <clock>. The clock is the page's clock in the checks, e.g.
+# 2026-10-23T19:00:00 (this computer's time) or 2026-10-23T19:00:00+05:30, in the afternoon or evening: the recordings
+# end 5 minutes before it and start up to 6 hours earlier. Every time comes from it, never from today's date, so the
+# seed and the window agree on any day.
+# Prints the day (YYYY-MM-DD) and the first recording's id.
 import json
 import sys
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
+if len(sys.argv) != 3:
+    sys.exit("usage: windows-smoke-seed.py <data folder> <clock, e.g. 2026-10-23T19:00:00>")
 root = Path(sys.argv[1])
-now = datetime.now(timezone.utc).replace(microsecond=0)
-day = now if now.hour >= 7 else now - timedelta(days=1)
-end_of_work = min(now - timedelta(minutes=5), day.replace(hour=23, minute=0, second=0))
-z = lambda t: t.strftime("%Y-%m-%dT%H:%M:%SZ")
+clock = datetime.fromisoformat(sys.argv[2])
+# Without a zone, the clock is this computer's time, as the page reads ?now=… (astimezone() takes a naive time as local).
+# With one (2026-10-23T19:00:00+05:30), that zone's: for checks that pin the zone themselves (ui/tests/smoke.test.js).
+now = (clock if clock.tzinfo else clock.astimezone()).replace(microsecond=0)
+day = now
+if (now - timedelta(hours=6, minutes=5)).date() != now.date():
+    sys.exit("the clock is too early in the day: the recordings would start the day before (it must be 06:05 or later)")
+end_of_work = now - timedelta(minutes=5)
+z = lambda t: t.astimezone(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
 
 PROJECTS = [
     {"id": "website", "name": "Website", "match": ["pricing", "figma.com"]},
@@ -56,7 +68,7 @@ SESSIONS = [
 
 
 def write_session(start, stretches, notes=(), gaps=()):
-    sid = start.strftime("%Y%m%d-%H%M%S")
+    sid = start.strftime("%Y%m%d-%H%M%S")  # local time, as the apps name recordings
     folder = root / "sessions" / sid
     folder.mkdir(parents=True, exist_ok=True)
     lines = []
