@@ -3,7 +3,7 @@ import { describe, expect, test } from "bun:test";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
-import { missingSections, saveCapsule, stringifyFrontMatter } from "../src/capsules.ts";
+import { CAPSULE_ID, missingSections, saveCapsule, stringifyFrontMatter } from "../src/capsules.ts";
 import { checkCapsule } from "../src/checks.ts";
 import { capsuleSections, diffSections, hasChanges, itemKey, mergeBodies, newerOf, sameCapsule, similarity } from "../src/compare.ts";
 import { VALID_BODY, serverClient, tempHome } from "./helpers.ts";
@@ -84,9 +84,9 @@ describe("what changed", () => {
 });
 
 describe("merge", () => {
-  test("newer present tense, every decision and step from both, the changed decision flagged", () => {
+  test("the newer text of every section; what it removed stays out and is listed; the changed decision flagged", () => {
     // the older one had a step and a decision the newer one dropped
-    const older = VALID_BODY.replace("1. Ship the page", "1. Ship the page\n2. Ask finance about Starter").replace(
+    const older = VALID_BODY.replace("1. Ship the page", "1. Ship the page\n2. Send cancelled campaign to partner.").replace(
       "## Open questions",
       "- **Logo stays black** — brand guide. *(seen in Figma, 10:05)*\n## Open questions",
     );
@@ -96,9 +96,14 @@ describe("merge", () => {
     expect(m.body).toContain("**Teams at $14/seat**");
     expect(m.body).not.toContain("**Teams at $12/seat**");
     expect(m.body).toContain("- **Drop the Starter tier**");
-    expect(m.body).toContain("- **Logo stays black**");
-    expect(m.body).toContain("1. Ship the page to everyone\n2. Email the beta list\n3. Ask finance about Starter");
-    expect(m.kept).toBe(2);
+    // removed in the newer one: not brought back, reported
+    expect(m.body).not.toContain("Logo stays black");
+    expect(m.body).not.toContain("cancelled campaign");
+    expect(m.body).toContain("1. Ship the page to everyone\n2. Email the beta list\n");
+    expect(m.removed).toEqual([
+      { section: "Decisions", text: "**Logo stays black** — brand guide. *(seen in Figma, 10:05)*" },
+      { section: "Next steps", text: "Send cancelled campaign to partner." },
+    ]);
     expect(m.conflicts).toEqual([
       {
         section: "Decisions",
@@ -117,12 +122,19 @@ describe("merge", () => {
     const m = mergeBodies(older, newer);
     expect(m.done).toEqual(["Ship the page"]);
     expect(m.body).not.toContain("2. Ship the page");
-    expect(m.kept).toBe(0);
+    expect(m.removed).toEqual([]);
   });
 
-  test("a section only the older one had is kept; a paragraph is added as a paragraph", () => {
-    const m = mergeBodies("## In short\nold\n## Risks\n- churn\n## Open questions\nWho signs off?\n", "## In short\nnew\n## Open questions\n- Which date?\n");
-    expect(m.body).toBe("## In short\nnew\n\n## Open questions\n- Which date?\n\nWho signs off?\n\n## Risks\n- churn\n");
+  test("an older-only line or section isn't brought back, it's listed; older present tense is just replaced", () => {
+    const m = mergeBodies(
+      "## In short\nold\n## Risks\n- churn\n## Open questions\nWho signs off?\n",
+      "## In short\nnew\n## Open questions\n- Which date?\n",
+    );
+    expect(m.body).toBe("## In short\nnew\n\n## Open questions\n- Which date?\n");
+    expect(m.removed).toEqual([
+      { section: "Open questions", text: "Who signs off?" },
+      { section: "Risks", text: "churn" },
+    ]);
   });
 });
 
@@ -136,6 +148,28 @@ describe("versions of one capsule", () => {
     expect(sameCapsule({ project: "website", kind: "project" }, { project: "shop", kind: "project" })).toBeNull();
     expect(sameCapsule({ title: "Pricing page" }, { title: "pricing page" })).toBe("the same title");
     expect(sameCapsule({ title: "Pricing page" }, { title: "Pricing page", project: "website" })).toBeNull();
+  });
+
+  test("by id: a renamed capsule with no project is still the same one; two ids are two capsules", () => {
+    expect(sameCapsule({ id: "cap-123456", title: "Pricing page" }, { id: "cap-123456", title: "Pricing page v2" })).toBe("the same capsule id");
+    expect(sameCapsule({ id: "cap-123456", title: "Pricing page" }, { id: "cap-999999", title: "Pricing page" })).toBeNull();
+    // one from before ids: the title decides
+    expect(sameCapsule({ title: "Pricing page" }, { id: "cap-123456", title: "pricing page" })).toBe("the same title");
+    expect(sameCapsule({ title: "Pricing page" }, { id: "cap-123456", title: "Pricing v2" })).toBeNull();
+  });
+
+  test("save_capsule writes an id; a new version passes it on; a project capsule keeps its own", () => {
+    tempHome();
+    const first = saveCapsule({ title: "Pricing page", markdown: VALID_BODY });
+    expect(String(first.front.id)).toMatch(CAPSULE_ID);
+    const again = saveCapsule({ title: "Pricing page, renamed", markdown: VALID_BODY, id: String(first.front.id) });
+    expect(again.front.id).toBe(first.front.id);
+    expect(sameCapsule(first.front, again.front)).toBe("the same capsule id");
+    expect(saveCapsule({ title: "Pricing page", markdown: VALID_BODY }).front.id).not.toBe(first.front.id);
+    expect(() => saveCapsule({ title: "x", markdown: VALID_BODY, id: "bad id!" })).toThrow("is not a capsule id");
+    const p1 = saveCapsule({ title: "Website", markdown: VALID_BODY, project: "website", kind: "project" });
+    const p2 = saveCapsule({ title: "Website", markdown: VALID_BODY, project: "website", kind: "project" });
+    expect(p2.front.id).toBe(p1.front.id);
   });
 
   test("newer by created", () => {
@@ -188,6 +222,37 @@ describe("compare_capsules", () => {
       expect(r.text).toContain("## To check with the other person");
       expect(r.text).toContain('<capsule name="merged">');
       expect(r.text).toContain('save_capsule with title "Website", project "website", kind "project"');
+    } finally {
+      await s.close();
+    }
+  });
+
+  test("renamed, no project: still one capsule by id; a cancelled step and a dropped decision stay out and are listed", async () => {
+    tempHome();
+    const mine = saveCapsule({
+      title: "Pricing page",
+      markdown: VALID_BODY.replace("1. Ship the page", "1. Ship the page\n2. Send cancelled campaign to partner."),
+    });
+    const back = receivedFile(VALID_BODY.replace("- **Keep the yearly discount at 20%** — most trials pick yearly. *(you said, 10:14)*\n", ""), {
+      title: "Pricing page, final",
+      id: String(mine.front.id),
+      created: "2030-01-02T09:00:00Z",
+    });
+    const s = await serverClient();
+    try {
+      const r = await s.call("compare_capsules", { a: mine.slug, b: back });
+      expect(r.isError).toBe(false);
+      expect(r.text).toContain("They are versions of one capsule: the same capsule id.");
+      expect(r.text).toContain("## Removed in the newer version");
+      expect(r.text).toContain("They are NOT in the merge");
+      const removed = r.text.slice(r.text.indexOf('<capsule name="removed">'), r.text.indexOf("## Merged"));
+      expect(removed).toContain("Next steps\n- Send cancelled campaign to partner.");
+      expect(removed).toContain("Decisions\n- **Keep the yearly discount at 20%**");
+      const merged = r.text.slice(r.text.indexOf('<capsule name="merged">'));
+      expect(merged).not.toContain("cancelled campaign");
+      expect(merged).not.toContain("yearly discount at 20%");
+      expect(r.text).toContain(`id "${String(mine.front.id)}"`);
+      expect(r.text).toContain("after the user has settled which removed lines (if any) come back");
     } finally {
       await s.close();
     }

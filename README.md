@@ -281,7 +281,8 @@ No AI at hand? Your Claude can save any capsule as a web page (`export_capsule` 
 `format: "html"`, or `context-capsule-mcp view <file>`) that opens in any browser and prints
 cleanly. Got back a newer version of a capsule you sent? Claude compares the two
 (`compare_capsules`): what changed, section by section, and one merged capsule, with
-decisions that differ set apart for you to settle.
+decisions that differ set apart for you to settle. Anything the newer version removed
+stays out of the merge until you say it should come back.
 
 ## Safe by design
 

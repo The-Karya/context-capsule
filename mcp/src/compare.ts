@@ -1,6 +1,7 @@
 // context-capsule — mcp: two versions of one capsule (the one you sent and the one that came back): what changed,
 // section by section, and one merged capsule from both. Plain rules, no AI: lines are compared as items (a bullet,
-// a numbered step, a paragraph), a decision is known by its bold name.
+// a numbered step, a paragraph), a decision is known by its bold name. What the newer one removed stays out of the
+// merge and is listed, for the person to say what (if anything) comes back.
 import fs from "node:fs";
 import path from "node:path";
 import { localDay } from "./activity.js";
@@ -184,9 +185,13 @@ export const hasChanges = (c: SectionChange) => !!(c.added.length || c.removed.l
 
 const str = (v: unknown) => (typeof v === "string" ? v.trim() : "");
 
-/** Why two capsules are versions of the same one, or null: the same project, kind and (daily) date; or, without a
- * project, the same title. */
+/** Why two capsules are versions of the same one, or null: the same `id` (written when a capsule is first saved,
+ * carried by its later versions); the same project, kind and (daily) date; or, without a project, the same title —
+ * only when one of them has no `id` (capsules from before ids). */
 export function sameCapsule(a: FrontMatter, b: FrontMatter): string | null {
+  const ia = str(a.id);
+  const ib = str(b.id);
+  if (ia && ia === ib) return "the same capsule id";
   const pa = str(a.project);
   const pb = str(b.project);
   if (pa || pb) {
@@ -196,6 +201,7 @@ export function sameCapsule(a: FrontMatter, b: FrontMatter): string | null {
     if (ka === "project") return `the same project (${pa}), whole-project capsule`;
     return str(a.date) === str(b.date) ? `the same project (${pa}) and day (${str(a.date) || "no date"})` : null;
   }
+  if (ia && ib) return null; // two different capsules, whatever their titles
   const ta = str(a.title).toLowerCase();
   return ta && ta === str(b.title).toLowerCase() ? `the same title` : null;
 }
@@ -225,72 +231,51 @@ export interface Conflict {
   newer: string;
 }
 
+export interface Removed {
+  section: string;
+  text: string;
+}
+
 export interface Merge {
   body: string;
   /** The same decision, decided differently in each: the merge keeps the newer one, a person should check. */
   conflicts: Conflict[];
-  /** Lines only the older version had, kept in the merge. */
-  kept: number;
-  /** Next steps the newer version lists as done, so not brought back. */
+  /** Lines only the older version had (a next step, a decision, an open question…): the newer one removed them, maybe
+   * on purpose, so they are left out of the merge and listed for the person to say which, if any, come back. */
+  removed: Removed[];
+  /** Next steps the newer version lists as done: left out, nothing to ask. */
   done: string[];
 }
 
-const isList = (i: Item | undefined) => i?.kind === "ul" || i?.kind === "ol";
-
-/** Older-only items added under a section's own text, continuing its list (and its numbering). */
-function appendItems(raw: string, own: Item[], extra: Item[]): string {
-  let out = raw;
-  let last = own[own.length - 1];
-  let n = own.filter((i) => i.kind === "ol").length;
-  const listKind = [...own].reverse().find(isList)?.kind;
-  for (const item of extra) {
-    let line: string;
-    if (isList(item)) line = (listKind ?? item.kind) === "ol" ? `${++n}. ${item.text}` : `- ${item.text}`;
-    else if (item.kind === "code") line = "```\n" + item.text + "\n```";
-    else if (item.kind === "quote") line = `> ${item.text}`;
-    else if (item.kind === "h") line = `### ${item.text}`;
-    else line = item.text;
-    out = out ? `${out}${isList(item) && isList(last) ? "\n" : "\n\n"}${line}` : line;
-    last = item;
-  }
-  return out;
-}
-
-/** One capsule from two versions: the newer "In short", "For Claude" and "Where things stand"; every other section
- * keeps the newer text plus whatever only the older had (decisions, next steps, open questions, what was done…). */
+/** One capsule from two versions: the newer text of every section. Nothing the newer one removed comes back on its
+ * own — a cancelled next step or a dropped decision would be redone — so the older-only lines (except the present-tense
+ * "In short", "For Claude" and "Where things stand", which the newer simply replaces) are listed in `removed`. */
 export function mergeBodies(olderBody: string, newerBody: string): Merge {
   const older = capsuleSections(olderBody);
   const newer = capsuleSections(newerBody);
   const find = (list: Section[], name: string) => list.find((s) => s.name.toLowerCase() === name.toLowerCase());
   const doneNow = find(newer, "What was done")?.items ?? [];
   const conflicts: Conflict[] = [];
+  const removed: Removed[] = [];
   const done: string[] = [];
-  let kept = 0;
   const parts: string[] = [];
-  for (const n of newer) {
-    const o = find(older, n.name);
-    if (!o || NEWER_WINS.includes(n.name.toLowerCase())) {
-      parts.push(`## ${n.name}\n${n.raw}`);
-      continue;
+  const dropped = (section: string, items: Item[]) => {
+    for (const i of items) {
+      if (section.toLowerCase() === "next steps" && doneNow.some((w) => covers(i.text, w.text) >= 0.75)) done.push(i.text);
+      else removed.push({ section, text: i.text });
     }
+  };
+  for (const n of newer) {
+    parts.push(`## ${n.name}\n${n.raw}`);
+    const o = find(older, n.name);
+    if (!o || NEWER_WINS.includes(n.name.toLowerCase())) continue;
     const d = diffItems(o.items, n.items);
     if (n.name.toLowerCase() === "decisions")
       for (const c of d.changed) conflicts.push({ section: n.name, older: c.from.text, newer: c.to.text });
-    const extra = d.removed.filter((i) => {
-      if (n.name.toLowerCase() !== "next steps") return true;
-      if (!doneNow.some((w) => covers(i.text, w.text) >= 0.75)) return true;
-      done.push(i.text);
-      return false;
-    });
-    kept += extra.length;
-    parts.push(`## ${n.name}\n${appendItems(n.raw, n.items, extra)}`);
+    dropped(n.name, d.removed);
   }
-  for (const o of older)
-    if (!find(newer, o.name)) {
-      kept += o.items.length;
-      parts.push(`## ${o.name}\n${o.raw}`);
-    }
-  return { body: parts.join("\n\n") + "\n", conflicts, kept, done };
+  for (const o of older) if (!find(newer, o.name) && !NEWER_WINS.includes(o.name.toLowerCase())) dropped(o.name, o.items);
+  return { body: parts.join("\n\n") + "\n", conflicts, removed, done };
 }
 
 // ---------- other versions already saved ----------
@@ -411,7 +396,7 @@ export function compareReport(a: Version, b: Version): { text: string; merged?: 
     ...(order === 0 ? ["Their dates don't say which is newer, so the second one is treated as the newer."] : []),
     same
       ? `They are versions of one capsule: ${same}.`
-      : "These don't look like versions of one capsule (a different project, day or title), so there is no merge. " +
+      : "These don't look like versions of one capsule (a different id, project, day or title), so there is no merge. " +
         "The differences are below anyway.",
   ];
   const found = [...scanForInstructions(a.text), ...scanForInstructions(b.text)];
@@ -433,20 +418,42 @@ export function compareReport(a: Version, b: Version): { text: string; merged?: 
       "The same decision, decided differently in each. The merge keeps the newer one; ask the user which is right before relying on it.",
       capsuleTag(merged.conflicts.map((c, i) => `${i + 1}. ${c.section}\n   older: ${one(c.older)}\n   newer: ${one(c.newer)}`).join("\n"), "conflicts"),
     );
+  if (merged.removed.length) {
+    const sections = [...new Set(merged.removed.map((r) => r.section))];
+    parts.push(
+      "## Removed in the newer version",
+      `${merged.removed.length} line(s) the older one had and the newer one doesn't. They are NOT in the merge: the newer ` +
+        "version dropped them, maybe on purpose (cancelled, decided against, no longer true), and bringing one back could " +
+        "mean redoing cancelled work. Show them to the user and ask which, if any, should come back; put back only those, " +
+        "in their section, before saving.",
+      capsuleTag(
+        sections
+          .map((sec) => [sec, ...merged.removed.filter((r) => r.section === sec).map((r) => `- ${one(r.text, 2000)}`)].join("\n"))
+          .join("\n"),
+        "removed",
+      ),
+    );
+  }
   const f = newer.front;
+  const id = str(newer.front.id) || str(older.front.id);
   const save = [
     `title "${String(f.title)}"`,
     ...(typeof f.project === "string" && f.project ? [`project "${f.project}"`, `kind "${typeof f.kind === "string" && f.kind ? f.kind : "daily"}"`] : []),
     ...(typeof f.date === "string" && f.date ? [`date "${f.date}"`] : []),
+    ...(id ? [`id "${id}"`] : []),
   ].join(", ");
+  const settle = [
+    ...(merged.conflicts.length ? ["the conflicts above"] : []),
+    ...(merged.removed.length ? ["which removed lines (if any) come back"] : []),
+  ];
   parts.push(
     "## Merged",
-    `The newer "In short", "For Claude" and "Where things stand"; every decision, next step and open question from both` +
-      ` (${merged.kept ? `${merged.kept} line(s) only the older one had are kept` : "nothing was only in the older one"}` +
+    "The newer version, section by section, with nothing it removed brought back" +
+      ` (${merged.removed.length ? `${merged.removed.length} removed line(s) listed above, for the user to decide` : "it removed nothing"}` +
       `${merged.done.length ? `; ${merged.done.length} next step(s) the newer one lists as done are left out` : ""}).`,
     capsuleTag(merged.body.trim(), "merged"),
     `To keep it, only if the user wants: save_capsule with ${save} and the merged text as markdown` +
-      `${merged.conflicts.length ? ", after the user has settled the conflicts above" : ""}.`,
+      `${settle.length ? `, after the user has settled ${settle.join(" and ")}` : ""}.`,
   );
   return { text: parts.join("\n\n"), merged, older, newer };
 }

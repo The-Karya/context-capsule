@@ -165,14 +165,14 @@ claude mcp add context-capsule -- node /Users/you/context-capsule/mcp/dist/index
 | `get_day_activity` `{date?, project?, max_chars?}` | a whole day split by project, with time per project |
 | `list_sessions` | sessions, newest first: start, end, duration, text source (Accessibility / OCR), notes, top apps |
 | `get_session_activity` `{session_id, max_chars?}` | a short timeline of a session for Claude to read (`"latest"` works) |
-| `save_capsule` `{title, markdown, session_ids?}` | saves `capsules/<slug>.capsule.md` with front matter; never overwrites |
+| `save_capsule` `{title, markdown, session_ids?, id?}` | saves `capsules/<slug>.capsule.md` with front matter (including a stable `id`; pass `id` to save a new version of a capsule you were given); never overwrites |
 | `list_capsules` | title, author, created, path |
 | `get_capsule` `{name}` | the full text (by name, file name or title) |
 | `search_capsules` `{query, limit?=8}` | searches every saved capsule (received ones too) section by section, by the question's words; matches in Decisions, Where things stand and Next steps and newer capsules rank higher. Returns the best sections, each to cite like *(Pricing page, 19 Oct, Decisions)*, or says plainly that nothing matches. Read-only, no network |
 | `import_capsule` `{path}` | copies a received capsule in, after checking it. Any file name works (`.capsule.md`, `.md`…) as long as it is a capsule; otherwise a clear "isn't a Context Capsule" and nothing is imported |
-| `import_capsule` … | also says when the capsule is a newer (or older) version of one you have — the same project, kind and day, or the same title — and how to compare them |
+| `import_capsule` … | also says when the capsule is a newer (or older) version of one you have — the same capsule id, the same project, kind and day, or (for older capsules without an id) the same title — and how to compare them |
 | `export_capsule` `{name, to_path?, format?}` | copies a capsule to the Desktop (or a path) to send. `format: "html"` (or a path ending in `.html`): a web page of it instead, for someone without an AI — one file, no scripts, nothing loaded from the internet, light and dark, prints well |
-| `compare_capsules` `{a, b}` | two versions of one capsule (saved names or files, e.g. the one you sent and the one that came back): which is newer, what changed in each section, decisions that differ (to check with the other person), and one merged capsule — the newer In short, For Claude and Where things stand, every decision, next step and open question from both. Saves nothing; `save_capsule` keeps the merge |
+| `compare_capsules` `{a, b}` | two versions of one capsule (saved names or files, e.g. the one you sent and the one that came back): which is newer, what changed in each section, decisions that differ (to check with the other person), lines the newer one removed (left out of the merge and listed, so the AI asks before putting any back), and one merged capsule — the newer text of every section. Saves nothing; `save_capsule` keeps the merge |
 
 Also:
 
