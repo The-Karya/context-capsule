@@ -14,6 +14,8 @@ const read = (p: string) => fs.readFileSync(p, "utf8");
 
 beforeEach(() => {
   home = fs.mkdtempSync(path.join(os.tmpdir(), "cc-clients-"));
+  process.env.CONTEXT_CAPSULE_HOME = path.join(home, "data"); // app.log goes here, never the real one
+  fs.mkdirSync(path.join(home, "data"));
   ctx = { os: "mac", home, env: {}, appDirs: [path.join(home, "Applications")] };
   bin = path.join(home, "bin", "context-capsule-mcp");
   fs.mkdirSync(path.dirname(bin), { recursive: true });
@@ -320,6 +322,91 @@ url = "https://example.com/mcp"
     expect(connect("codex", { ctx, self: self() }).ok).toBe(true);
     expect(read(file).startsWith(crlf)).toBe(true);
     expect(read(file).replace(/\r\n/g, "")).not.toContain("\n");
+  });
+});
+
+// Every app with a settings file goes through the same writing code: try each one.
+describe("read-only settings and backups", () => {
+  const configApps = CLIENTS.filter((d) => d.how === "config").map((d) => d.id);
+  const asRoot = process.platform !== "win32" && process.getuid?.() === 0; // root can write read-only files
+  const mode = (p: string) => fs.statSync(p).mode & 0o777;
+  const install = (id: string) => {
+    fs.mkdirSync(path.dirname(fileOf(id)), { recursive: true });
+    if (id === "chatgpt") fs.mkdirSync(path.join(home, "Applications", "ChatGPT.app"), { recursive: true });
+  };
+  const someSettings = (id: string) => (fileOf(id).endsWith(".toml") ? 'model = "o3"\n' : '{\n  "other": 1\n}\n');
+
+  for (const id of configApps) {
+    test.skipIf(asRoot)(`${id}: a read-only settings file is left alone by Connect and Disconnect alike`, () => {
+      install(id);
+      const file = fileOf(id);
+      fs.writeFileSync(file, someSettings(id));
+      fs.chmodSync(file, 0o444);
+      const on = connect(id, { ctx, self: self() });
+      expect(on.ok).toBe(false);
+      expect(on.message).toContain("read-only");
+      expect(on.message).toContain("nothing was changed");
+      expect(on.message).toContain("To connect");
+      expect(on.message).not.toMatch(/EACCES|EPERM/);
+      expect(read(file)).toBe(someSettings(id));
+      expect(mode(file)).toBe(0o444);
+      expect(fs.existsSync(`${file}.bak`)).toBe(false);
+
+      // connected while it could be changed, then set to read-only: Disconnect refuses the same way
+      fs.chmodSync(file, 0o644);
+      expect(connect(id, { ctx, self: self() }).ok).toBe(true);
+      fs.chmodSync(file, 0o444);
+      const connected = read(file);
+      const off = disconnect(id, { ctx });
+      expect(off.ok).toBe(false);
+      expect(off.message).toContain("To disconnect");
+      expect(read(file)).toBe(connected);
+      expect(clientOf(id).connected).toBe(true);
+    });
+
+    test(`${id}: a read-only .bak left from before is replaced, not written into (the audit's case)`, () => {
+      install(id);
+      const file = fileOf(id);
+      fs.writeFileSync(file, someSettings(id));
+      fs.writeFileSync(`${file}.bak`, "old backup\n");
+      fs.chmodSync(`${file}.bak`, 0o444);
+      expect(connect(id, { ctx, self: self() }).ok).toBe(true);
+      expect(read(`${file}.bak`)).toBe(someSettings(id));
+      const connected = read(file);
+      const off = disconnect(id, { ctx });
+      expect(off).toMatchObject({ ok: true });
+      expect(read(`${file}.bak`)).toBe(connected);
+      expect(read(file)).not.toContain("context-capsule");
+      expect(read(file)).toContain(id === "chatgpt" || id === "codex" ? 'model = "o3"' : '"other": 1');
+      expect(clientOf(id).connected).toBe(false);
+      expect(fs.readdirSync(path.dirname(file)).filter((f) => f.endsWith(".tmp"))).toEqual([]);
+    });
+  }
+
+  test.skipIf(process.platform === "win32")("a private settings file stays private, and so does its .bak", () => {
+    install("cursor");
+    const file = fileOf("cursor");
+    fs.writeFileSync(file, someSettings("cursor"), { mode: 0o600 });
+    fs.chmodSync(file, 0o600);
+    expect(connect("cursor", { ctx, self: self() }).ok).toBe(true);
+    expect(mode(file)).toBe(0o600);
+    expect(mode(`${file}.bak`)).toBe(0o600);
+  });
+
+  test.skipIf(asRoot || process.platform === "win32")("any other failure: plain words, no error codes, nothing changed", () => {
+    install("codex");
+    const file = fileOf("codex");
+    fs.writeFileSync(file, someSettings("codex"));
+    fs.chmodSync(path.dirname(file), 0o555); // the file can be changed, its folder can't
+    try {
+      const r = connect("codex", { ctx, self: self() });
+      expect(r).toEqual({ ok: false, message: "Context Capsule couldn't change Codex's settings, so nothing was changed. Quit Codex, then try again." });
+      expect(read(file)).toBe(someSettings("codex"));
+      // the log gets the error's code only
+      expect(read(path.join(home, "data", "app.log"))).toMatch(/mcp: connect codex: couldn't change its settings \(EACCES\)\n$/);
+    } finally {
+      fs.chmodSync(path.dirname(file), 0o755);
+    }
   });
 });
 
