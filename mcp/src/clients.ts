@@ -1,12 +1,12 @@
 // context-capsule — mcp: the AI apps on this computer and their MCP settings files: which are installed, which
 // already have Context Capsule, and connecting / disconnecting it. Edits merge into the app's own file (JSON with
-// comments, or TOML), keep every other entry, keep a .bak, and never touch a file that can't be read.
+// comments, or TOML), keep every other entry, keep a .bak, and never touch a file that can't be read or is read-only.
 import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import * as jsoncNs from "jsonc-parser";
 import { parse as parseToml } from "smol-toml";
-import { writeFileAtomic } from "./fsutil.js";
+import { logLine } from "./capsules.js";
 import { homeDir } from "./paths.js";
 import { currentOS, type OS } from "./platform.js";
 
@@ -326,9 +326,67 @@ function sortKeys(v: unknown): unknown {
 const cantRead = (file: string) =>
   `Couldn't read ${file}, so nothing was changed. Fix or remove that file in the app's own settings, then try again.`;
 
+/** Put `tmp` in place of `dest`. On Windows a read-only `dest` can't be replaced until it is made writable. */
+function replaceWith(tmp: string, dest: string): void {
+  try {
+    fs.renameSync(tmp, dest);
+  } catch (e) {
+    const code = (e as NodeJS.ErrnoException).code;
+    if ((code !== "EPERM" && code !== "EACCES") || !exists(dest)) throw e;
+    fs.chmodSync(dest, 0o666);
+    fs.renameSync(tmp, dest);
+  }
+}
+
+/** A settings file someone set to read-only: it is left alone, for connecting and disconnecting alike. */
+function readOnly(file: string): boolean {
+  if (!exists(file)) return false;
+  try {
+    fs.accessSync(file, fs.constants.W_OK);
+    return false;
+  } catch {
+    return true;
+  }
+}
+
+const isReadOnly = (file: string, appName: string, on: boolean) =>
+  `${appName}'s settings file is set to read-only, so Context Capsule left it alone and nothing was changed. To ${on ? "connect" : "disconnect"}, allow changes to this file, then try again: ${file}`;
+
+/** Keep the old file as .bak, then write the new one. Both go through a temp file and a rename, so an old .bak
+ *  (even a read-only one) is replaced, never written into, and the settings file is never half-written. The
+ *  settings file keeps its permissions (a private file stays private). */
 function writeWithBackup(file: string, before: string | null, after: string): void {
-  if (before !== null) fs.copyFileSync(file, `${file}.bak`);
-  writeFileAtomic(file, after);
+  const tmp = (f: string) => `${f}.${process.pid}.${Date.now()}.tmp`;
+  let mode: number | undefined;
+  if (before !== null) {
+    mode = fs.statSync(file).mode & 0o777;
+    const bak = `${file}.bak`;
+    const t = tmp(bak);
+    try {
+      fs.copyFileSync(file, t);
+      replaceWith(t, bak);
+    } finally {
+      fs.rmSync(t, { force: true });
+    }
+  }
+  fs.mkdirSync(path.dirname(file), { recursive: true });
+  const t = tmp(file);
+  try {
+    fs.writeFileSync(t, after, mode === undefined ? undefined : { mode });
+    if (mode !== undefined) fs.chmodSync(t, mode); // the umask can take bits away from writeFileSync's mode
+    replaceWith(t, file);
+  } finally {
+    fs.rmSync(t, { force: true });
+  }
+}
+
+/** Write the changed settings (unless the file is read-only) and say what happened. */
+function save(file: string, before: string | null, after: string, appName: string, on: boolean): ConnectResult {
+  if (readOnly(file)) return { ok: false, message: isReadOnly(file, appName, on) };
+  writeWithBackup(file, before, after);
+  return on
+    ? { ok: true, message: `Connected to ${appName}. Restart ${appName} to use Context Capsule.` }
+    : { ok: true, message: `Disconnected from ${appName}.` };
 }
 
 /** The indent a JSON file already uses (2 spaces when unknown). */
@@ -362,10 +420,7 @@ export function editJson(file: string, key: string, entry: object | undefined, a
   const check: jsoncNs.ParseError[] = [];
   const parsed = jsonc.parse(after, check, { allowTrailingComma: true }) as Record<string, Record<string, unknown>>;
   if (check.length || !same(parsed?.[key]?.[ENTRY], entry)) return { ok: false, message: cantRead(file) };
-  writeWithBackup(file, before, after);
-  return entry
-    ? { ok: true, message: `Connected to ${appName}. Restart ${appName} to use Context Capsule.` }
-    : { ok: true, message: `Disconnected from ${appName}.` };
+  return save(file, before, after, appName, !!entry);
 }
 
 const TOML_HEADER = /^\s*\[\[?\s*([^\]]*?)\s*\]\]?\s*(#.*)?$/;
@@ -444,10 +499,7 @@ export function editToml(file: string, entry: SelfCommand | undefined, appName: 
   }
   const ours = (back.mcp_servers as Record<string, unknown> | undefined)?.[ENTRY];
   if (!same(withoutOurs(back), withoutOurs(data)) || !same(ours, entry)) return { ok: false, message: cantRead(file) };
-  writeWithBackup(file, before, after);
-  return entry
-    ? { ok: true, message: `Connected to ${appName}. Restart ${appName} to use Context Capsule.` }
-    : { ok: true, message: `Disconnected from ${appName}.` };
+  return save(file, before, after, appName, !!entry);
 }
 
 function jsonEntry(def: ClientDef, self: SelfCommand): object {
@@ -481,9 +533,21 @@ function change(id: string, on: boolean, opts: { ctx?: Ctx; self?: SelfCommand }
   // Never write (and call "connected") an entry that can't start: listClients would say not connected, rightly.
   if (on && !opts.self && !pointsAtExisting(self)) return { ok: false, message: `Context Capsule couldn't find its own program, so it can't connect ${def.name}. Please reinstall Context Capsule.` };
   try {
-    if (def.format!.kind === "toml") return editToml(file, on ? self : undefined, def.name);
-    return editJson(file, def.format!.key, on ? jsonEntry(def, self) : undefined, def.name);
+    const r =
+      def.format!.kind === "toml"
+        ? editToml(file, on ? self : undefined, def.name)
+        : editJson(file, def.format!.key, on ? jsonEntry(def, self) : undefined, def.name);
+    // Codex and the ChatGPT app read one file: changing it changes both, so say so
+    const sharing = CLIENTS.filter((d) => d !== def && d.file?.(c) === file && d.installed(c)).map((d) => d.name);
+    if (r.ok && sharing.length && /^(Connected to|Disconnected from) /.test(r.message))
+      r.message += ` ${sharing.join(" and ")} shares this connection, so it's ${on ? "connected" : "disconnected"} too.`;
+    return r;
   } catch (e) {
-    return { ok: false, message: `Couldn't change ${file}: ${(e as Error).message}` };
+    // the error's code for the log (never its text: it holds paths); plain words for the person
+    logLine(`${on ? "connect" : "disconnect"} ${def.id}: couldn't change its settings (${(e as NodeJS.ErrnoException).code ?? "error"})`);
+    return {
+      ok: false,
+      message: `Context Capsule couldn't change ${def.name}'s settings, so nothing was changed. Quit ${def.name}, then try again.`,
+    };
   }
 }

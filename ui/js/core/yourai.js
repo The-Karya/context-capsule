@@ -132,6 +132,29 @@ export function disconnectedNote(name) { return `Disconnected from ${name}.`; }
 export function connectFailed(name) { return `Couldn't connect ${name}`; }
 export function disconnectFailed(name) { return `Couldn't disconnect ${name}`; }
 
+// Codex and the ChatGPT app read one settings file: connecting or disconnecting one does the same to the other
+// (mcp/src/clients.ts, codexHome).
+export const sharedConnections = [["codex", "chatgpt"]];
+
+// The other installed apps that share c's connection.
+export function sharesWith(c, clients = []) {
+  const group = sharedConnections.find((g) => g.includes(c.id)) ?? [];
+  return clients.filter((x) => x.id !== c.id && x.installed && group.includes(x.id));
+}
+
+const andList = (names) => (names.length < 2 ? names.join("") : `${names.slice(0, -1).join(", ")} and ${names[names.length - 1]}`);
+
+// Under the app's name in Settings → Connect your AI.
+export function sharesNote(others) { return `Shares its connection with ${andList(others.map((o) => o.name))}`; }
+// Its ⋯ menu, and the question before disconnecting.
+export function disconnectBoth(c, others) { return `Disconnect ${andList([c.name, ...others.map((o) => o.name)])}…`; }
+export function disconnectBothTitle(c, others) { return `Disconnect ${andList([c.name, ...others.map((o) => o.name)])}?`; }
+export function disconnectBothBody(c, others) {
+  const all = andList([c.name, ...others.map((o) => o.name)]);
+  return `${all} share one connection, so ${others.length > 1 ? "all of them" : "both"} will be disconnected. You can connect them again here anytime.`;
+}
+export function disconnectBothButton(others) { return others.length > 1 ? "Disconnect All" : "Disconnect Both"; }
+
 // A request for an app that isn't connected yet. `why`: "to read your day"; `again`: "click Make today's capsules again".
 export function connectFirst(name, why, again) {
   return { title: `Connect ${name} first`, message: `${name} needs Context Capsule ${why}. Click Connect. After that, ${again}.` };

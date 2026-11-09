@@ -321,6 +321,7 @@ Details: [mcp/README.md](mcp/README.md) and [SPEC.md](SPEC.md).
 - **Claude didn't offer to install the extension.** Install it by hand: Settings → Extensions → Advanced settings →
   Install Extension…, then pick `context-capsule.mcpb` (the app shows you where it is).
 - **"Claude Code isn't signed in."** Open Claude Code once and sign in.
+- **"Couldn't make the capsules."** Open the AI tool it names once to check it works, then click Try again.
 - **Your AI finds nothing to write up.** Nothing has been recorded that day. Press ⌥C (Alt+C on Windows and Linux) and pick a screen first.
 
 ## Limitations

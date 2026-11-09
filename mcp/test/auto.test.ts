@@ -14,6 +14,7 @@ import {
   agentCommand,
   autoFile,
   changedCount,
+  failureKind,
   failureReason,
   findAgents,
   isRunning,
@@ -131,11 +132,61 @@ describe("finding the tools", () => {
 
 describe("outcome words", () => {
   test("plain reasons, never the tool's output", () => {
-    expect(failureReason("Claude Code", 1, "Invalid API key · Please run /login", false)).toBe("Claude Code isn't signed in. Open it once and sign in.");
-    expect(failureReason("Codex", 1, "You've hit your usage limit", false)).toBe("Codex has reached its usage limit. Try again later.");
-    expect(failureReason("Codex", null, "", true)).toBe("Codex took longer than 10 minutes, so it was stopped.");
-    expect(failureReason("Codex", 0, "all good", false)).toBe("Codex didn't save any capsules.");
-    expect(failureReason("Gemini CLI", 3, "some secret screen text", false)).toBe("Gemini CLI stopped with an error (code 3).");
+    expect(failureReason("signed-out", "Claude Code")).toBe("Claude Code isn't signed in. Open it once and sign in.");
+    expect(failureReason("limit", "Codex")).toBe("Codex has reached its usage limit. Try again later.");
+    expect(failureReason("timeout", "Codex")).toBe("Codex took longer than 10 minutes, so it was stopped.");
+    expect(failureReason("no-capsules", "Codex")).toBe("Codex didn't save any capsules.");
+    expect(failureReason("error", "Gemini CLI")).toBe("Couldn't make the capsules. Try again, or open Gemini CLI to check it's working.");
+  });
+
+  test("signed out only on each tool's own words", () => {
+    // what each tool prints when it isn't signed in
+    const claudeJson = JSON.stringify({ type: "result", subtype: "success", is_error: true, result: "Invalid API key · Please run /login" });
+    expect(failureKind("claude-code", 1, claudeJson, false)).toBe("signed-out");
+    expect(failureKind("claude-code", 1, "Not logged in · Please run /login", false)).toBe("signed-out");
+    expect(
+      failureKind("claude-code", 1, 'API Error: 401 {"type":"error","error":{"type":"authentication_error","message":"OAuth token has expired."}}', false),
+    ).toBe("signed-out");
+    expect(
+      failureKind("codex", 1, "ERROR: Your access token could not be refreshed because your refresh token has expired. Please log out and sign in again.", false),
+    ).toBe("signed-out");
+    expect(failureKind("codex", 1, 'ERROR: unexpected status 401 Unauthorized: {"error":{"message":"Missing bearer authentication in header"}}', false)).toBe(
+      "signed-out",
+    );
+    expect(
+      failureKind(
+        "gemini",
+        41,
+        "Please set an Auth method in your /home/a/.gemini/settings.json or specify one of the following environment variables before running: GEMINI_API_KEY, GOOGLE_GENAI_USE_VERTEXAI, GOOGLE_GENAI_USE_GCA",
+        false,
+      ),
+    ).toBe("signed-out");
+    expect(failureKind("gemini", 41, '{"error":{"type":"FatalAuthenticationError","message":"","code":41}}', false)).toBe("signed-out");
+  });
+
+  test("anything else is a plain failure, not signed out", () => {
+    // the audit's case: a server that couldn't start, mentioning credentials and "signed in"
+    expect(failureKind("claude-code", 17, "MCP server cannot start: missing credentials.json fixture file; already signed in", false)).toBe("error");
+    // auth-ish words that aren't the tool's own sign-in message
+    expect(failureKind("claude-code", 1, "Error: could not read api key from keychain helper (401 lines skipped)", false)).toBe("error");
+    expect(failureKind("codex", 1, "thread 'main' panicked: authentication module failed to load", false)).toBe("error");
+    expect(failureKind("gemini", 1, "Unauthorized tool call refused by policy", false)).toBe("error");
+    // one tool's message from another tool doesn't count
+    expect(failureKind("gemini", 1, "Please run /login", false)).toBe("error");
+    // "network" or "quota" somewhere isn't enough
+    expect(failureKind("codex", 1, "network sandbox: read-only; quota of 3 tool calls", false)).toBe("error");
+    expect(failureKind("codex", 0, "done", false)).toBe("no-capsules");
+  });
+
+  test("usage limits and no internet on the tool's or system's own words", () => {
+    expect(failureKind("claude-code", 1, "Claude AI usage limit reached|1761300000", false)).toBe("limit");
+    expect(failureKind("claude-code", 1, "Credit balance is too low", false)).toBe("limit");
+    expect(failureKind("codex", 1, "ERROR: You've hit your usage limit. Upgrade to Pro or try again in 2 hours.", false)).toBe("limit");
+    expect(failureKind("gemini", 1, '{"error":{"code":429,"status":"RESOURCE_EXHAUSTED"}}', false)).toBe("limit");
+    expect(failureKind("codex", 1, "stream error: error sending request: dns error: failed to lookup address (getaddrinfo ENOTFOUND api.openai.com)", false)).toBe(
+      "offline",
+    );
+    expect(failureKind("codex", null, "", true)).toBe("timeout");
   });
 
   test("capsules saved = new or changed files", () => {
@@ -200,6 +251,20 @@ describe.if(unix)("a whole run with a stand-in tool", () => {
     const r = await make({ day, by: "click", agent: tool('echo "Please run /login" >&2; exit 1') });
     expect(r).toMatchObject({ ok: false, status: "failed", reason: "Claude Code isn't signed in. Open it once and sign in." });
     expect(readAuto()).toMatchObject({ auto_day: day, last: { by: "click", status: "failed", capsules: 0 } });
+  });
+
+  test("a failure for another reason isn't called signed out; the log says what kind, never the output", async () => {
+    const r = await make({
+      day,
+      by: "click",
+      agent: tool('echo "MCP server cannot start: missing credentials.json fixture file; already signed in" >&2; exit 17'),
+    });
+    const generic = "Couldn't make the capsules. Try again, or open Claude Code to check it's working.";
+    expect(r).toMatchObject({ ok: false, status: "failed", reason: generic });
+    expect(readAuto().last).toMatchObject({ status: "failed", reason: generic });
+    const log = fs.readFileSync(path.join(home, "app.log"), "utf8");
+    expect(log).toMatch(/failed: 0 capsule\(s\) saved, \d+ min, exit 17, error/);
+    expect(log).not.toContain("credentials.json");
   });
 
   test("a tool that hangs is stopped at the time limit", async () => {

@@ -374,17 +374,62 @@ export function recordedOn(day: string): boolean {
   }
 }
 
-/** Plain words for a failed run, from its exit code and what it printed (only matched, never kept). */
-export function failureReason(name: string, code: number | null, output: string, timedOut: boolean): string {
-  if (timedOut) return `${name} took longer than 10 minutes, so it was stopped.`;
-  const o = output.toLowerCase();
-  if (/not (logged|signed) in|please (log|sign) ?in|\/login|run `?\w* login|authenticat|invalid api key|api key|unauthori[sz]ed|401|credentials/.test(o)) {
-    return `${name} isn't signed in. Open it once and sign in.`;
+/** Why a run failed, as far as can be told for sure. Only exact messages each tool is known to print count;
+ * anything else is "error", so a run that failed for another reason is never blamed on the sign-in. */
+export type FailureKind = "timeout" | "signed-out" | "limit" | "offline" | "no-capsules" | "error";
+
+/** Each tool's own words (or exit code) for "not signed in" and "out of usage", and nothing broader. */
+const SIGNALS: Record<AgentID, { signedOut: RegExp[]; limit: RegExp[]; signedOutCode?: number }> = {
+  // Claude Code: "Invalid API key · Please run /login", "Not logged in · Please run /login", "OAuth token has
+  // expired", or the API's own {"type":"authentication_error"}.
+  "claude-code": {
+    signedOut: [/please run \/login/i, /"type"\s*:\s*"authentication_error"/, /oauth token (has expired|revoked)/i, /invalid api key ·/i],
+    limit: [/claude ai usage limit reached/i, /credit balance is too low/i, /you've hit your limit/i, /\b\d+-hour limit reached/i, /"type"\s*:\s*"rate_limit_error"/],
+  },
+  // Codex: "Please log out and sign in again" (its sign-in can't be renewed), "unexpected status 401
+  // Unauthorized", or telling you to run `codex login`.
+  codex: {
+    signedOut: [/please log out and sign in again/i, /unexpected status 401\b/i, /\bcodex login\b/i],
+    limit: [/you've hit your usage limit/i, /quota exceeded\. check your plan/i, /unexpected status 429\b/i],
+  },
+  // Gemini CLI: exits with 41 (its sign-in error) or asks for an auth method before it starts.
+  gemini: {
+    signedOut: [/please set an auth method/i, /"type"\s*:\s*"FatalAuthenticationError"/],
+    signedOutCode: 41,
+    limit: [/resource_exhausted/i, /quota exceeded for quota metric/i],
+  },
+};
+
+/** No internet: the system's own error codes, not just the word "network" somewhere in the output. */
+const OFFLINE = [/\bENOTFOUND\b/, /\bEAI_AGAIN\b/, /\bECONNREFUSED\b/, /\bENETUNREACH\b/, /getaddrinfo/];
+
+/** Sort a failed run by its exit code and what it printed (only matched, never kept). */
+export function failureKind(agent: AgentID, code: number | null, output: string, timedOut: boolean): FailureKind {
+  if (timedOut) return "timeout";
+  const s = SIGNALS[agent];
+  if ((s.signedOutCode !== undefined && code === s.signedOutCode) || s.signedOut.some((r) => r.test(output))) return "signed-out";
+  if (s.limit.some((r) => r.test(output))) return "limit";
+  if (OFFLINE.some((r) => r.test(output))) return "offline";
+  if (code === 0) return "no-capsules";
+  return "error";
+}
+
+/** Plain words for a failed run. */
+export function failureReason(kind: FailureKind, name: string): string {
+  switch (kind) {
+    case "timeout":
+      return `${name} took longer than 10 minutes, so it was stopped.`;
+    case "signed-out":
+      return `${name} isn't signed in. Open it once and sign in.`;
+    case "limit":
+      return `${name} has reached its usage limit. Try again later.`;
+    case "offline":
+      return `${name} couldn't reach the internet.`;
+    case "no-capsules":
+      return `${name} didn't save any capsules.`;
+    case "error":
+      return `Couldn't make the capsules. Try again, or open ${name} to check it's working.`;
   }
-  if (/usage limit|rate limit|quota|429|credit balance|out of credits/.test(o)) return `${name} has reached its usage limit. Try again later.`;
-  if (/enotfound|network|offline|econnrefused|could not connect|connection error/.test(o)) return `${name} couldn't reach the internet.`;
-  if (code === 0) return `${name} didn't save any capsules.`;
-  return `${name} stopped with an error (code ${code ?? "?"}).`;
 }
 
 export interface MakeResult {
@@ -509,17 +554,14 @@ export async function make(o: MakeOpts): Promise<MakeResult> {
 
   const n = changedCount(before, snapshot());
   const ok = !outcome.timedOut && !outcome.error && outcome.code === 0 && n > 0;
-  const reason = ok
-    ? undefined
-    : outcome.error
-      ? `Couldn't start ${agent.name}.`
-      : failureReason(agent.name, outcome.code, outcome.output, outcome.timedOut);
+  const kind = ok || outcome.error ? undefined : failureKind(agent.id, outcome.code, outcome.output, outcome.timedOut);
+  const reason = ok ? undefined : kind ? failureReason(kind, agent.name) : `Couldn't start ${agent.name}.`;
   const finished = new Date();
   const done: Run = { ...run, status: ok ? "done" : "failed", finished_at: isoSeconds(finished), capsules: n, ...(reason ? { reason } : {}) };
   delete done.pid;
   writeAuto({ ...readAuto(), last: done });
   const mins = Math.max(1, Math.round((finished.getTime() - started.getTime()) / 60000));
-  logLine(`auto: ${by} run for ${day} with ${agent.name} ${ok ? "done" : "failed"}: ${n} capsule(s) saved, ${mins} min${ok ? "" : `, exit ${outcome.timedOut ? "timeout" : (outcome.code ?? "none")}`}`);
+  logLine(`auto: ${by} run for ${day} with ${agent.name} ${ok ? "done" : "failed"}: ${n} capsule(s) saved, ${mins} min${ok ? "" : `, exit ${outcome.timedOut ? "timeout" : (outcome.code ?? "none")}, ${kind ?? "couldn't start"}`}`);
   return { ok, day, status: ok ? "done" : "failed", ai: agent.id, name: agent.name, capsules: n, ...(reason ? { reason } : {}) };
 }
 
