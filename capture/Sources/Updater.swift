@@ -80,23 +80,18 @@ final class Updater {
         }
         let config = Config.load(from: paths.config)
         guard let urls = Update.feedURLs(base: config.updateFeed) else {
-            return finish("bad update_feed in config.json", "Couldn't check for updates.")
+            return finish("bad update_feed in config.json", Update.checkFailed)
         }
-        fetch(urls.feed) { [weak self] feed, status in
+        // "You're up to date" only after a signed feed was read: a 404, no network or a sign-in page is a failure.
+        fetch(urls.feed) { [weak self] feed, feedStatus in
             guard let self else { return }
-            guard status != 404 else { return finish("no feed (404)", "You're up to date.") }
-            guard let feed, status == 200 else { return finish("feed: \(status.map(String.init) ?? "no network")", Self.offline) }
-            self.fetch(urls.signature) { sig, status in
-                guard let sig, status == 200 else {
-                    return finish("signature: \(status.map(String.init) ?? "no network")", Self.offline)
-                }
+            if let why = Update.fetchProblem("feed", data: feed, status: feedStatus) { return finish(why, Update.checkFailed) }
+            self.fetch(urls.signature) { sig, sigStatus in
                 let bucket = Update.bucket(in: self.paths.config.deletingLastPathComponent())
-                switch Update.decide(feed: feed, signature: sig, current: Self.currentVersion, bucket: bucket, manual: manual) {
-                case .badSignature: finish("the feed's signature is wrong; ignored", "Couldn't check for updates.")
-                case .badFeed: finish("the feed is broken; ignored", "Couldn't check for updates.")
-                case .upToDate: finish("up to date (\(Self.currentVersion))", "You're up to date.")
-                case .noBuildForThisPlatform(let v): finish("\(v) has no Mac build", "You're up to date.")
-                case .notYet(let v): finish("\(v) is rolling out; not here yet (bucket \(bucket))", "You're up to date.")
+                let result = Update.checkResult(feed: feed, feedStatus: feedStatus, signature: sig, signatureStatus: sigStatus,
+                                                current: Self.currentVersion, bucket: bucket, manual: manual)
+                switch result {
+                case .failed(let log), .upToDate(let log): finish(log, result.text ?? Update.checkFailed)
                 case .update(let version, let asset):
                     if manual { DispatchQueue.main.async { self.set("Downloading \(version)…") } }
                     self.download(version: version, asset: asset, finish: finish)
@@ -105,7 +100,6 @@ final class Updater {
         }
     }
 
-    private static let offline = "Couldn't check. Are you online?"
     static func readyLine(_ v: String) -> String { "\(v) is ready. Restart to update." }
 
     private func set(_ text: String) {
@@ -128,7 +122,7 @@ final class Updater {
             let status = (response as? HTTPURLResponse)?.statusCode
             guard let self, let file, status == 200 else {
                 try? FileManager.default.removeItem(at: folder)
-                return finish("download: \(status.map(String.init) ?? "no network")", Self.offline)
+                return finish("download: \(status.map(String.init) ?? "no network")", Update.checkFailed)
             }
             let zip = folder.appendingPathComponent("update.zip")
             do { try FileManager.default.moveItem(at: file, to: zip) } catch {

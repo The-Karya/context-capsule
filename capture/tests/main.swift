@@ -801,6 +801,25 @@ check(Update.decide(feed: stopped, signature: sign(stopped), current: "0.1.0", p
       "rollout 0: stopped for everyone")
 let badRollout = withRollout(150)
 check(Update.decide(feed: badRollout, signature: sign(badRollout), current: "0.1.0", publicKey: testPub) == .badFeed, "rollout over 100: refused")
+
+// What a check says: "up to date" only after a signed feed was read (a 404 was once shown as up to date).
+func checked(feedStatus: Int?, feed: Data? = feedData, sigStatus: Int? = 200, sig: Data? = goodSig, current: String = "0.1.0") -> Update.CheckResult {
+    Update.checkResult(feed: feedStatus == nil ? nil : feed, feedStatus: feedStatus, signature: sig, signatureStatus: sigStatus,
+                       current: current, publicKey: testPub)
+}
+let missing = checked(feedStatus: 404, feed: Data("Not Found".utf8))
+check(missing == .failed(log: "feed: HTTP 404") && missing.text == Update.checkFailed, "feed 404: couldn't check, not up to date", "\(missing)")
+let noNetwork = checked(feedStatus: nil)
+check(noNetwork == .failed(log: "feed: no answer (no network?)") && noNetwork.text == Update.checkFailed, "no network: couldn't check", "\(noNetwork)")
+check(checked(feedStatus: 403, feed: Data("<html>sign in</html>".utf8)).text == Update.checkFailed, "a sign-in page: couldn't check")
+check(checked(feedStatus: 200, feed: Data()).text == Update.checkFailed, "an empty feed: couldn't check")
+check(checked(feedStatus: 200, sigStatus: 404, sig: nil).text == Update.checkFailed, "no signature: couldn't check")
+check(checked(feedStatus: 200, sig: sign(Data("other".utf8))).text == Update.checkFailed, "a wrong signature: couldn't check")
+let same = checked(feedStatus: 200, current: "0.2.0")
+check(same == .upToDate(log: "up to date (0.2.0)") && same.text == "You're up to date.", "a signed feed, same version: up to date", "\(same)")
+let newer = checked(feedStatus: 200, current: "0.1.0")
+check(newer == .update(version: "0.2.0", asset: macAsset) && newer.text == nil, "a signed feed, newer version: update", "\(newer)")
+check(!Update.checkFailed.contains("404") && !Update.checkFailed.lowercased().contains("http"), "no codes in the words people see")
 let bucketDir = tmp.appendingPathComponent("bucket")
 try! FileManager.default.createDirectory(at: bucketDir, withIntermediateDirectories: true)
 let b1 = Update.bucket(in: bucketDir)

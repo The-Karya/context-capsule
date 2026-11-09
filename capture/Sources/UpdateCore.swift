@@ -138,6 +138,55 @@ enum Update {
         return .update(version: parsed.version, asset: asset)
     }
 
+    // MARK: what a check says (the same words on Windows and Linux: capture-rs/core/src/update.rs)
+
+    /// Said only after reading a signed feed that has nothing newer for this computer.
+    static let upToDate = "You're up to date."
+    /// No feed (404), no network, a sign-in page (401/403), a server error, or a feed that doesn't check out.
+    static let checkFailed = "Couldn't check for updates. Check your internet connection and try again later."
+
+    /// What a check found. `.failed` carries the reason for app.log; people only see `checkFailed`.
+    enum CheckResult: Equatable {
+        case failed(log: String)
+        case upToDate(log: String)
+        case update(version: String, asset: UpdateAsset)
+
+        /// The line to show; nil for `.update` (the download says what happens next).
+        var text: String? {
+            switch self {
+            case .failed: return Update.checkFailed
+            case .upToDate: return Update.upToDate
+            case .update: return nil
+            }
+        }
+    }
+
+    /// Why a fetched file can't be used, for app.log; nil when it can. `status` nil = no answer at all.
+    static func fetchProblem(_ what: String, data: Data?, status: Int?) -> String? {
+        guard let status else { return "\(what): no answer (no network?)" }
+        guard status == 200 else { return "\(what): HTTP \(status)" }
+        guard let data, !data.isEmpty else { return "\(what): empty" }
+        return nil
+    }
+
+    /// The whole check from what the two fetches returned. Up to date only when the feed was read, its signature
+    /// checks out, and it has nothing newer here; a missing feed or any other failure is `.failed`.
+    static func checkResult(feed: Data?, feedStatus: Int?, signature: Data?, signatureStatus: Int?, current: String,
+                            platform: String = Update.platform, publicKey: String = Update.publicKey,
+                            bucket: Int = 0, manual: Bool = true) -> CheckResult {
+        if let why = fetchProblem("feed", data: feed, status: feedStatus) { return .failed(log: why) }
+        if let why = fetchProblem("signature", data: signature, status: signatureStatus) { return .failed(log: why) }
+        switch decide(feed: feed!, signature: signature!, current: current, platform: platform, publicKey: publicKey,
+                      bucket: bucket, manual: manual) {
+        case .badSignature: return .failed(log: "the feed's signature is wrong; ignored")
+        case .badFeed: return .failed(log: "the feed is broken; ignored")
+        case .upToDate: return .upToDate(log: "up to date (\(current))")
+        case .noBuildForThisPlatform(let v): return .upToDate(log: "\(v) has no \(platform) build")
+        case .notYet(let v): return .upToDate(log: "\(v) is rolling out; not here yet (bucket \(bucket))")
+        case .update(let v, let asset): return .update(version: v, asset: asset)
+        }
+    }
+
     /// This computer's place in staged rollouts: a number 0–99 picked once and kept in `.update-bucket`
     /// (the same file on every platform). Nothing about the person; it never leaves the computer.
     static func bucket(in dir: URL) -> Int {
