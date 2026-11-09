@@ -257,9 +257,9 @@ The exe carries `mcp/dist-ext/context-capsule.mcpb` inside it (build it first wi
 `mcp/extension/build.sh`; `build.rs` embeds it), and both build scripts also copy it next to the
 exe. It also carries `mcp/dist-bin/context-capsule-mcp-windows-x64.exe` (run
 `mcp/build-binary.sh windows-x64` first): `build.rs` compresses it with zstd (level 19 in release,
-about 30 s, only when it changed) and embeds it with its SHA-256 and size; without it the build
-warns and the exe expects `context-capsule-mcp.exe` next to it. Developing, the app also finds the
-repo's `mcp/dist-bin` binary, or `mcp/dist/index.js` with `node`. On a Mac, `./cross-build.sh` also makes the release file
+about 30 s, only when it changed) and embeds it with its SHA-256 and size. A release build stops with
+an error when either file is missing (the build scripts check first). Debug builds and tests embed
+nothing: developing, the app finds the repo's `mcp/dist-bin` binary, or `mcp/dist/index.js` with `node`. On a Mac, `./cross-build.sh` also makes the release file
 `target-xwin/Context-Capsule-<version>-windows.exe` and prints its size and SHA-256 (for
 `latest.json`). Started from a terminal, it prints its log lines there; the
 same lines go to `app.log` in the data folder (counts, reasons and error codes only, capped at

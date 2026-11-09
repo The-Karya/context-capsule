@@ -5,6 +5,12 @@ param([switch]$NoVoice)
 $ErrorActionPreference = "Stop"
 Set-Location (Join-Path $PSScriptRoot "..") # the capture-rs workspace
 
+# The Claude extension and the any-AI program go inside the exe (build.rs) and next to it: both must be built first.
+$mcpb = Join-Path (Get-Location) "..\mcp\dist-ext\context-capsule.mcpb"
+$mcp = Join-Path (Get-Location) "..\mcp\dist-bin\context-capsule-mcp-windows-x64.exe"
+if (-not (Test-Path $mcpb)) { Write-Error "$mcpb is missing: build it first with mcp/extension/build.sh"; exit 1 }
+if (-not (Test-Path $mcp)) { Write-Error "$mcp is missing: build it first with mcp/build-binary.sh windows-x64"; exit 1 }
+
 $cargoArgs = @("build", "--release", "-p", "context-capsule-windows")
 if ($NoVoice) {
     $cargoArgs += "--no-default-features"
@@ -23,20 +29,8 @@ $cargo.WaitForExit()
 if ($cargo.ExitCode -ne 0) { exit $cargo.ExitCode }
 
 $exe = Join-Path (Get-Location) "target\release\context-capsule.exe"
-# The Claude extension ships next to the exe ("Connect Claude" opens it). Built by mcp/extension/build.sh.
-$mcpb = Join-Path (Get-Location) "..\mcp\dist-ext\context-capsule.mcpb"
-if (Test-Path $mcpb) {
-    Copy-Item $mcpb (Split-Path $exe) -Force
-    Write-Host "Copied context-capsule.mcpb next to the exe"
-} else {
-    Write-Warning "$mcpb is missing: build it with mcp/extension/build.sh, or Connect Claude won't work"
-}
-# The any-AI program is inside the exe too (build.rs); built by mcp/build-binary.sh windows-x64.
-$mcp = Join-Path (Get-Location) "..\mcp\dist-bin\context-capsule-mcp-windows-x64.exe"
-if (Test-Path $mcp) {
-    Copy-Item $mcp (Join-Path (Split-Path $exe) "context-capsule-mcp.exe") -Force
-    Write-Host "Copied context-capsule-mcp.exe next to the exe"
-} else {
-    Write-Warning "$mcp is missing: build it with mcp/build-binary.sh windows-x64, or Connect your AI and Copy my day won't work"
-}
+# Also next to the exe ("Connect Claude" opens the extension there; the exe writes both there itself when missing).
+Copy-Item $mcpb (Split-Path $exe) -Force
+Copy-Item $mcp (Join-Path (Split-Path $exe) "context-capsule-mcp.exe") -Force
+Write-Host "Copied context-capsule.mcpb and context-capsule-mcp.exe next to the exe"
 Write-Host "Built $exe"

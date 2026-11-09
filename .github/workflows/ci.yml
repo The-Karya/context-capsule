@@ -34,38 +34,25 @@ jobs:
       - run: bun run test
       - run: bun run build
 
-  # context-capsule-mcp as one self-contained file per platform (bun build --compile), shipped inside each app.
-  # The Mac one (universal) is built on a Mac: mcp/build-binary.sh.
-  mcp-binary:
+  # The AI parts every app carries, from this commit (ai-parts.yml): context-capsule-mcp for Windows and Linux (one
+  # self-contained file each, bun build --compile) and the Claude extension, as the "ai-parts" artifact. The app jobs
+  # below download it before building; the Mac's (universal) are built on a Mac: mcp/build-binary.sh.
+  ai-parts:
+    uses: ./.github/workflows/ai-parts.yml
+
+  # The Windows helper runs on Windows (the Linux one is run where it's built).
+  mcp-binary-windows:
     if: inputs.only != 'linux-file'
-    runs-on: ${{ matrix.os }}
-    strategy:
-      fail-fast: false
-      matrix:
-        include:
-          - os: windows-latest
-            targets: windows-x64
-          - os: ubuntu-latest
-            targets: linux-x64 linux-arm64
-    defaults:
-      run:
-        working-directory: mcp
-        shell: bash
+    needs: ai-parts
+    runs-on: windows-latest
     steps:
-      - uses: actions/checkout@v4
-      - uses: oven-sh/setup-bun@v2
-      - run: bun install --frozen-lockfile
-      - run: sh build-binary.sh ${{ matrix.targets }}
-      - name: Runs
-        if: runner.os == 'Linux'
-        run: ./dist-bin/context-capsule-mcp-linux-x64 --version && ./dist-bin/context-capsule-mcp-linux-x64 clients
-      - name: Runs
-        if: runner.os == 'Windows'
-        run: ./dist-bin/context-capsule-mcp-windows-x64.exe --version && ./dist-bin/context-capsule-mcp-windows-x64.exe clients
-      - uses: actions/upload-artifact@v4
+      - uses: actions/download-artifact@v4
         with:
-          name: context-capsule-mcp-${{ runner.os }}
-          path: mcp/dist-bin/*
+          name: ai-parts
+          path: mcp
+      - name: Runs
+        shell: bash
+        run: mcp/dist-bin/context-capsule-mcp-windows-x64.exe --version && mcp/dist-bin/context-capsule-mcp-windows-x64.exe clients
 
   core:
     if: inputs.only != 'linux-file'
@@ -88,14 +75,20 @@ jobs:
       - run: cargo test -p context-capsule-core
       - run: cargo clippy -p context-capsule-core --all-targets -- -D warnings
 
+  # The release build carries the helper and the extension inside the exe (build.rs stops without them).
   windows-recorder:
     if: inputs.only != 'linux-file'
+    needs: ai-parts
     runs-on: windows-latest
     defaults:
       run:
         working-directory: capture-rs
     steps:
       - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with:
+          name: ai-parts
+          path: mcp
       - uses: dtolnay/rust-toolchain@stable
         with:
           components: clippy
@@ -142,11 +135,17 @@ jobs:
           cargo clippy -p context-capsule-linux --all-targets -- -D warnings &&
           cargo build --release -p context-capsule-linux"
 
-  # The Linux release file, Context-Capsule-<version>-x86_64.AppImage (built in the same Linux box).
+  # The Linux release file, Context-Capsule-<version>-x86_64.AppImage (built in the same Linux box), with this
+  # commit's helper inside (appimage.sh stops without it).
   appimage:
+    needs: ai-parts
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with:
+          name: ai-parts
+          path: mcp
       - uses: docker/setup-buildx-action@v3
       - name: Build the Linux box (kept between runs)
         uses: docker/build-push-action@v6
@@ -168,6 +167,15 @@ jobs:
             appimage-
       - name: Build the AppImage
         run: docker run --rm -v "$PWD:/work" -v "$PWD/.cargo-docker:/usr/local/cargo/registry" -w /work/capture-rs context-capsule-linux sh linux/appimage.sh
+      # The packaged file holds this commit's helper, and it runs (extracted: no FUSE needed).
+      - name: The AppImage carries the helper
+        run: |
+          image=$(ls "$PWD"/capture-rs/target-appimage/Context-Capsule-*-x86_64.AppImage)
+          check=$(mktemp -d) && cd "$check"
+          cp "$image" app.AppImage && chmod +x app.AppImage # made by root in Docker: a copy of our own
+          ./app.AppImage --appimage-extract usr/bin/context-capsule-mcp >/dev/null
+          cmp squashfs-root/usr/bin/context-capsule-mcp "$GITHUB_WORKSPACE/mcp/dist-bin/context-capsule-mcp-linux-x64"
+          squashfs-root/usr/bin/context-capsule-mcp --version
       - uses: actions/upload-artifact@v4
         with:
           name: context-capsule-linux-appimage

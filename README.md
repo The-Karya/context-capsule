@@ -345,9 +345,9 @@ mcp/build-binary.sh macos-arm64 # Mac only: the helper behind Settings → Conne
   `capture/build/Context Capsule.app`. The Claude extension and `context-capsule-mcp` (from
   `mcp/dist-bin/`, when built) are bundled inside, so Settings → Connect your AI works.
   `capture/package.sh` makes the disk image and zip.
-- **Windows 10/11:** `capture-rs\windows\build.ps1` (Rust, Visual Studio Build Tools, CMake,
-  LLVM), or from a Mac `capture-rs/windows/cross-build.sh`. Keep `context-capsule.mcpb`
-  next to the `.exe`. See [capture-rs/windows/README.md](capture-rs/windows/README.md).
+- **Windows 10/11:** first `mcp/build-binary.sh windows-x64` (with the extension above: both go
+  inside the `.exe`, and the build stops without them), then `capture-rs\windows\build.ps1` (Rust,
+  Visual Studio Build Tools, CMake, LLVM), or from a Mac `capture-rs/windows/cross-build.sh`. See [capture-rs/windows/README.md](capture-rs/windows/README.md).
 - **Linux:** `capture-rs/linux/build.sh`. See [capture-rs/linux/README.md](capture-rs/linux/README.md).
 - **Claude Code** instead of the Claude app:
   `claude mcp add context-capsule -- node /absolute/path/to/context-capsule/mcp/dist/index.js`

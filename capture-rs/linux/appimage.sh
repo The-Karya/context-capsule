@@ -6,7 +6,7 @@
 #                   anywhere else (a Mac): builds in that Docker image, natively (an arm Mac makes aarch64)
 # Output: ../target-appimage/Context-Capsule-<version>-<arch>.AppImage
 # The AppImage holds the program, the any-AI program context-capsule-mcp (from ../../mcp/dist-bin, built by
-# mcp/build-binary.sh linux-x64 / linux-arm64), its .desktop entry and icon. Like the source build it uses the
+# mcp/build-binary.sh linux-x64 / linux-arm64; without it the script stops), its .desktop entry and icon. Like the source build it uses the
 # system's PipeWire, D-Bus, ALSA and Tesseract, and for the window WebKitGTK 6.0 (not bundled: loaded when the
 # window opens; without it the window says which package to install). See README.md, "Install the dependencies".
 set -eu
@@ -25,6 +25,14 @@ if [ "$(uname -s)" != Linux ]; then
 fi
 
 ARCH=$(uname -m)
+# The any-AI program for this arch must be there before anything is built: no AppImage without it.
+case "$ARCH" in
+  x86_64) MCP_ARCH=x64 ;;
+  aarch64 | arm64) MCP_ARCH=arm64 ;;
+  *) MCP_ARCH=$ARCH ;;
+esac
+MCP=$MCP_BIN/context-capsule-mcp-linux-$MCP_ARCH
+[ -s "$MCP" ] || { echo "$MCP is missing: run mcp/build-binary.sh linux-$MCP_ARCH first" >&2; exit 1; }
 cd "$WS"
 OUT=target-appimage
 nice -n 19 cargo build --release -p context-capsule-linux --target-dir "$OUT"
@@ -37,18 +45,8 @@ mkdir -p "$APPDIR/usr/bin" "$APPDIR/usr/share/applications" "$APPDIR/usr/share/i
 cp "$OUT/release/context-capsule" "$APPDIR/usr/bin/"
 strip "$APPDIR/usr/bin/context-capsule"
 # The any-AI program for this arch (not stripped: bun keeps the program inside the binary).
-case "$ARCH" in
-  x86_64) MCP_ARCH=x64 ;;
-  aarch64 | arm64) MCP_ARCH=arm64 ;;
-  *) MCP_ARCH=$ARCH ;;
-esac
-MCP=$MCP_BIN/context-capsule-mcp-linux-$MCP_ARCH
-if [ -f "$MCP" ]; then
-  cp "$MCP" "$APPDIR/usr/bin/context-capsule-mcp"
-  chmod 755 "$APPDIR/usr/bin/context-capsule-mcp"
-else
-  echo "warning: $MCP is missing: run mcp/build-binary.sh linux-$MCP_ARCH first, or Connect your AI and Copy my day won't work" >&2
-fi
+cp "$MCP" "$APPDIR/usr/bin/context-capsule-mcp"
+chmod 755 "$APPDIR/usr/bin/context-capsule-mcp"
 sed "s/^Icon=.*/Icon=$ID/" linux/$ID.desktop > "$APPDIR/$ID.desktop"
 cp "$APPDIR/$ID.desktop" "$APPDIR/usr/share/applications/"
 cp linux/$ID.png "$APPDIR/$ID.png"
